@@ -1,7 +1,0 @@
-## CryptoPanic API News
-
-https://cryptopanic.com/developers/api/
-
-### Filter Options
-
-https://cryptopanic.com/api/developer/v2/posts/?auth_token=dc861fb4aa2833fcbc76e0644aa96005371867ff&currencies=BTC
