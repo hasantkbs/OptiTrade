@@ -1,4 +1,3 @@
-
 import os
 import json
 import argparse
@@ -10,78 +9,113 @@ from typing import Union
 # .env dosyasındaki değişkenleri yükle
 load_dotenv()
 
-# API anahtarını ortam değişkenlerinden al
-API_KEY = os.getenv("CRYPTO_PANIC_API_KEY")
+# API anahtarlarını ortam değişkenlerinden al
+CRYPTO_PANIC_API_KEY = os.getenv("CRYPTO_PANIC_API_KEY")
+NEWS_API_KEY = os.getenv("NEWS_API_KEY") # NewsAPI.org için yeni anahtar
 
-# API'nin desteklediği filtre seçenekleri
-FILTER_OPTIONS = [
+# CryptoPanic API'nin desteklediği filtre seçenekleri
+CRYPTO_PANIC_FILTER_OPTIONS = [
     "rising", "hot", "bullish", "bearish", "important", "saved", "lol"
 ]
 
 class NewsFetcher:
     """
-    CryptoPanic API'sinden haber verilerini çekmek ve yönetmek için bir sınıf.
+    Çeşitli API'lerden haber verilerini çekmek ve yönetmek için bir sınıf.
     """
-    def __init__(self, api_key: str, output_dir: str = "data/raw_news"):
+    def __init__(self, output_dir: str = "data/raw_news"):
         """
         Fetcher'ı başlatır.
 
         Args:
-            api_key (str): CryptoPanic API anahtarı.
             output_dir (str): JSON dosyalarının kaydedileceği dizin.
         """
-        if not api_key:
-            raise ValueError("API anahtarı bulunamadı. Lütfen .env dosyasında CRYPTO_PANIC_API_KEY değişkenini ayarlayın.")
-        self.api_key = api_key
-        self.base_url = "https://cryptopanic.com/api/developer/v2/posts/"
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def fetch_news(self, currencies: str = None, news_filter: str = None) -> 'Union[dict, None]':
+    def fetch_cryptopanic_news(self, api_key: str, currencies: str = None, news_filter: str = None) -> 'Union[dict, None]':
         """
-        Belirtilen para birimleri veya filtreye göre haberleri çeker.
+        CryptoPanic API'sinden belirtilen para birimleri veya filtreye göre haberleri çeker.
 
         Args:
+            api_key (str): CryptoPanic API anahtarı.
             currencies (str, optional): Virgülle ayrılmış para birimi kodları (örn: "BTC,ETH").
             news_filter (str, optional): Uygulanacak filtre (örn: "rising", "bullish").
 
         Returns:
             dict | None: API'den gelen yanıt verisi veya hata durumunda None.
         """
-        params = {"auth_token": self.api_key}
+        if not api_key:
+            print("❌ CryptoPanic API anahtarı bulunamadı.")
+            return None
+
+        base_url = "https://cryptopanic.com/api/developer/v2/posts/"
+        params = {"auth_token": api_key}
         if currencies:
             params["currencies"] = currencies
         if news_filter:
-            if news_filter not in FILTER_OPTIONS:
-                print(f"❌ Geçersiz filtre: {news_filter}. Kullanılabilir seçenekler: {FILTER_OPTIONS}")
+            if news_filter not in CRYPTO_PANIC_FILTER_OPTIONS:
+                print(f"❌ Geçersiz CryptoPanic filtresi: {news_filter}. Kullanılabilir seçenekler: {CRYPTO_PANIC_FILTER_OPTIONS}")
                 return None
             params["filter"] = news_filter
 
         try:
-            response = requests.get(self.base_url, params=params)
+            response = requests.get(base_url, params=params)
             response.raise_for_status()  # HTTP hata kodları için bir istisna fırlatır
             return response.json()
         except requests.exceptions.RequestException as e:
-            print(f"❌ API Hatası: {e}")
+            print(f"❌ CryptoPanic API Hatası: {e}")
             return None
 
-    def save_to_json(self, data: dict, request_type: str) -> 'Union[str, None]':
+    def fetch_news_from_newsapi(self, api_key: str, query: str, language: str = 'en', sort_by: str = 'relevancy') -> 'Union[dict, None]':
+        """
+        NewsAPI.org'dan haberleri çeker.
+
+        Args:
+            api_key (str): NewsAPI.org API anahtarı.
+            query (str): Arama sorgusu (örn: "Bitcoin").
+            language (str, optional): Haber dili (örn: 'en', 'tr'). Varsayılan: 'en'.
+            sort_by (str, optional): Sıralama ölçütü (relevancy, popularity, publishedAt). Varsayılan: 'relevancy'.
+
+        Returns:
+            dict | None: API'den gelen yanıt verisi veya hata durumunda None.
+        """
+        if not api_key:
+            print("❌ NewsAPI.org API anahtarı bulunamadı.")
+            return None
+
+        base_url = "https://newsapi.org/v2/everything"
+        params = {
+            "q": query,
+            "apiKey": api_key,
+            "language": language,
+            "sortBy": sort_by
+        }
+        try:
+            response = requests.get(base_url, params=params)
+            response.raise_for_status() # HTTP hataları için istisna fırlat
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"❌ NewsAPI.org API Hatası: {e}")
+            return None
+
+    def save_to_json(self, data: dict, request_type: str, source: str) -> 'Union[str, None]':
         """
         Gelen veriyi zaman damgalı bir JSON dosyasına kaydeder.
 
         Args:
             data (dict): Kaydedilecek veri.
             request_type (str): Dosya adını belirlemek için kullanılan istek türü (örn: "BTC,ETH" veya "rising").
+            source (str): Veri kaynağı (örn: "cryptopanic", "newsapi").
 
         Returns:
             str | None: Kaydedilen dosyanın tam yolu veya hata durumunda None.
         """
-        if not data or "results" not in data:
+        if not data or ("posts" not in data and "articles" not in data):
             print("❌ Kaydedilecek haber bulunamadı.")
             return None
 
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"news_{request_type.replace(',', '_')}_{timestamp}.json"
+        filename = f"news_{source}_{request_type.replace(',', '_')}_{timestamp}.json"
         filepath = os.path.join(self.output_dir, filename)
 
         try:
@@ -97,38 +131,63 @@ def main():
     """
     Komut satırından haber verilerini çekmek için ana fonksiyon.
     """
-    parser = argparse.ArgumentParser(description="CryptoPanic API'sinden haber verilerini çeker.")
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('--currencies', '-c', type=str, help='Virgülle ayrılmış para birimi kodları (örn: "BTC,ETH").')
-    group.add_argument('--filter', '-f', type=str, choices=FILTER_OPTIONS, help='Uygulanacak haber filtresi.')
+    parser = argparse.ArgumentParser(description="Çeşitli API'lerden haber verilerini çeker.")
+    parser.add_argument('--source', type=str, choices=['cryptopanic', 'newsapi'], required=True, help='Kullanılacak haber kaynağı.')
+
+    # CryptoPanic argümanları
+    cryptopanic_group = parser.add_argument_group('CryptoPanic Argümanları')
+    cryptopanic_group.add_argument('--currencies', '-c', type=str, help='CryptoPanic için virgülle ayrılmış para birimi kodları (örn: "BTC,ETH").')
+    cryptopanic_group.add_argument('--filter', '-f', type=str, choices=CRYPTO_PANIC_FILTER_OPTIONS, help='CryptoPanic için uygulanacak filtre.')
+
+    # NewsAPI argümanları
+    newsapi_group = parser.add_argument_group('NewsAPI Argümanları')
+    newsapi_group.add_argument('--query', '-q', type=str, help='NewsAPI için arama sorgusu (örn: "Bitcoin").')
+    newsapi_group.add_argument('--language', '-l', type=str, default='en', help="NewsAPI için haber dili (örn: 'en', 'tr'). Varsayılan: 'en'.")
+    newsapi_group.add_argument('--sort_by', '-s', type=str, default='relevancy', help="NewsAPI için sıralama ölçütü (relevancy, popularity, publishedAt). Varsayılan: 'relevancy'.")
 
     args = parser.parse_args()
 
-    if not API_KEY:
-        print("❌ Lütfen projenin ana dizininde bir .env dosyası oluşturun ve CRYPTO_PANIC_API_KEY değerini ayarlayın.")
-        return
-
-    fetcher = NewsFetcher(api_key=API_KEY, output_dir="../../data/raw_news")
-    
-    request_identifier = ""
+    fetcher = NewsFetcher()
     news_data = None
+    request_identifier = ""
 
-    if args.currencies:
-        print(f"📰 {args.currencies} için haberler çekiliyor...")
-        request_identifier = args.currencies
-        news_data = fetcher.fetch_news(currencies=args.currencies)
-    elif args.filter:
-        print(f"📰 '{args.filter}' filtresine göre haberler çekiliyor...")
-        request_identifier = args.filter
-        news_data = fetcher.fetch_news(news_filter=args.filter)
+    if args.source == 'cryptopanic':
+        if not CRYPTO_PANIC_API_KEY:
+            print("❌ Lütfen .env dosyasında CRYPTO_PANIC_API_KEY değerini ayarlayın.")
+            return
+        if not args.currencies and not args.filter:
+            print("❌ CryptoPanic için --currencies veya --filter argümanlarından biri gerekli.")
+            return
+        
+        request_identifier = args.currencies if args.currencies else args.filter
+        print(f"📰 CryptoPanic'ten haberler çekiliyor ({request_identifier})...")
+        news_data = fetcher.fetch_cryptopanic_news(CRYPTO_PANIC_API_KEY, currencies=args.currencies, news_filter=args.filter)
+        
+        if news_data:
+            fetcher.save_to_json(news_data, request_identifier, source='cryptopanic')
+            if news_data.get("posts"):
+                print("\n--- İlk Haberin Önizlemesi (CryptoPanic) ---")
+                print(json.dumps(news_data["posts"][0], indent=4))
+                print("--------------------------")
 
-    if news_data:
-        fetcher.save_to_json(news_data, request_identifier)
-        # İlk haberin önizlemesini göster
-        if news_data.get("results"):
-            print("\n--- İlk Haberin Önizlemesi ---")
-            print(json.dumps(news_data["results"][0], indent=4))
-            print("--------------------------")
+    elif args.source == 'newsapi':
+        if not NEWS_API_KEY:
+            print("❌ Lütfen .env dosyasında NEWS_API_KEY değerini ayarlayın.")
+            return
+        if not args.query:
+            print("❌ NewsAPI için --query argümanı gerekli.")
+            return
+
+        request_identifier = args.query
+        print(f"📰 NewsAPI.org'dan haberler çekiliyor ('{request_identifier}')...")
+        news_data = fetcher.fetch_news_from_newsapi(NEWS_API_KEY, query=args.query, language=args.language, sort_by=args.sort_by)
+
+        if news_data:
+            fetcher.save_to_json(news_data, request_identifier, source='newsapi')
+            if news_data.get("articles"):
+                print("\n--- İlk Haberin Önizlemesi (NewsAPI.org) ---")
+                print(json.dumps(news_data["articles"][0], indent=4))
+                print("--------------------------")
 
 
 if __name__ == "__main__":
