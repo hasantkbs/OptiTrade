@@ -22,10 +22,10 @@ OptiTrade projesini yerel makinenizde kurmak ve çalıştırmak için aşağıda
 
 1.  **Depoyu Klonlayın:**
     ```bash
-    git clone https://github.com/your-username/OptiTrade.git
+    git clone https://github.com/hasantkbs/OptiTrade.git
     cd OptiTrade
     ```
-    *(`your-username` kısmını kendi GitHub kullanıcı adınızla değiştirin.)*
+    *(`hasantkbs` kısmını kendi GitHub kullanıcı adınızla değiştirin.)*
 
 2.  **Conda Ortamını Oluşturun ve Etkinleştirin:**
     Proje için gerekli tüm bağımlılıkları içeren bir Conda ortamı oluşturmak için `environment.yml` dosyasını kullanın:
