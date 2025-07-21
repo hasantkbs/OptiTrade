@@ -119,10 +119,24 @@ def run_analysis(symbol: str, period: str, interval: str, data_source: str, av_a
 
     # 4. Skorları Hesaplama
     model_scores = {}
+    
+    print("📊 market_data tipi:", type(market_data))
+    print("📊 market_data kolonları:", market_data.columns if hasattr(market_data, 'columns') else "Yok")
 
-    # PriceTrendModel
-    model_scores['price_trend_score'] = price_trend_model.generate_score(market_data)
-    print(f"  - Fiyat Trend Skoru: {model_scores['price_trend_score']:.2f}")
+    # PriceTrendModel için sadece 'Close' sütununu kullan
+    if isinstance(market_data, pd.DataFrame) and 'Close' in market_data.columns:
+        price_series = market_data['Close']
+
+        try:
+            model_scores['price_trend_score'] = price_trend_model.generate_score(price_series)
+            print(f"✅ Fiyat Trend Skoru başarıyla hesaplandı: {model_scores['price_trend_score']:.2f}")
+        except Exception as e:
+            print("❌ Fiyat Trend Skoru hesaplanırken hata oluştu:", str(e))
+            model_scores['price_trend_score'] = 0.0  # veya None
+    else:
+        print("❌ 'market_data' DataFrame değil ya da 'Close' sütunu bulunamadı.")
+        model_scores['price_trend_score'] = 0.0  # veya hata yönetimine göre başka bir şey
+
 
     # VolumeSurgeModel
     volume_score, impact_score = volume_surge_model.generate_score(market_data)

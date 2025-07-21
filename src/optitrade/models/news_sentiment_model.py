@@ -126,5 +126,3 @@ if __name__ == '__main__':
             #     print(f"Haber {i+1}: '{headline[:70]}...'\n  Skor: {score:.2f}")
         else:
             print("Analiz edilecek haber metni bulunamadı.")
-    else:
-        print("NewsAPI.org'dan haber çekilemedi veya haber bulunamadı.")

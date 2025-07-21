@@ -53,10 +53,18 @@ python scripts/fetch_data.py --symbol BTC-USD
 
 ### Ana Uygulamayı Çalıştırma
 
-OptiTrade'in ana uygulamasını çalıştırmak için `main.py` betiğini kullanın. Bu betik, tüm modelleri entegre eder ve ticaret sinyalleri üretir:
+OptiTrade'in ana uygulamasını çalıştırmak için `main.py` betiğini kullanın. Bu betik, tüm modelleri entegre eder ve ticaret sinyalleri üretir. Bu komutu projenin kök dizininden çalıştırın:
 
 ```bash
 python -m src.optitrade.main --symbol BTC-USD
+```
+
+*Not: Eğer `ModuleNotFoundError` hatası alırsanız, `src` dizinine gidip `python -m optitrade.main --symbol BTC-USD` komutunu deneyebilirsiniz.*
+
+```bash
+cd src
+python -m optitrade.main --symbol BTC-USD
+cd ..
 ```
 
 ### Puanlama Motorunu Çalıştırma
