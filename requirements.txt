@@ -1,75 +1,19 @@
-aiohappyeyeballs @ file:///home/conda/feedstock_root/build_artifacts/aiohappyeyeballs_1741775197943/work
-aiohttp @ file:///Users/runner/miniforge3/conda-bld/aiohttp_1749923443784/work
-aiosignal @ file:///home/conda/feedstock_root/build_artifacts/aiosignal_1734342155601/work
-async-timeout @ file:///home/conda/feedstock_root/build_artifacts/async-timeout_1733235340728/work
-attrs @ file:///home/conda/feedstock_root/build_artifacts/attrs_1741918516150/work
-beautifulsoup4==4.13.4
-Brotli @ file:///Users/runner/miniforge3/conda-bld/brotli-split_1749229914644/work
-certifi @ file:///private/var/folders/nz/j6p8yfhx1mv_0grj5xl4650h0000gp/T/abs_d80_w23y7i/croot/certifi_1750863858355/work/certifi
-cffi @ file:///Users/runner/miniforge3/conda-bld/cffi_1725560622100/work
-charset-normalizer @ file:///home/conda/feedstock_root/build_artifacts/charset-normalizer_1746214863626/work
-colorama @ file:///home/conda/feedstock_root/build_artifacts/colorama_1733218098505/work
-curl_cffi==0.12.0
-datasets @ file:///home/conda/feedstock_root/build_artifacts/datasets_1746740462479/work
-dill @ file:///home/conda/feedstock_root/build_artifacts/dill_1706434688412/work
-filelock @ file:///home/conda/feedstock_root/build_artifacts/filelock_1741969488311/work
-frozendict==2.4.6
-frozenlist @ file:///Users/runner/miniforge3/conda-bld/frozenlist_1746635428890/work
-fsspec @ file:///home/conda/feedstock_root/build_artifacts/fsspec_1741403990995/work
-gmpy2 @ file:///Users/runner/miniforge3/conda-bld/gmpy2_1745509426225/work
-h2 @ file:///home/conda/feedstock_root/build_artifacts/h2_1738578511449/work
-hf-xet @ file:///Users/runner/miniforge3/conda-bld/bld/rattler-build_hf-xet_1750541254/work
-hpack @ file:///home/conda/feedstock_root/build_artifacts/hpack_1737618293087/work
-huggingface_hub @ file:///home/conda/feedstock_root/build_artifacts/huggingface_hub_1750865802145/work
-hyperframe @ file:///home/conda/feedstock_root/build_artifacts/hyperframe_1737618333194/work
-idna @ file:///home/conda/feedstock_root/build_artifacts/idna_1733211830134/work
-Jinja2 @ file:///home/conda/feedstock_root/build_artifacts/jinja2_1741263328855/work
-joblib @ file:///home/conda/feedstock_root/build_artifacts/joblib_1748019130050/work
-MarkupSafe @ file:///Users/runner/miniforge3/conda-bld/markupsafe_1733219663979/work
-mpmath @ file:///home/conda/feedstock_root/build_artifacts/mpmath_1733302684489/work
-multidict @ file:///Users/runner/miniforge3/conda-bld/multidict_1751310641889/work
-multiprocess @ file:///Users/runner/miniforge3/conda-bld/multiprocess_1724954568395/work
-multitasking==0.0.11
-networkx @ file:///home/conda/feedstock_root/build_artifacts/networkx_1698504735452/work
-numpy @ file:///Users/runner/miniforge3/conda-bld/numpy_1732314388626/work/dist/numpy-2.0.2-cp39-cp39-macosx_11_0_arm64.whl#sha256=f5ae29dd6f735c6dcad61765cffcfb32661c04e515c759b21399c7a3a39430a4
-packaging @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_packaging_1745345660/work
-pandas @ file:///Users/runner/miniforge3/conda-bld/pandas_1749099750763/work
-peewee==3.18.2
-pillow @ file:///Users/runner/miniforge3/conda-bld/pillow_1746646280087/work
-platformdirs==4.3.8
-propcache @ file:///Users/runner/miniforge3/conda-bld/propcache_1744525055131/work
-protobuf==6.31.1
-pyarrow==20.0.0
-pybind11 @ file:///D:/bld/pybind11-split_1747934313674/work
-pybind11_global @ file:///home/conda/feedstock_root/build_artifacts/pybind11-split_1747934270866/work
-pycparser @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_pycparser_1733195786/work
-PySocks @ file:///home/conda/feedstock_root/build_artifacts/pysocks_1733217236728/work
-python-dateutil @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_python-dateutil_1751104122/work
-python-dotenv @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_python-dotenv_1750789290/work
-pytz @ file:///home/conda/feedstock_root/build_artifacts/pytz_1742920838005/work
-PyYAML @ file:///Users/runner/miniforge3/conda-bld/pyyaml_1737454732336/work
-regex @ file:///Users/runner/miniforge3/conda-bld/regex_1730952212651/work
-requests @ file:///private/var/folders/k1/30mswbxs7r1g6zwn8y4fyt500000gp/T/abs_6fxef5l5oe/croot/requests_1750426350797/work
-safetensors @ file:///Users/runner/miniforge3/conda-bld/safetensors_1740651535429/work
-scikit-learn @ file:///Users/runner/miniforge3/conda-bld/scikit-learn_1736496791599/work/dist/scikit_learn-1.6.1-cp39-cp39-macosx_11_0_arm64.whl#sha256=aaca544017450d0f614af6e4c06601e2aa132d6dfbb957b49e7c5fc3b37f6417
-scipy @ file:///Users/runner/miniforge3/conda-bld/scipy-split_1716470312029/work/dist/scipy-1.13.1-cp39-cp39-macosx_11_0_arm64.whl#sha256=95cc9a6aceed50037865da4a45baac05fd0dcee7e557c6149fde270f2ffebafc
-six @ file:///home/conda/feedstock_root/build_artifacts/six_1733380938961/work
-soupsieve==2.7
-sympy @ file:///home/conda/feedstock_root/build_artifacts/sympy_1745946051654/work
-ta==0.11.0
-ta-lib==0.6.4
-threadpoolctl @ file:///home/conda/feedstock_root/build_artifacts/threadpoolctl_1741878222898/work
-tokenizers @ file:///Users/runner/miniforge3/conda-bld/tokenizers_1750798171905/work/bindings/python
-torch @ file:///Users/runner/miniforge3/conda-bld/libtorch_1744320376245/work
-torchaudio==2.5.1
-torchvision==0.20.1
-tqdm @ file:///home/conda/feedstock_root/build_artifacts/tqdm_1735661334605/work
-transformers @ file:///home/conda/feedstock_root/build_artifacts/transformers_1750964661181/work
-typing_extensions @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_typing_extensions_1748959427/work
-tzdata @ file:///home/conda/feedstock_root/build_artifacts/python-tzdata_1742745135198/work
-urllib3 @ file:///home/conda/feedstock_root/build_artifacts/urllib3_1750271362675/work
-websockets==15.0.1
-xxhash @ file:///Users/runner/miniforge3/conda-bld/python-xxhash_1740594853298/work
-yarl @ file:///Users/runner/miniforge3/conda-bld/yarl_1749554901307/work
-yfinance==0.2.65
-zstandard==0.23.0
+pandas
+numpy
+scipy
+yfinance
+ta
+scikit-learn
+statsmodels
+requests
+beautifulsoup4
+# For News/Social Sentiment Analysis (potential)
+textblob
+vaderSentiment
+transformers
+# For Web Framework (optional, if you build an API)
+fastapi
+uvicorn
+# For Database (optional)
+sqlalchemy
+

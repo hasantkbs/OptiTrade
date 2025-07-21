@@ -5,6 +5,7 @@ import argparse
 from datetime import datetime
 import requests
 from dotenv import load_dotenv
+from typing import Union
 
 # .env dosyasındaki değişkenleri yükle
 load_dotenv()
@@ -36,7 +37,7 @@ class NewsFetcher:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def fetch_news(self, currencies: str = None, news_filter: str = None) -> dict | None:
+    def fetch_news(self, currencies: str = None, news_filter: str = None) -> 'Union[dict, None]':
         """
         Belirtilen para birimleri veya filtreye göre haberleri çeker.
 
@@ -64,7 +65,7 @@ class NewsFetcher:
             print(f"❌ API Hatası: {e}")
             return None
 
-    def save_to_json(self, data: dict, request_type: str) -> str | None:
+    def save_to_json(self, data: dict, request_type: str) -> 'Union[str, None]':
         """
         Gelen veriyi zaman damgalı bir JSON dosyasına kaydeder.
 
@@ -107,7 +108,7 @@ def main():
         print("❌ Lütfen projenin ana dizininde bir .env dosyası oluşturun ve CRYPTO_PANIC_API_KEY değerini ayarlayın.")
         return
 
-    fetcher = NewsFetcher(api_key=API_KEY, output_dir="../data/raw_news")
+    fetcher = NewsFetcher(api_key=API_KEY, output_dir="../../data/raw_news")
     
     request_identifier = ""
     news_data = None
@@ -125,8 +126,7 @@ def main():
         fetcher.save_to_json(news_data, request_identifier)
         # İlk haberin önizlemesini göster
         if news_data.get("results"):
-            print("
---- İlk Haberin Önizlemesi ---")
+            print("\n--- İlk Haberin Önizlemesi ---")
             print(json.dumps(news_data["results"][0], indent=4))
             print("--------------------------")
 
