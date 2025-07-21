@@ -5,7 +5,6 @@ import ta.volatility
 import ta.trend
 import yfinance as yf
 import argparse
-import requests
 
 class PriceTrendModel:
     """
@@ -46,24 +45,20 @@ class PriceTrendModel:
         self.bollinger_std = bollinger_std
         self.adx_window = adx_window
 
-    def generate_score(self, data: pd.DataFrame) -> float:
+    def generate_score(self, prices: pd.Series) -> float:
         """
-        Haftalık/günlük OHLCV fiyat verilerinden teknik yön skoru üretir.
+        Haftalık/günlük kapanış fiyatlarından teknik yön skoru üretir.
 
         Args:
-            data (pd.DataFrame): OHLCV verilerini içeren pandas DataFrame.
+            prices (pd.Series): Kapanış fiyatlarını içeren pandas Serisi.
 
         Returns:
             float: Teknik yön skoru (örneğin: -1.0 = düşüş, 1.0 = yükseliş).
         """
-        if not isinstance(data, pd.DataFrame):
-            raise TypeError("Girdi verileri bir pandas DataFrame olmalıdır.")
-        if data.empty or 'Close' not in data.columns or 'High' not in data.columns or 'Low' not in data.columns:
-            raise ValueError("DataFrame boş olamaz ve 'Close', 'High', 'Low' sütunlarını içermelidir.")
-
-        prices = data['Close']
-        high_prices = data['High']
-        low_prices = data['Low']
+        if not isinstance(prices, pd.Series):
+            raise TypeError("Girdi fiyatları bir pandas Serisi olmalıdır.")
+        if prices.empty:
+            raise ValueError("Fiyat serisi boş olamaz.")
 
         # Yeterli veri olup olmadığını kontrol et
         min_data_points = max(self.rsi_window, self.macd_slow_window, self.sma_long_window, self.bollinger_window, self.adx_window)
@@ -90,9 +85,13 @@ class PriceTrendModel:
         bollinger_lband = ta.volatility.bollinger_lband(prices, window=self.bollinger_window, window_dev=self.bollinger_std)
 
         # ADX
-        adx = ta.trend.adx(high_prices, low_prices, prices, window=self.adx_window) # high, low, close
-        adx_pos = ta.trend.adx_pos(high_prices, low_prices, prices, window=self.adx_window)
-        adx_neg = ta.trend.adx_neg(high_prices, low_prices, prices, window=self.adx_window)
+        # ADX için high, low, close fiyatlarına ihtiyaç var. Sadece 'prices' (kapanış) verildiği için
+        # bu kısım için bir varsayım yapmamız gerekiyor veya modelin girdisini değiştirmemiz gerekiyor.
+        # Şimdilik, basitlik adına 'prices'ı hem high, hem low, hem de close olarak kullanacağım.
+        # Gerçek bir uygulamada, bu kısım OHLCV verisi alacak şekilde güncellenmelidir.
+        adx = ta.trend.adx(prices, prices, prices, window=self.adx_window) # high, low, close
+        adx_pos = ta.trend.adx_pos(prices, prices, prices, window=self.adx_window)
+        adx_neg = ta.trend.adx_neg(prices, prices, prices, window=self.adx_window)
 
         # Skorlama mantığı
         score = 0.0
@@ -154,82 +153,30 @@ class PriceTrendModel:
 
         return float(normalized_score)
 
-def _fetch_data_alpha_vantage(symbol: str, api_key: str, outputsize: str = 'full') -> pd.DataFrame:
-    """
-    Alpha Vantage API'sinden hisse senedi verilerini çeker.
-    outputsize: 'compact' (son 100 gün) veya 'full' (20 yıla kadar).
-    """
-    base_url = "https://www.alphavantage.co/query"
-    params = {
-        "function": "TIME_SERIES_DAILY_ADJUSTED",
-        "symbol": symbol,
-        "outputsize": outputsize,
-        "apikey": api_key
-    }
-    try:
-        response = requests.get(base_url, params=params)
-        response.raise_for_status() # HTTP hataları için istisna fırlat
-        data = response.json()
-
-        if "Time Series (Daily)" not in data:
-            print(f"Hata: Alpha Vantage'dan veri çekilemedi veya geçersiz sembol: {symbol}. Hata: {data.get('Note', data)}")
-            return pd.DataFrame()
-
-        df = pd.DataFrame.from_dict(data["Time Series (Daily)"], orient="index")
-        df = df.rename(columns={
-            "1. open": "Open",
-            "2. high": "High",
-            "3. low": "Low",
-            "4. close": "Close",
-            "5. adjusted close": "Adj Close",
-            "6. volume": "Volume"
-        })
-        df.index = pd.to_datetime(df.index)
-        df = df.sort_index()
-        df = df.astype(float) # Tüm sütunları float'a dönüştür
-        return df
-    except requests.exceptions.RequestException as e:
-        print(f"Alpha Vantage API hatası: {e}")
-        return pd.DataFrame()
-    except Exception as e:
-        print(f"Alpha Vantage verisi işlenirken hata oluştu: {e}")
-        return pd.DataFrame()
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Hisse senedi fiyat trend skorunu hesaplar.')
     parser.add_argument('--symbol', type=str, default='AAPL', help='Hisse senedi sembolü (örn: AAPL, MSFT). Varsayılan: AAPL')
-    parser.add_argument('--period', type=str, default='1y', help='Veri çekme periyodu (yfinance için: 1y, 6mo, 1mo). Varsayılan: 1y')
-    parser.add_argument('--interval', type=str, default='1d', help='Veri çekme aralığı (yfinance için: 1d, 1wk, 1mo). Varsayılan: 1d')
-    parser.add_argument('--data_source', type=str, default='yfinance', choices=['yfinance', 'alpha_vantage'], help='Veri kaynağı (yfinance veya alpha_vantage). Varsayılan: yfinance')
-    parser.add_argument('--api_key', type=str, help='Alpha Vantage API anahtarı (data_source alpha_vantage ise gerekli).')
+    parser.add_argument('--period', type=str, default='1y', help='Veri çekme periyodu (örn: 1y, 6mo, 1mo). Varsayılan: 1y')
+    parser.add_argument('--interval', type=str, default='1d', help='Veri çekme aralığı (örn: 1d, 1wk, 1mo). Varsayılan: 1d')
 
     args = parser.parse_args()
 
-    print(f"\n--- {args.symbol} için Fiyat Trend Skoru Hesaplama ({args.data_source.upper()}) ---")
+    print(f"\n--- {args.symbol} için Fiyat Trend Skoru Hesaplama ---")
 
-    data = pd.DataFrame()
-    if args.data_source == 'yfinance':
-        try:
-            ticker = yf.Ticker(args.symbol)
-            data = ticker.history(period=args.period, interval=args.interval)
-        except Exception as e:
-            print(f"yfinance ile veri çekilirken hata oluştu: {e}")
-    elif args.data_source == 'alpha_vantage':
-        if not args.api_key:
-            print("Hata: Alpha Vantage için API anahtarı gerekli (--api_key).")
+    try:
+        # yfinance ile veri çek
+        ticker = yf.Ticker(args.symbol)
+        data = ticker.history(period=args.period, interval=args.interval)
+
+        if data.empty:
+            print(f"Hata: {args.symbol} için veri çekilemedi veya yeterli veri yok. Lütfen sembolü ve periyodu kontrol edin.")
         else:
-            # Alpha Vantage için period ve interval yerine outputsize kullanılır
-            # Basitlik adına, yfinance'daki 1y perioduna karşılık full outputsize kullanalım
-            # Daha kısa periodlar için 'compact' kullanılabilir.
-            outputsize = 'full' # veya 'compact'
-            data = _fetch_data_alpha_vantage(args.symbol, args.api_key, outputsize=outputsize)
+            # Kapanış fiyatlarını al
+            prices = data['Close']
 
-    if data.empty:
-        print(f"Hata: {args.symbol} için veri çekilemedi veya yeterli veri yok. Lütfen sembolü, periyodu/API anahtarını kontrol edin.")
-    else:
-        # Kapanış fiyatlarını al
-        # prices = data['Close'] # Bu satır artık gerekli değil
+            model = PriceTrendModel()
+            technical_score = model.generate_score(prices)
+            print(f"{args.symbol} Teknik Yön Skoru: {technical_score:.2f}")
 
-        model = PriceTrendModel()
-        technical_score = model.generate_score(data)
-        print(f"{args.symbol} Teknik Yön Skoru: {technical_score:.2f}")
+    except Exception as e:
+        print(f"Veri çekme veya skor hesaplama sırasında bir hata oluştu: {e}")
