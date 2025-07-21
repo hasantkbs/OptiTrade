@@ -25,7 +25,6 @@ OptiTrade projesini yerel makinenizde kurmak ve çalıştırmak için aşağıda
     git clone https://github.com/hasantkbs/OptiTrade.git
     cd OptiTrade
     ```
-    *(`hasantkbs` kısmını kendi GitHub kullanıcı adınızla değiştirin.)*
 
 2.  **Conda Ortamını Oluşturun ve Etkinleştirin:**
     Proje için gerekli tüm bağımlılıkları içeren bir Conda ortamı oluşturmak için `environment.yml` dosyasını kullanın:
