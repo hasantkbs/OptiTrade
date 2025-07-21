@@ -19,7 +19,8 @@ class DivergenceDetectionModel:
                  macd_slow_window: int = 26,
                  macd_signal_window: int = 9,
                  extrema_order: int = 5, # argrelextrema için komşu nokta sayısı
-                 divergence_lookback_period: int = 20): # Uyumsuzluk arama penceresi
+                 divergence_lookback_period: int = 60, # Uyumsuzluk arama penceresi (gün)
+                 tolerance_days: int = 5): # Ekstremum eşleştirme toleransı (gün)
         """
         Modeli başlatır ve parametreleri ayarlar.
 
@@ -30,6 +31,7 @@ class DivergenceDetectionModel:
             macd_signal_window (int): MACD sinyal hattı penceresi.
             extrema_order (int): Yerel ekstremumları bulmak için kullanılacak komşu nokta sayısı.
             divergence_lookback_period (int): Uyumsuzlukları aramak için geçmişe dönük gün sayısı.
+            tolerance_days (int): Fiyat ve gösterge ekstremumlarını eşleştirme toleransı (gün).
         """
         self.indicator_window = indicator_window
         self.macd_fast_window = macd_fast_window
@@ -37,6 +39,7 @@ class DivergenceDetectionModel:
         self.macd_signal_window = macd_signal_window
         self.extrema_order = extrema_order
         self.divergence_lookback_period = divergence_lookback_period
+        self.tolerance_days = tolerance_days
 
     def _find_extrema(self, series: pd.Series, find_max: bool = True) -> pd.Series:
         """
@@ -107,24 +110,27 @@ class DivergenceDetectionModel:
         # Fiyat düşerken gösterge yükselir.
         if len(price_lows) >= 2 and len(indicator_lows) >= 2:
             for i in range(len(price_lows) - 1, 0, -1):
-                current_price_low = price_lows.iloc[i]
-                prev_price_low = price_lows.iloc[i-1]
+                current_price_low_val = price_lows.iloc[i]
+                prev_price_low_val = price_lows.iloc[i-1]
+                current_price_low_idx = price_lows.index[i]
+                prev_price_low_idx = price_lows.index[i-1]
 
-                if current_price_low < prev_price_low: # Fiyat daha düşük dip yapıyor
+                if current_price_low_val < prev_price_low_val: # Fiyat daha düşük dip yapıyor
                     # İlgili gösterge diplerini bul
-                    # Fiyat dibinin oluştuğu tarihe yakın gösterge dibini ara
                     for j in range(len(indicator_lows) - 1, 0, -1):
-                        current_indicator_low = indicator_lows.iloc[j]
-                        prev_indicator_low = indicator_lows.iloc[j-1]
+                        current_indicator_low_val = indicator_lows.iloc[j]
+                        prev_indicator_low_val = indicator_lows.iloc[j-1]
+                        current_indicator_low_idx = indicator_lows.index[j]
+                        prev_indicator_low_idx = indicator_lows.index[j-1]
 
-                        # İndekslerin sırasını kontrol et (fiyat dibi ve gösterge dibi aynı yönde olmalı)
-                        if indicator_lows.index[j] > indicator_lows.index[j-1] and \
-                           prices_slice.index.get_loc(price_lows.index[i]) > prices_slice.index.get_loc(price_lows.index[i-1]):
+                        # Zaman toleransı içinde mi?
+                        if abs((current_price_low_idx - current_indicator_low_idx).days) <= self.tolerance_days and \
+                           abs((prev_price_low_idx - prev_indicator_low_idx).days) <= self.tolerance_days:
                             
-                            if current_indicator_low > prev_indicator_low: # Gösterge daha yüksek dip yapıyor
+                            if current_indicator_low_val > prev_indicator_low_val: # Gösterge daha yüksek dip yapıyor
                                 bullish_divergence = True
                                 # Uyumsuzluğun gücüne göre skor ata
-                                score_strength = abs(current_indicator_low - prev_indicator_low) / (indicator_slice.max() - indicator_slice.min() + 1e-9)
+                                score_strength = abs(current_indicator_low_val - prev_indicator_low_val) / (indicator_slice.max() - indicator_slice.min() + 1e-9)
                                 divergence_score += score_strength * 0.7 # Maksimum 0.7 katkı
                                 break # İlk uyumsuzluğu bulduktan sonra çık
                     if bullish_divergence: break
@@ -133,23 +139,27 @@ class DivergenceDetectionModel:
         # Fiyat yükselirken gösterge düşer.
         if len(price_highs) >= 2 and len(indicator_highs) >= 2:
             for i in range(len(price_highs) - 1, 0, -1):
-                current_price_high = price_highs.iloc[i]
-                prev_price_high = price_highs.iloc[i-1]
+                current_price_high_val = price_highs.iloc[i]
+                prev_price_high_val = price_highs.iloc[i-1]
+                current_price_high_idx = price_highs.index[i]
+                prev_price_high_idx = price_highs.index[i-1]
 
-                if current_price_high > prev_price_high: # Fiyat daha yüksek zirve yapıyor
+                if current_price_high_val > prev_price_high_val: # Fiyat daha yüksek zirve yapıyor
                     # İlgili gösterge zirvelerini bul
                     for j in range(len(indicator_highs) - 1, 0, -1):
-                        current_indicator_high = indicator_highs.iloc[j]
-                        prev_indicator_high = indicator_highs.iloc[j-1]
+                        current_indicator_high_val = indicator_highs.iloc[j]
+                        prev_indicator_high_val = indicator_highs.iloc[j-1]
+                        current_indicator_high_idx = indicator_highs.index[j]
+                        prev_indicator_high_idx = indicator_highs.index[j-1]
 
-                        # İndekslerin sırasını kontrol et
-                        if indicator_highs.index[j] > indicator_highs.index[j-1] and \
-                           prices_slice.index.get_loc(price_highs.index[i]) > prices_slice.index.get_loc(price_highs.index[i-1]):
+                        # Zaman toleransı içinde mi?
+                        if abs((current_price_high_idx - current_indicator_high_idx).days) <= self.tolerance_days and \
+                           abs((prev_price_high_idx - prev_indicator_high_idx).days) <= self.tolerance_days:
 
-                            if current_indicator_high < prev_indicator_high: # Gösterge daha düşük zirve yapıyor
+                            if current_indicator_high_val < prev_indicator_high_val: # Gösterge daha düşük zirve yapıyor
                                 bearish_divergence = True
                                 # Uyumsuzluğun gücüne göre skor ata
-                                score_strength = abs(current_indicator_high - prev_indicator_high) / (indicator_slice.max() - indicator_slice.min() + 1e-9)
+                                score_strength = abs(current_indicator_high_val - prev_indicator_high_val) / (indicator_slice.max() - indicator_slice.min() + 1e-9)
                                 divergence_score -= score_strength * 0.7 # Maksimum 0.7 katkı
                                 break # İlk uyumsuzluğu bulduktan sonra çık
                     if bearish_divergence: break

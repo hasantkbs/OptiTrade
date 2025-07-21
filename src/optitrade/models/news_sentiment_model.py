@@ -1,10 +1,9 @@
 import pandas as pd
+import numpy as np
 from transformers import pipeline
 import os
 from dotenv import load_dotenv
-
-# Import from data_fetcher
-from optitrade.utils.data_fetcher import NewsFetcher, NEWS_API_KEY
+from typing import List
 
 # .env dosyasındaki değişkenleri yükle
 load_dotenv()
@@ -21,13 +20,11 @@ class NewsSentimentModel:
         Modeli başlatır ve Hugging Face duygu analizi pipeline'ını yükler.
         Çok dilli bir model kullanılarak Türkçe metinlerde daha iyi performans hedeflenir.
         """
-        # Türkçe metinlerde daha iyi performans için çok dilli bir model kullanılıyor.
-        # Alternatif olarak, Türkçe'ye özel eğitilmiş bir model de kullanılabilir.
         self.sentiment_pipeline = pipeline("sentiment-analysis", model="nlptown/bert-base-multilingual-uncased-sentiment")
 
-    def analyze_sentiment(self, news_text: str) -> float:
+    def _analyze_single_text_sentiment(self, news_text: str) -> float:
         """
-        Verilen haber metninin duygu skorunu hesaplar.
+        Verilen tek bir haber metninin duygu skorunu hesaplar.
 
         Args:
             news_text (str): Analiz edilecek haber metni veya başlığı.
@@ -65,60 +62,48 @@ class NewsSentimentModel:
         else:
             return 0.0 # Bilinmeyen etiketler için nötr
 
+    def analyze_sentiment(self, news_texts: List[str]) -> float:
+        """
+        Verilen haber metinleri listesinin ortalama duygu skorunu hesaplar.
+
+        Args:
+            news_texts (List[str]): Analiz edilecek haber metinleri veya başlıkları listesi.
+
+        Returns:
+            float: [-1.0, +1.0] arası ortalama pozitif/negatif skor.
+        """
+        if not isinstance(news_texts, list):
+            raise TypeError("Haber metinleri bir liste olmalıdır.")
+        if not news_texts:
+            return 0.0 # Boş liste için nötr skor
+
+        scores = [self._analyze_single_text_sentiment(text) for text in news_texts if text.strip()]
+        if scores:
+            return float(np.mean(scores))
+        else:
+            return 0.0
+
 if __name__ == '__main__':
-    # Örnek kullanım
+    # NewsFetcher ve NEWS_API_KEY sadece burada test amaçlı import ediliyor.
+    # Normalde bu model, haber metinlerini doğrudan almalıdır.
+    from optitrade.utils.data_fetcher import NewsFetcher, NEWS_API_KEY
+
     model = NewsSentimentModel()
     fetcher = NewsFetcher()
 
-    # NewsAPI.org'dan haber çek
     query = "Bitcoin"
-    news_api_key = NEWS_API_KEY # .env dosyasından çekilen anahtar
+    news_api_key = NEWS_API_KEY
 
     if not news_api_key:
-        print("Hata: NEWS_API_KEY .env dosyasında ayarlanmamış. Lütfen NewsAPI.org API anahtarınızı ekleyin.")
+        print("Hata: NEWS_API_KEY .env dosyasında ayarlanmamış.")
     else:
-        print(f"\n--- NewsAPI.org'dan '{query}' haberleri çekiliyor ---")
+        print("Haber çekiliyor...")
         news_data = fetcher.fetch_news_from_newsapi(news_api_key, query=query, language='en')
 
         if news_data and news_data.get('articles'):
-            print(f"{len(news_data['articles'])} adet haber bulundu.")
-            total_score = 0.0
-            analyzed_count = 0
-            
-            print("\n--- Haber Duygu Analizi (NewsAPI.org Verileri) ---")
-            for i, article in enumerate(news_data['articles']):
-                title = article.get('title', '')
-                description = article.get('description', '')
-                
-                text_to_analyze = title
-                if not text_to_analyze and description:
-                    text_to_analyze = description
-
-                if text_to_analyze:
-                    score = model.analyze_sentiment(text_to_analyze)
-                    sentiment = "Nötr"
-                    if score > 0.1:
-                        sentiment = "Pozitif"
-                    elif score < -0.1:
-                        sentiment = "Negatif"
-                    print(f"Haber {i+1}: '{text_to_analyze[:70]}...'\n  Skor: {score:.2f}, Duygu: {sentiment}\n")
-                    total_score += score
-                    analyzed_count += 1
-            
-            if analyzed_count > 0:
-                average_score = total_score / analyzed_count
-                avg_sentiment = "Nötr"
-                if average_score > 0.1:
-                    avg_sentiment = "Pozitif"
-                elif average_score < -0.1:
-                    avg_sentiment = "Negatif"
-                print(f"\n--- Ortalama Duygu Skoru ({query}) ---")
-                print(f"Ortalama Skor: {average_score:.2f}, Ortalama Duygu: {avg_sentiment}")
-            else:
-                print("Analiz edilecek haber metni bulunamadı.")
+            print("Haberler bulundu.")
+            news_headlines = [article.get('title', '') for article in news_data['articles'] if article.get('title')]
+            average_score = model.analyze_sentiment(news_headlines)
+            print(f"Ortalama Duygu Skoru: {average_score:.2f}")
         else:
-            print("NewsAPI.org'dan haber çekilemedi veya haber bulunamadı.")
-
-    # Boş metin testi (eski örnek)
-    # empty_text_score = model.analyze_sentiment("")
-    # print(f"Boş metin skoru: {empty_text_score:.2f}\n")
+            print("Haber çekilemedi veya haber bulunamadı.")

@@ -1,85 +1,71 @@
-import pandas as pd
-from transformers import pipeline
-
 class SocialSentimentModel:
     """
-    Twitter, Reddit gibi kaynaklardan halk algısını çıkaran model.
-    Kullanır: Hugging Face Transformers kütüphanesi (BERT tabanlı, çok dilli).
-    Girdi: Tweet ve forum mesajları.
-    Çıktı: Sosyal medya pozitiflik skoru ([-1.0, +1.0] arası).
+    Sosyal medya mesajlarından duygu analizi yapan sınıf.
+    Şimdilik her zaman nötr (0.0) döner.
     """
     def __init__(self):
         """
-        Modeli başlatır ve Hugging Face duygu analizi pipeline'ını yükler.
-        Çok dilli duygu analizi için özel olarak eğitilmiş bir model kullanılır.
+        Modeli başlatır. Duygu analizi her zaman nötr (0.0) dönecek şekilde ayarlanmıştır.
         """
-        self.sentiment_pipeline = pipeline("sentiment-analysis", model="nlptown/bert-base-multilingual-uncased-sentiment")
+        pass # Duygu analizi pipeline'ı veya RedditFetcher başlatmaya gerek yok
 
-    def analyze_sentiment(self, social_media_text: str) -> float:
+    def analyze_sentiment_for_text(self, social_media_text: str) -> float:
         """
-        Verilen sosyal medya metninin duygu skorunu hesaplar.
+        Verilen tek bir sosyal medya metninin duygu skorunu hesaplar.
+        Şimdilik her zaman nötr (0.0) döner.
 
         Args:
             social_media_text (str): Analiz edilecek sosyal medya metni.
 
         Returns:
-            float: [-1.0, +1.0] arası pozitif/negatif skor.
-                   Pozitif için 0 ile 1, Negatif için -1 ile 0 arası.
+            float: Her zaman 0.0 (nötr).
         """
-        if not isinstance(social_media_text, str):
-            raise TypeError("Sosyal medya metni bir string olmalıdır.")
-        if not social_media_text.strip():
-            return 0.0 # Boş metin için nötr skor
+        return 0.0
 
-        result = self.sentiment_pipeline(social_media_text)[0]
-        label = result['label']
-        score = result['score']
+    def analyze_sentiment(self, social_media_messages: list[str]) -> float:
+        """
+        Verilen sosyal medya mesajları listesinin ortalama duygu skorunu hesaplar.
+        Şimdilik her zaman nötr (0.0) döner.
 
-        # nlptown/bert-base-multilingual-uncased-sentiment modeli '1 star'dan '5 stars'a kadar etiketler döndürür.
-        # Bu etiketleri -1.0 ile +1.0 arasına dönüştürelim.
-        # 1 star: -1.0 (çok negatif)
-        # 2 stars: -0.5
-        # 3 stars: 0.0 (nötr)
-        # 4 stars: 0.5
-        # 5 stars: 1.0 (çok pozitif)
-        if label == '1 star':
-            return float(-1.0 * score)
-        elif label == '2 stars':
-            return float(-0.5 * score)
-        elif label == '3 stars':
-            return float(0.0)
-        elif label == '4 stars':
-            return float(0.5 * score)
-        elif label == '5 stars':
-            return float(1.0 * score)
-        else:
-            return 0.0 # Bilinmeyen etiketler için nötr
+        Args:
+            social_media_messages (list[str]): Analiz edilecek sosyal medya mesajları listesi.
+
+        Returns:
+            float: Her zaman 0.0 (nötr).
+        """
+        return 0.0
+
+    def analyze_reddit_sentiment(self, subreddit_name: str, limit: int = 10) -> float:
+        """
+        Reddit duygu analizi şimdilik devre dışı bırakılmıştır ve her zaman nötr (0.0) döner.
+
+        Args:
+            subreddit_name (str): Reddit subreddit'inin adı (örn: "wallstreetbets").
+            limit (int): Çekilecek gönderi sayısı.
+
+        Returns:
+            float: Her zaman 0.0 (nötr).
+        """
+        print(f"Reddit duygu analizi geçici olarak devre dışı bırakıldı. Nötr skor (0.0) dönüyor.")
+        return 0.0
 
 if __name__ == '__main__':
-    # Örnek kullanım
+    print("🔍 Sosyal Medya Duygu Analizi Başlatılıyor (Geçici Olarak Nötr)...")
+
     model = SocialSentimentModel()
 
+    # Simüle edilmiş sosyal medya verisi için örnek kullanım
     social_media_messages = [
-        "🚀 Bitcoin to the moon! Best investment ever! #crypto #bullish",
-        "Market is crashing, losing all my money. This is terrible. 📉",
-        "Just bought some more ETH. Feeling good about the future. ✨",
-        "Another boring day in the market. Nothing happening.",
-        "Scam alert! Don't trust this project. Very suspicious. 🚨",
-        "Bu kripto para birimi harika bir yatırım!", # Türkçe örnek
-        "Piyasa çok kötü, her şey düşüyor.", # Türkçe örnek
-        "Bugün piyasada pek bir hareket yok.", # Türkçe örnek
+        "Bu harika bir gün!",
+        "Piyasa biraz durgun.",
+        "Her şey kötüye gidiyor."
     ]
 
-    print("--- Sosyal Medya Duygu Analizi (Transformers) ---")
-    for i, message in enumerate(social_media_messages):
-        score = model.analyze_sentiment(message)
-        sentiment = "Nötr"
-        if score > 0.1:
-            sentiment = "Pozitif"
-        elif score < -0.1:
-            sentiment = "Negatif"
-        print(f"Mesaj {i+1}: '{message}'\n  Skor: {score:.2f}, Duygu: {sentiment}\n")
+    print(f"\n--- Simüle Sosyal Medya Duygu Analizi ---")
+    average_score = model.analyze_sentiment(social_media_messages)
+    print(f"Ortalama Skor: {average_score:.2f} (Her zaman 0.0 olmalı)")
 
-    # Boş metin testi
-    empty_text_score = model.analyze_sentiment("")
-    print(f"Boş metin skoru: {empty_text_score:.2f}\n")
+    # Reddit duygu analizi için örnek kullanım
+    reddit_subreddit = "wallstreetbets"
+    reddit_sentiment_score = model.analyze_reddit_sentiment(reddit_subreddit, limit=5)
+    print(f"Ortalama Reddit Duygu Skoru (r/{reddit_subreddit}): {reddit_sentiment_score:.2f} (Her zaman 0.0 olmalı)")

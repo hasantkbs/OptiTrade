@@ -1,19 +1,5 @@
 pandas
-numpy
-scipy
-yfinance
-ta
-scikit-learn
-statsmodels
-requests
-beautifulsoup4
-# For News/Social Sentiment Analysis (potential)
-textblob
-vaderSentiment
 transformers
-# For Web Framework (optional, if you build an API)
-fastapi
-uvicorn
-# For Database (optional)
-sqlalchemy
-
+numpy
+python-dotenv
+praw

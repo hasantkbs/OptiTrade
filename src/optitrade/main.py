@@ -94,8 +94,8 @@ def run_analysis(symbol: str, period: str, interval: str, data_source: str, av_a
 
     # 2. Haber Verilerini Çekme (NewsAPI.org)
     news_headlines = []
+    fetcher = NewsFetcher() # NewsFetcher burada başlatılmalı
     if NEWS_API_KEY:
-        fetcher = NewsFetcher()
         news_data = fetcher.fetch_news_from_newsapi(NEWS_API_KEY, query=news_query, language=news_lang)
         if news_data and news_data.get('articles'):
             news_headlines = [article.get('title', '') for article in news_data['articles'] if article.get('title')]
@@ -133,19 +133,23 @@ def run_analysis(symbol: str, period: str, interval: str, data_source: str, av_a
 
     # NewsSentimentModel
     if news_headlines:
-        news_sentiment_scores = [news_sentiment_model.analyze_sentiment(headline) for headline in news_headlines]
-        if news_sentiment_scores:
-            model_scores['news_sentiment_score'] = np.mean(news_sentiment_scores)
-        else:
-            model_scores['news_sentiment_score'] = 0.0
+        model_scores['news_sentiment_score'] = news_sentiment_model.analyze_sentiment(news_headlines)
     else:
         model_scores['news_sentiment_score'] = 0.0 # Haber yoksa nötr
     print(f"  - Haber Duygu Skoru: {model_scores['news_sentiment_score']:.2f}")
 
-    # SocialSentimentModel (Şimdilik rastgele, gerçek entegrasyon daha sonra)
-    # Gerçek bir uygulamada, Twitter/Reddit API'lerinden veri çekilmeli ve analiz edilmeli.
-    model_scores['social_sentiment_score'] = np.random.uniform(-1.0, 1.0)
-    print(f"  - Sosyal Duygu Skoru (Yer Tutucu): {model_scores['social_sentiment_score']:.2f}")
+    # SocialSentimentModel
+    # Simüle edilmiş sosyal medya verilerini çek
+    social_media_messages = fetcher.fetch_simulated_social_media_data(query=symbol) # Sembole göre filtrele
+    if social_media_messages:
+        social_sentiment_scores = [social_sentiment_model.analyze_sentiment_for_text(msg) for msg in social_media_messages]
+        if social_sentiment_scores:
+            model_scores['social_sentiment_score'] = np.mean(social_sentiment_scores)
+        else:
+            model_scores['social_sentiment_score'] = 0.0
+    else:
+        model_scores['social_sentiment_score'] = 0.0 # Mesaj yoksa nötr
+    print(f"  - Sosyal Duygu Skoru: {model_scores['social_sentiment_score']:.2f}")
 
     # SupportResistanceModel
     model_scores['support_resistance_score'] = support_resistance_model.generate_proximity_score(market_data)
@@ -167,7 +171,7 @@ def run_analysis(symbol: str, period: str, interval: str, data_source: str, av_a
     try:
         vix_data = yf.download('^VIX', period='5d', interval='1d', auto_adjust=True)
         if not vix_data.empty:
-            vix_val = float(vix_data['Close'].iloc[-1])
+            vix_val = float(vix_data['Close'].iloc[-1].item())
     except Exception as e:
         print(f"❌ VIX verisi çekilirken hata oluştu: {e}. Varsayılan 20.0 kullanılıyor.")
         vix_val = 20.0
@@ -202,15 +206,5 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    while True:
-        user_input_symbol = input(f"\nAnaliz etmek istediğiniz sembolü girin (örn: BTC-USD, AAPL) veya çıkmak için 'q' tuşuna basın (Varsayılan: {args.symbol}): ").strip().upper()
-        
-        if user_input_symbol == 'Q':
-            print("Programdan çıkılıyor...")
-            break
-        elif user_input_symbol:
-            args.symbol = user_input_symbol
-            args.news_query = user_input_symbol # Haber sorgusunu da güncelleyelim
-        
-        # Analizi çalıştır
-        run_analysis(args.symbol, args.period, args.interval, args.data_source, args.av_api_key, args.news_query, args.news_lang)
+    # run_analysis fonksiyonunu doğrudan çağır
+    run_analysis(args.symbol, args.period, args.interval, args.data_source, args.av_api_key, args.news_query, args.news_lang)
