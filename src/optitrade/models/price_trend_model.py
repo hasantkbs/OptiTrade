@@ -5,6 +5,20 @@ import ta.volatility
 import ta.trend
 import yfinance as yf
 import argparse
+import logging
+from .. import config
+
+# Loglama yapılandırması
+logging.basicConfig(
+    level=config.LOG_LEVEL,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(config.LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 class PriceTrendModel:
     """
@@ -12,15 +26,15 @@ class PriceTrendModel:
     Kullanılan göstergeler: RSI, MACD, Moving Averages, Bollinger Bands, Trendline kırılımları, ADX.
     """
     def __init__(self,
-                 rsi_window: int = 14,
-                 macd_fast_window: int = 12,
-                 macd_slow_window: int = 26,
-                 macd_signal_window: int = 9,
-                 sma_short_window: int = 20,
-                 sma_long_window: int = 50,
-                 bollinger_window: int = 20,
-                 bollinger_std: float = 2.0,
-                 adx_window: int = 14):
+                 rsi_window: int = config.PRICE_TREND_RSI_WINDOW,
+                 macd_fast_window: int = config.PRICE_TREND_MACD_FAST_WINDOW,
+                 macd_slow_window: int = config.PRICE_TREND_MACD_SLOW_WINDOW,
+                 macd_signal_window: int = config.PRICE_TREND_MACD_SIGNAL_WINDOW,
+                 sma_short_window: int = config.PRICE_TREND_SMA_SHORT_WINDOW,
+                 sma_long_window: int = config.PRICE_TREND_SMA_LONG_WINDOW,
+                 bollinger_window: int = config.PRICE_TREND_BOLLINGER_WINDOW,
+                 bollinger_std: float = config.PRICE_TREND_BOLLINGER_STD,
+                 adx_window: int = config.PRICE_TREND_ADX_WINDOW):
         """
         Modeli başlatır ve gösterge parametrelerini ayarlar.
 
@@ -45,53 +59,86 @@ class PriceTrendModel:
         self.bollinger_std = bollinger_std
         self.adx_window = adx_window
 
-    def generate_score(self, prices: pd.Series) -> float:
-        """
-        Haftalık/günlük kapanış fiyatlarından teknik yön skoru üretir.
+    def generate_score(self, prices: pd.Series, interval: str = '1d') -> float:
+        logger.debug(f"PriceTrendModel: generate_score called with interval: {interval}")
 
-        Args:
-            prices (pd.Series): Kapanış fiyatlarını içeren pandas Serisi.
-
-        Returns:
-            float: Teknik yön skoru (örneğin: -1.0 = düşüş, 1.0 = yükseliş).
-        """
-        if not isinstance(prices, pd.Series):
-            raise TypeError("Girdi fiyatları bir pandas Serisi olmalıdır.")
-        if prices.empty:
-            raise ValueError("Fiyat serisi boş olamaz.")
+        # Interval'e göre pencere boyutlarını ayarla
+        # Bu değerler, farklı zaman aralıkları için optimize edilebilir.
+        # Şimdilik basit bir ölçeklendirme kullanıyorum.
+        if interval == '1m':
+            rsi_window = 7
+            macd_fast_window = 6
+            macd_slow_window = 13
+            macd_signal_window = 5
+            sma_short_window = 10
+            sma_long_window = 30
+            bollinger_window = 15
+            adx_window = 7
+        elif interval == '5m':
+            rsi_window = 10
+            macd_fast_window = 8
+            macd_slow_window = 17
+            macd_signal_window = 7
+            sma_short_window = 20
+            sma_long_window = 50
+            bollinger_window = 20
+            adx_window = 10
+        elif interval == '15m':
+            rsi_window = 12
+            macd_fast_window = 10
+            macd_slow_window = 22
+            macd_signal_window = 8
+            sma_short_window = 30
+            sma_long_window = 80
+            bollinger_window = 20
+            adx_window = 12
+        elif interval == '30m' or interval == '60m' or interval == '1h':
+            rsi_window = 14
+            macd_fast_window = 12
+            macd_slow_window = 26
+            macd_signal_window = 9
+            sma_short_window = 40
+            sma_long_window = 100
+            bollinger_window = 20
+            adx_window = 14
+        else: # 1d, 1wk, 1mo ve diğerleri için varsayılan değerler
+            rsi_window = self.rsi_window
+            macd_fast_window = self.macd_fast_window
+            macd_slow_window = self.macd_slow_window
+            macd_signal_window = self.macd_signal_window
+            sma_short_window = self.sma_short_window
+            sma_long_window = self.sma_long_window
+            bollinger_window = self.bollinger_window
+            adx_window = self.adx_window
 
         # Yeterli veri olup olmadığını kontrol et
-        min_data_points = max(self.rsi_window, self.macd_slow_window, self.sma_long_window, self.bollinger_window, self.adx_window)
+        min_data_points = max(rsi_window, macd_slow_window, sma_long_window, bollinger_window, adx_window)
         if len(prices) < min_data_points:
             # Yeterli veri yoksa nötr bir skor döndür
-            print(f"Uyarı: Yeterli veri noktası yok ({len(prices)} mevcut, en az {min_data_points} gerekli). Nötr skor döndürülüyor.")
+            logger.warning(f"PriceTrendModel: Yeterli veri noktası yok ({len(prices)} mevcut, en az {min_data_points} gerekli). Nötr skor döndürülüyor.")
             return 0.0
 
         # Göstergeleri hesapla
         # RSI
-        rsi = ta.momentum.rsi(prices, window=self.rsi_window)
+        rsi = ta.momentum.rsi(prices, window=rsi_window)
 
         # MACD
-        macd = ta.trend.macd(prices, window_fast=self.macd_fast_window, window_slow=self.macd_slow_window)
-        macd_signal = ta.trend.macd_signal(prices, window_fast=self.macd_fast_window, window_slow=self.macd_slow_window, window_sign=self.macd_signal_window)
-        macd_diff = ta.trend.macd_diff(prices, window_fast=self.macd_fast_window, window_slow=self.macd_slow_window, window_sign=self.macd_signal_window)
+        macd = ta.trend.macd(prices, window_fast=macd_fast_window, window_slow=macd_slow_window)
+        macd_signal = ta.trend.macd_signal(prices, window_fast=macd_fast_window, window_slow=macd_slow_window, window_sign=macd_signal_window)
+        macd_diff = ta.trend.macd_diff(prices, window_fast=macd_fast_window, window_slow=macd_slow_window, window_sign=macd_signal_window)
 
         # Hareketli Ortalamalar
-        sma_short = ta.trend.sma_indicator(prices, window=self.sma_short_window)
-        sma_long = ta.trend.sma_indicator(prices, window=self.sma_long_window)
+        sma_short = ta.trend.sma_indicator(prices, window=sma_short_window)
+        sma_long = ta.trend.sma_indicator(prices, window=sma_long_window)
 
         # Bollinger Bantları
-        bollinger_hband = ta.volatility.bollinger_hband(prices, window=self.bollinger_window, window_dev=self.bollinger_std)
-        bollinger_lband = ta.volatility.bollinger_lband(prices, window=self.bollinger_window, window_dev=self.bollinger_std)
+        bollinger_hband = ta.volatility.bollinger_hband(prices, window=bollinger_window, window_dev=self.bollinger_std)
+        bollinger_lband = ta.volatility.bollinger_lband(prices, window=bollinger_window, window_dev=self.bollinger_std)
 
         # ADX
-        # ADX için high, low, close fiyatlarına ihtiyaç var. Sadece 'prices' (kapanış) verildiği için
-        # bu kısım için bir varsayım yapmamız gerekiyor veya modelin girdisini değiştirmemiz gerekiyor.
-        # Şimdilik, basitlik adına 'prices'ı hem high, hem low, hem de close olarak kullanacağım.
-        # Gerçek bir uygulamada, bu kısım OHLCV verisi alacak şekilde güncellenmelidir.
-        adx = ta.trend.adx(prices, prices, prices, window=self.adx_window) # high, low, close
-        adx_pos = ta.trend.adx_pos(prices, prices, prices, window=self.adx_window)
-        adx_neg = ta.trend.adx_neg(prices, prices, prices, window=self.adx_window)
+        adx = ta.trend.adx(prices, prices, prices, window=adx_window) # high, low, close
+        adx_pos = ta.trend.adx_pos(prices, prices, prices, window=adx_window)
+        adx_neg = ta.trend.adx_neg(prices, prices, prices, window=adx_window)
 
         # Skorlama mantığı
         score = 0.0
@@ -161,7 +208,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    print(f"\n--- {args.symbol} için Fiyat Trend Skoru Hesaplama ---")
+    logger.info(f"--- {args.symbol} için Fiyat Trend Skoru Hesaplama ---")
 
     try:
         # yfinance ile veri çek
@@ -169,14 +216,14 @@ if __name__ == '__main__':
         data = ticker.history(period=args.period, interval=args.interval)
 
         if data.empty:
-            print(f"Hata: {args.symbol} için veri çekilemedi veya yeterli veri yok. Lütfen sembolü ve periyodu kontrol edin.")
+            logger.error(f"Hata: {args.symbol} için veri çekilemedi veya yeterli veri yok. Lütfen sembolü ve periyodu kontrol edin.")
         else:
             # Kapanış fiyatlarını al
             prices = data['Close']
 
             model = PriceTrendModel()
             technical_score = model.generate_score(prices)
-            print(f"{args.symbol} Teknik Yön Skoru: {technical_score:.2f}")
+            logger.info(f"{args.symbol} Teknik Yön Skoru: {technical_score:.2f}")
 
     except Exception as e:
-        print(f"Veri çekme veya skor hesaplama sırasında bir hata oluştu: {e}")
+        logger.error(f"Veri çekme veya skor hesaplama sırasında bir hata oluştu: {e}")

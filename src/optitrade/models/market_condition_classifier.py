@@ -2,6 +2,20 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import argparse
+import logging
+from .. import config
+
+# Loglama yapılandırması
+logging.basicConfig(
+    level=config.LOG_LEVEL,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(config.LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 class MarketConditionClassifier:
     """
@@ -84,26 +98,26 @@ if __name__ == '__main__':
             vix_data = yf.download('^VIX', period='5d', interval='1d', auto_adjust=True) # auto_adjust eklendi
             if not vix_data.empty:
                 vix_val = float(vix_data['Close'].iloc[-1]) # float dönüşümü eklendi
-                print(f"Güncel VIX değeri: {vix_val:.2f}")
+                logger.info(f"Güncel VIX değeri: {vix_val:.2f}")
             else:
-                print("VIX verisi çekilemedi, varsayılan 20.0 kullanılıyor.")
+                logger.warning("VIX verisi çekilemedi, varsayılan 20.0 kullanılıyor.")
                 vix_val = 20.0
         except Exception as e:
-            print(f"VIX verisi çekilirken hata oluştu: {e}. Varsayılan 20.0 kullanılıyor.")
+            logger.error(f"VIX verisi çekilirken hata oluştu: {e}. Varsayılan 20.0 kullanılıyor.")
             vix_val = 20.0
 
     # BTC Dominance ve Total Market Cap için varsayılan değerler (gerçek uygulamada API'den çekilmeli)
     btc_dom_val = args.btc_dom if args.btc_dom is not None else 0.50 # %50
     mcap_val = args.mcap if args.mcap is not None else 1_500_000_000_000 # 1.5 Trilyon USD
 
-    print(f"\n--- Piyasa Koşulu Sınıflandırması ---")
-    print(f"Girdiler: VIX={vix_val:.2f}, BTC Dominance={btc_dom_val:.2f}, Toplam Piyasa Değeri={mcap_val / 1_000_000_000_000:.2f} Trilyon USD")
+    logger.info(f"--- Piyasa Koşulu Sınıflandırması ---")
+    logger.info(f"Girdiler: VIX={vix_val:.2f}, BTC Dominance={btc_dom_val:.2f}, Toplam Piyasa Değeri={mcap_val / 1_000_000_000_000:.2f} Trilyon USD")
 
     market_condition = model.classify_market_condition(vix_val, btc_dom_val, mcap_val)
-    print(f"Piyasa Koşulu: {market_condition.upper()}")
+    logger.info(f"Piyasa Koşulu: {market_condition.upper()}")
 
     # Örnek senaryolar
-    print("\n--- Örnek Senaryolar ---")
-    print(f"Senaryo 1 (Boğa): VIX=15, BTC_DOM=0.40, MCAP=2T -> {model.classify_market_condition(15, 0.40, 2_000_000_000_000).upper()}")
-    print(f"Senaryo 2 (Ayı): VIX=35, BTC_DOM=0.60, MCAP=400B -> {model.classify_market_condition(35, 0.60, 400_000_000_000).upper()}")
-    print(f"Senaryo 3 (Yatay): VIX=25, BTC_DOM=0.50, MCAP=800B -> {model.classify_market_condition(25, 0.50, 800_000_000_000).upper()}")
+    logger.info("--- Örnek Senaryolar ---")
+    logger.info(f"Senaryo 1 (Boğa): VIX=15, BTC_DOM=0.40, MCAP=2T -> {model.classify_market_condition(15, 0.40, 2_000_000_000_000).upper()}")
+    logger.info(f"Senaryo 2 (Ayı): VIX=35, BTC_DOM=0.60, MCAP=400B -> {model.classify_market_condition(35, 0.60, 400_000_000_000).upper()}")
+    logger.info(f"Senaryo 3 (Yatay): VIX=25, BTC_DOM=0.50, MCAP=800B -> {model.classify_market_condition(25, 0.50, 800_000_000_000).upper()}")

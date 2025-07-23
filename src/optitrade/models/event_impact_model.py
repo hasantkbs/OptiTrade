@@ -2,6 +2,20 @@ import pandas as pd
 from datetime import datetime, timedelta
 import argparse
 import numpy as np
+import logging
+from .. import config
+
+# Loglama yapılandırması
+logging.basicConfig(
+    level=config.LOG_LEVEL,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(config.LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 class EventImpactModel:
     """
@@ -102,17 +116,17 @@ if __name__ == '__main__':
     try:
         analysis_date = datetime.strptime(args.date, '%Y-%m-%d')
     except ValueError:
-        print("Hata: Geçersiz tarih formatı. Lütfen YYYY-MM-DD formatını kullanın.")
+        logger.error("Hata: Geçersiz tarih formatı. Lütfen YYYY-MM-DD formatını kullanın.")
         exit(1)
 
     model = EventImpactModel(decay_rate=args.decay_rate)
     impact_score = model.calculate_impact(analysis_date)
 
-    print(f"\n--- {analysis_date.strftime('%Y-%m-%d')} için Olay Etki Analizi ---")
-    print(f"Olay Etki Katsayısı: {impact_score:.2f}")
+    logger.info(f"--- {analysis_date.strftime('%Y-%m-%d')} için Olay Etki Analizi ---")
+    logger.info(f"Olay Etki Katsayısı: {impact_score:.2f}")
 
     # Örnek olaylara yakın tarihlerle test
-    print("\n--- Örnek Olaylara Yakın Tarihlerle Test ---")
+    logger.info("--- Örnek Olaylara Yakın Tarihlerle Test ---")
     test_dates = [
         datetime(2024, 7, 24), # FOMC öncesi
         datetime(2024, 7, 25), # FOMC günü
@@ -131,4 +145,4 @@ if __name__ == '__main__':
 
     for date in test_dates:
         score = model.calculate_impact(date)
-        print(f"{date.strftime('%Y-%m-%d')} için Etki: {score:.2f}")
+        logger.info(f"{date.strftime('%Y-%m-%d')} için Etki: {score:.2f}")

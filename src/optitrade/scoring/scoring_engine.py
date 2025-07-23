@@ -1,5 +1,19 @@
 import pandas as pd
 import numpy as np
+import logging
+from .. import config
+
+# Loglama yapılandırması
+logging.basicConfig(
+    level=config.LOG_LEVEL,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(config.LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 class ScoringEngine:
     """
@@ -22,7 +36,9 @@ class ScoringEngine:
             'support_resistance_score': 0.122087633428514,
             'divergence_score': 0.13685878387299963,
             'event_impact_score': 0.14617040368791645,
+            'scalping_score': 0.10, # Yeni eklenen scalping skoru için başlangıç ağırlığı
         }
+        # market_condition_score is handled separately and should not be in weights
         if weights:
             self.weights.update(weights)
         
@@ -45,8 +61,10 @@ class ScoringEngine:
         """
         final_score = 0.0
         for score_name, weight in self.weights.items():
-            score_value = model_scores.get(score_name, 0.0) # Eğer skor yoksa 0 kabul et
-            final_score += score_value * weight
+            score_value = model_scores.get(score_name)
+            if score_value is None or not isinstance(score_value, (int, float)):
+                score_value = 0.0
+            final_score += float(score_value) * weight
         
         # Piyasa koşuluna göre skoru ayarla
         market_condition = model_scores.get('market_condition_score', 'sideways')
@@ -81,8 +99,8 @@ if __name__ == '__main__':
     # Varsayılan ağırlıklarla motoru başlat
     engine = ScoringEngine()
     final_prediction = engine.generate_final_score(example_scores)
-    print(f"\n--- Nihai Tahmin Skoru (Varsayılan Ağırlıklarla) ---")
-    print(f"Nihai Skor: {final_prediction:.2f}")
+    logger.info(f"--- Nihai Tahmin Skoru (Varsayılan Ağırlıklarla) ---")
+    logger.info(f"Nihai Skor: {final_prediction:.2f}")
 
     # Özel ağırlıklarla motoru başlat
     custom_weights = {
@@ -93,8 +111,8 @@ if __name__ == '__main__':
     }
     custom_engine = ScoringEngine(weights=custom_weights)
     custom_final_prediction = custom_engine.generate_final_score(example_scores)
-    print(f"\n--- Nihai Tahmin Skoru (Özel Ağırlıklarla) ---")
-    print(f"Nihai Skor: {custom_final_prediction:.2f}")
+    logger.info(f"--- Nihai Tahmin Skoru (Özel Ağırlıklarla) ---")
+    logger.info(f"Nihai Skor: {custom_final_prediction:.2f}")
 
     # Düşüş senaryosu
     bearish_scores = {
@@ -108,8 +126,8 @@ if __name__ == '__main__':
         'market_condition_score': 'bear' # Piyasa koşulu
     }
     bearish_prediction = engine.generate_final_score(bearish_scores)
-    print(f"\n--- Nihai Tahmin Skoru (Düşüş Senaryosu) ---")
-    print(f"Nihai Skor: {bearish_prediction:.2f}")
+    logger.info(f"--- Nihai Tahmin Skoru (Düşüş Senaryosu) ---")
+    logger.info(f"Nihai Skor: {bearish_prediction:.2f}")
 
     # Yatay senaryo
     sideways_scores = {
@@ -123,5 +141,5 @@ if __name__ == '__main__':
         'market_condition_score': 'sideways' # Piyasa koşulu
     }
     sideways_prediction = engine.generate_final_score(sideways_scores)
-    print(f"\n--- Nihai Tahmin Skoru (Yatay Senaryo) ---")
-    print(f"Nihai Skor: {sideways_prediction:.2f}")
+    logger.info(f"--- Nihai Tahmin Skoru (Yatay Senaryo) ---")
+    logger.info(f"Nihai Skor: {sideways_prediction:.2f}")

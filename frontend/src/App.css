@@ -1,0 +1,152 @@
+:root {
+  --primary-bg: #282c34;
+  --secondary-bg: #3a3f47;
+  --primary-text: #ffffff;
+  --accent-color: #61dafb;
+  --error-color: #ff6b6b;
+  --success-color: #4caf50;
+  --neutral-color: #f0b90b;
+}
+
+.App {
+  text-align: center;
+  background-color: var(--primary-bg);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-text);
+  padding: 20px;
+}
+
+.App-header h1 {
+  font-size: 2.5rem;
+  margin-bottom: 30px;
+  color: var(--accent-color);
+}
+
+.input-container {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.input-container input,
+.input-container select {
+  padding: 10px 15px;
+  font-size: 1rem;
+  border-radius: 5px;
+  border: 2px solid var(--secondary-bg);
+  background-color: var(--primary-bg);
+  color: var(--primary-text);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input-container input:focus,
+.input-container select:focus {
+  border-color: var(--accent-color);
+}
+
+.input-container button {
+  padding: 10px 20px;
+  font-size: 1rem;
+  border-radius: 5px;
+  border: none;
+  background-color: var(--accent-color);
+  color: var(--primary-bg);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.input-container button:disabled {
+  background-color: var(--secondary-bg);
+  cursor: not-allowed;
+}
+
+.input-container button:hover:not(:disabled) {
+  background-color: #4aa8c7;
+}
+
+.error-message {
+  color: var(--error-color);
+  background-color: rgba(255, 107, 107, 0.1);
+  padding: 10px 20px;
+  border-radius: 5px;
+  margin-top: 20px;
+}
+
+.results-container {
+  margin-top: 30px;
+  background-color: var(--secondary-bg);
+  padding: 20px;
+  border-radius: 8px;
+  width: 100%;
+  max-width: 800px; /* Genişletilmiş genişlik */
+}
+
+.final-score {
+  margin-bottom: 20px;
+}
+
+.final-score p {
+  margin: 0;
+  font-size: 1.2rem;
+  color: var(--accent-color);
+}
+
+.final-score span {
+  font-size: 3rem;
+  font-weight: bold;
+}
+
+.recommendation-message {
+  margin-bottom: 20px;
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: var(--success-color); /* Varsayılan olarak yeşil, duruma göre değişebilir */
+}
+
+.alert-message p {
+  font-style: italic;
+  font-size: 1.1rem;
+}
+
+.chart-container {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid #4a4f57;
+}
+
+.chart-container h3 {
+  margin-bottom: 15px;
+  color: var(--accent-color);
+}
+
+.model-scores {
+  margin-top: 20px;
+}
+
+.model-scores h3 {
+  border-bottom: 1px solid var(--accent-color);
+  padding-bottom: 5px;
+  margin-bottom: 15px;
+}
+
+.model-scores ul {
+  list-style: none;
+  padding: 0;
+  text-align: left;
+}
+
+.model-scores li {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #4a4f57;
+}
+
+.model-scores li span:first-child {
+  text-transform: capitalize;
+}

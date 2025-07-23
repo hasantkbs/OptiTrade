@@ -5,6 +5,20 @@ import ta.trend
 from scipy.signal import argrelextrema
 import yfinance as yf
 import argparse
+import logging
+from .. import config
+
+# Loglama yapılandırması
+logging.basicConfig(
+    level=config.LOG_LEVEL,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(config.LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 class DivergenceDetectionModel:
     """
@@ -14,13 +28,13 @@ class DivergenceDetectionModel:
     Çıktı: Sinyal (bullish/bearish) veya skor.
     """
     def __init__(self,
-                 indicator_window: int = 14, # RSI veya ADX için
-                 macd_fast_window: int = 12,
-                 macd_slow_window: int = 26,
-                 macd_signal_window: int = 9,
-                 extrema_order: int = 5, # argrelextrema için komşu nokta sayısı
-                 divergence_lookback_period: int = 60, # Uyumsuzluk arama penceresi (gün)
-                 tolerance_days: int = 5): # Ekstremum eşleştirme toleransı (gün)
+                 indicator_window: int = config.DIVERGENCE_INDICATOR_WINDOW, # RSI veya ADX için
+                 macd_fast_window: int = config.DIVERGENCE_MACD_FAST_WINDOW,
+                 macd_slow_window: int = config.DIVERGENCE_MACD_SLOW_WINDOW,
+                 macd_signal_window: int = config.DIVERGENCE_MACD_SIGNAL_WINDOW,
+                 extrema_order: int = config.DIVERGENCE_EXTREMA_ORDER, # argrelextrema için komşu nokta sayısı
+                 divergence_lookback_period: int = config.DIVERGENCE_LOOKBACK_PERIOD, # Uyumsuzluk arama penceresi (gün)
+                 tolerance_days: int = config.DIVERGENCE_TOLERANCE_DAYS): # Ekstremum eşleştirme toleransı (gün)
         """
         Modeli başlatır ve parametreleri ayarlar.
 
@@ -54,17 +68,31 @@ class DivergenceDetectionModel:
             extrema_indices = argrelextrema(series.values, np.less, order=self.extrema_order)[0]
         return series.iloc[extrema_indices]
 
-    def detect_divergence(self, data: pd.DataFrame, indicator_type: str = 'rsi') -> dict:
-        """
-        Fiyat ve gösterge arasındaki uyumsuzlukları tespit eder.
+    def detect_divergence(self, data: pd.DataFrame, indicator_type: str = 'rsi', interval: str = '1d') -> dict:
+        logger.debug(f"DivergenceDetectionModel: detect_divergence called with interval: {interval}")
 
-        Args:
-            data (pd.DataFrame): OHLCV verilerini içeren pandas DataFrame.
-            indicator_type (str): Kullanılacak gösterge ('rsi', 'macd_line' veya 'macd_hist').
+        # Interval'e göre pencere boyutlarını ve toleransları ayarla
+        if interval == '1m':
+            extrema_order = 1
+            divergence_lookback_period = 60 # 60 dakika
+            tolerance_days = 0 # Aynı mum içinde veya çok yakın
+        elif interval == '5m':
+            extrema_order = 2
+            divergence_lookback_period = 120 # 120 * 5 dakika = 10 saat
+            tolerance_days = 0
+        elif interval == '15m':
+            extrema_order = 3
+            divergence_lookback_period = 180 # 180 * 15 dakika = 45 saat
+            tolerance_days = 0
+        elif interval == '30m' or interval == '60m' or interval == '1h':
+            extrema_order = 4
+            divergence_lookback_period = 240 # 240 * 60 dakika = 10 gün
+            tolerance_days = 1
+        else: # 1d, 1wk, 1mo ve diğerleri için varsayılan değerler
+            extrema_order = self.extrema_order
+            divergence_lookback_period = self.divergence_lookback_period
+            tolerance_days = self.tolerance_days
 
-        Returns:
-            dict: Tespit edilen uyumsuzlukları içeren sözlük (örn: {'bullish': True, 'bearish': False, 'score': 0.5}).
-        """
         required_columns = ['High', 'Low', 'Close']
         if not isinstance(data, pd.DataFrame) or data.empty or not all(col in data.columns for col in required_columns):
             raise ValueError(f"DataFrame boş olamaz ve {required_columns} sütunlarını içermelidir.")
@@ -73,7 +101,7 @@ class DivergenceDetectionModel:
         high_prices = data['High']
         low_prices = data['Low']
 
-        if len(prices) < max(self.indicator_window, self.macd_slow_window, self.extrema_order * 2 + 1):
+        if len(prices) < max(self.indicator_window, self.macd_slow_window, extrema_order * 2 + 1):
             return {'bullish': False, 'bearish': False, 'score': 0.0, 'message': 'Yeterli veri yok.'}
 
         indicator = None
@@ -90,10 +118,10 @@ class DivergenceDetectionModel:
             return {'bullish': False, 'bearish': False, 'score': 0.0, 'message': 'Gösterge verisi eksik veya geçersiz.'}
 
         # Sadece son 'divergence_lookback_period' kadar veriyi al
-        prices_slice = prices.iloc[-self.divergence_lookback_period:].dropna()
-        indicator_slice = indicator.iloc[-self.divergence_lookback_period:].dropna()
+        prices_slice = prices.iloc[-divergence_lookback_period:].dropna()
+        indicator_slice = indicator.iloc[-divergence_lookback_period:].dropna()
 
-        if len(prices_slice) < self.extrema_order * 2 + 1 or len(indicator_slice) < self.extrema_order * 2 + 1:
+        if len(prices_slice) < extrema_order * 2 + 1 or len(indicator_slice) < extrema_order * 2 + 1:
             return {'bullish': False, 'bearish': False, 'score': 0.0, 'message': 'Hizalanmış veri yeterli değil.'}
 
         # Fiyat ve gösterge ekstremumlarını bul
@@ -124,8 +152,9 @@ class DivergenceDetectionModel:
                         prev_indicator_low_idx = indicator_lows.index[j-1]
 
                         # Zaman toleransı içinde mi?
-                        if abs((current_price_low_idx - current_indicator_low_idx).days) <= self.tolerance_days and \
-                           abs((prev_price_low_idx - prev_indicator_low_idx).days) <= self.tolerance_days:
+                        # timedelta ile karşılaştırma yapmak için datetime nesneleri olmalı
+                        if abs((current_price_low_idx - current_indicator_low_idx).total_seconds() / (60 * 60 * 24)) <= tolerance_days and \
+                           abs((prev_price_low_idx - prev_indicator_low_idx).total_seconds() / (60 * 60 * 24)) <= tolerance_days:
                             
                             if current_indicator_low_val > prev_indicator_low_val: # Gösterge daha yüksek dip yapıyor
                                 bullish_divergence = True
@@ -153,8 +182,8 @@ class DivergenceDetectionModel:
                         prev_indicator_high_idx = indicator_highs.index[j-1]
 
                         # Zaman toleransı içinde mi?
-                        if abs((current_price_high_idx - current_indicator_high_idx).days) <= self.tolerance_days and \
-                           abs((prev_price_high_idx - prev_indicator_high_idx).days) <= self.tolerance_days:
+                        if abs((current_price_high_idx - current_indicator_high_idx).total_seconds() / (60 * 60 * 24)) <= tolerance_days and \
+                           abs((prev_price_high_idx - prev_indicator_high_idx).total_seconds() / (60 * 60 * 24)) <= tolerance_days:
 
                             if current_indicator_high_val < prev_indicator_high_val: # Gösterge daha düşük zirve yapıyor
                                 bearish_divergence = True
@@ -183,22 +212,22 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    print(f"\n--- {args.symbol} için Uyumsuzluk Tespiti ({args.indicator.upper()}) ---")
+    logger.info(f"--- {args.symbol} için Uyumsuzluk Tespiti ({args.indicator.upper()}) ---")
 
     try:
         ticker = yf.Ticker(args.symbol)
         data = ticker.history(period=args.period, interval=args.interval)
 
         if data.empty:
-            print(f"Hata: {args.symbol} için veri çekilemedi veya yeterli veri yok. Lütfen sembolü ve periyodu kontrol edin.")
+            logger.error(f"Hata: {args.symbol} için veri çekilemedi veya yeterli veri yok. Lütfen sembolü ve periyodu kontrol edin.")
         else:
             model = DivergenceDetectionModel()
             divergence_result = model.detect_divergence(data, indicator_type=args.indicator)
 
-            print(f"{args.symbol} Uyumsuzluk Sonucu: {divergence_result['message']}")
-            print(f"  Boğa Uyumsuzluğu: {divergence_result['bullish']}")
-            print(f"  Ayı Uyumsuzluğu: {divergence_result['bearish']}")
-            print(f"  Uyumsuzluk Skoru: {divergence_result['score']:.2f}")
+            logger.info(f"{args.symbol} Uyumsuzluk Sonucu: {divergence_result['message']}")
+            logger.info(f"  Boğa Uyumsuzluğu: {divergence_result['bullish']}")
+            logger.info(f"  Ayı Uyumsuzluğu: {divergence_result['bearish']}")
+            logger.info(f"  Uyumsuzluk Skoru: {divergence_result['score']:.2f}")
 
     except Exception as e:
-        print(f"Veri çekme veya uyumsuzluk tespiti sırasında bir hata oluştu: {e}")
+        logger.error(f"Veri çekme veya uyumsuzluk tespiti sırasında bir hata oluştu: {e}")

@@ -4,6 +4,20 @@ import ta.volume
 import ta.volatility
 import yfinance as yf
 import argparse
+import logging
+from .. import config
+
+# Loglama yapılandırması
+logging.basicConfig(
+    level=config.LOG_LEVEL,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(config.LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 class VolumeSurgeModel:
     """
@@ -11,12 +25,12 @@ class VolumeSurgeModel:
     Kullanılan göstergeler: VWAP, On-Balance Volume, Volatility + Volume ilişkisi.
     """
     def __init__(self,
-                 vwap_window: int = 14,
-                 obv_window: int = 14,
-                 volatility_window: int = 14,
-                 volume_ma_window: int = 20,
-                 volume_deviation_scale: float = 1.0, # Yeni parametre
-                 obv_influence: float = 0.2): # Yeni parametre
+                 vwap_window: int = config.VOLUME_SURGE_VWAP_WINDOW,
+                 obv_window: int = config.VOLUME_SURGE_OBV_WINDOW,
+                 volatility_window: int = config.VOLUME_SURGE_VOLATILITY_WINDOW,
+                 volume_ma_window: int = config.VOLUME_SURGE_MA_WINDOW,
+                 volume_deviation_scale: float = config.VOLUME_SURGE_DEVIATION_SCALE, # Yeni parametre
+                 obv_influence: float = config.VOLUME_SURGE_OBV_INFLUENCE): # Yeni parametre
         """
         Modeli başlatır ve gösterge parametrelerini ayarlar.
 
@@ -35,18 +49,36 @@ class VolumeSurgeModel:
         self.volume_deviation_scale = volume_deviation_scale
         self.obv_influence = obv_influence
 
-    def generate_score(self, data: pd.DataFrame) -> tuple[float, float]:
-        """
-        Günlük OHLCV verilerinden hacim skoru ve volatiliteyle normalize edilmiş etki üretir.
+    def generate_score(self, data: pd.DataFrame, interval: str = '1d') -> tuple[float, float]:
+        logger.debug(f"VolumeSurgeModel: generate_score called with interval: {interval}")
 
-        Args:
-            data (pd.DataFrame): OHLCV verilerini içeren pandas DataFrame.
+        # Interval'e göre pencere boyutlarını ayarla
+        if interval == '1m':
+            vwap_window = 5
+            obv_window = 5
+            volatility_window = 5
+            volume_ma_window = 10
+        elif interval == '5m':
+            vwap_window = 10
+            obv_window = 10
+            volatility_window = 10
+            volume_ma_window = 20
+        elif interval == '15m':
+            vwap_window = 12
+            obv_window = 12
+            volatility_window = 12
+            volume_ma_window = 30
+        elif interval == '30m' or interval == '60m' or interval == '1h':
+            vwap_window = 14
+            obv_window = 14
+            volatility_window = 14
+            volume_ma_window = 40
+        else: # 1d, 1wk, 1mo ve diğerleri için varsayılan değerler
+            vwap_window = self.vwap_window
+            obv_window = self.obv_window
+            volatility_window = self.volatility_window
+            volume_ma_window = self.volume_ma_window
 
-        Returns:
-            tuple[float, float]: (Hacim skoru, Volatiliteyle normalize edilmiş etki).
-                                 Hacim skoru: -1.0 (düşük hacim) ile 1.0 (yüksek hacim) arası.
-                                 Etki: -1.0 (negatif etki) ile 1.0 (pozitif etki) arası.
-        """
         # Veri kontrolü
         required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
         if not isinstance(data, pd.DataFrame) or data.empty or not all(col in data.columns for col in required_columns):
@@ -58,9 +90,9 @@ class VolumeSurgeModel:
         close_prices = data['Close']
         volumes = data['Volume']
 
-        min_data_points = max(self.vwap_window, self.obv_window, self.volatility_window, self.volume_ma_window)
+        min_data_points = max(vwap_window, obv_window, volatility_window, volume_ma_window)
         if len(close_prices) < min_data_points:
-            print(f"Uyarı: Yeterli veri noktası yok ({len(close_prices)} mevcut, en az {min_data_points} gerekli). Nötr skorlar döndürülüyor.")
+            logger.warning(f"Uyarı: Yeterli veri noktası yok ({len(close_prices)} mevcut, en az {min_data_points} gerekli). Nötr skorlar döndürülüyor.")
             return 0.0, 0.0
 
         # Göstergeleri hesapla
@@ -74,10 +106,10 @@ class VolumeSurgeModel:
         obv = ta.volume.on_balance_volume(close_prices, volumes)
 
         # Volatilite (ATR - Average True Range)
-        atr = ta.volatility.average_true_range(high_prices, low_prices, close_prices, window=self.volatility_window)
+        atr = ta.volatility.average_true_range(high_prices, low_prices, close_prices, window=volatility_window)
 
         # Hacim Hareketli Ortalaması
-        volume_ma = volumes.rolling(window=self.volume_ma_window).mean()
+        volume_ma = volumes.rolling(window=volume_ma_window).mean()
 
         # Hacim Skoru Hesaplama
         volume_score = 0.0
@@ -124,19 +156,19 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    print(f"\n--- {args.symbol} için Hacim ve Volatilite Analizi ---")
+    logger.info(f"--- {args.symbol} için Hacim ve Volatilite Analizi ---")
 
     try:
         ticker = yf.Ticker(args.symbol)
         data = ticker.history(period=args.period, interval=args.interval)
 
         if data.empty:
-            print(f"Hata: {args.symbol} için veri çekilemedi veya yeterli veri yok. Lütfen sembolü ve periyodu kontrol edin.")
+            logger.error(f"Hata: {args.symbol} için veri çekilemedi veya yeterli veri yok. Lütfen sembolü ve periyodu kontrol edin.")
         else:
             model = VolumeSurgeModel()
             volume_score, impact_score = model.generate_score(data)
-            print(f"{args.symbol} Hacim Skoru: {volume_score:.2f}")
-            print(f"{args.symbol} Volatiliteyle Normalize Edilmiş Etki: {impact_score:.2f}")
+            logger.info(f"{args.symbol} Hacim Skoru: {volume_score:.2f}")
+            logger.info(f"{args.symbol} Volatiliteyle Normalize Edilmiş Etki: {impact_score:.2f}")
 
     except Exception as e:
-        print(f"Veri çekme veya skor hesaplama sırasında bir hata oluştu: {e}")
+        logger.error(f"Veri çekme veya skor hesaplama sırasında bir hata oluştu: {e}")

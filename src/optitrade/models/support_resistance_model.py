@@ -2,6 +2,20 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import argparse
+import logging
+from .. import config
+
+# Loglama yapılandırması
+logging.basicConfig(
+    level=config.LOG_LEVEL,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(config.LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 class SupportResistanceModel:
     """
@@ -14,7 +28,7 @@ class SupportResistanceModel:
         """
         Modeli başlatır.
         """
-        pass
+        self.fractal_window = config.SUPPORT_RESISTANCE_FRACTAL_WINDOW
 
     def calculate_pivot_points(self, high: pd.Series, low: pd.Series, close: pd.Series) -> dict:
         """
@@ -69,17 +83,21 @@ class SupportResistanceModel:
                 fractals.append(prices.iloc[i])
         return fractals
 
-    def generate_proximity_score(self, data: pd.DataFrame) -> float:
-        """
-        Mevcut fiyatın destek/direnç seviyelerine yakınlık skorunu üretir.
-        Skor 0 (uzakta) ile 1 (çok yakın) arasındadır.
+    def generate_proximity_score(self, data: pd.DataFrame, interval: str = '1d') -> float:
+        logger.debug(f"SupportResistanceModel: generate_proximity_score called with interval: {interval}")
 
-        Args:
-            data (pd.DataFrame): OHLCV verilerini içeren pandas DataFrame.
+        # Interval'e göre fraktal pencere boyutunu ayarla
+        if interval == '1m':
+            fractal_window = 1
+        elif interval == '5m':
+            fractal_window = 2
+        elif interval == '15m':
+            fractal_window = 3
+        elif interval == '30m' or interval == '60m' or interval == '1h':
+            fractal_window = 4
+        else: # 1d, 1wk, 1mo ve diğerleri için varsayılan değer
+            fractal_window = self.fractal_window
 
-        Returns:
-            float: Yakınlık skoru (0: uzakta, 1: çok yakın).
-        """
         required_columns = ['High', 'Low', 'Close']
         if not isinstance(data, pd.DataFrame) or data.empty or not all(col in data.columns for col in required_columns):
             raise ValueError(f"DataFrame boş olamaz ve {required_columns} sütunlarını içermelidir.")
@@ -98,7 +116,7 @@ class SupportResistanceModel:
         levels = list(pivot_levels.values())
 
         # Fraktallar
-        fractal_levels = self.find_fractals(close, window=2)
+        fractal_levels = self.find_fractals(close, window=fractal_window)
         levels.extend(fractal_levels)
 
         if not levels:
@@ -126,21 +144,21 @@ class SupportResistanceModel:
         return float(proximity_score)
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Destek-direnç seviyelerine yakınlık skorunu hesaplar.')
+    parser = argparse.ArgumentParser(description='Destek-Direnç seviyelerine yakınlık skorunu hesaplar.')
     parser.add_argument('--symbol', type=str, default='BTC-USD', help='Hisse senedi/kripto para sembolü (örn: BTC-USD, AAPL). Varsayılan: BTC-USD')
     parser.add_argument('--period', type=str, default='1y', help='Veri çekme periyodu (örn: 1y, 6mo, 1mo). Varsayılan: 1y')
     parser.add_argument('--interval', type=str, default='1d', help='Veri çekme aralığı (örn: 1d, 1wk, 1mo). Varsayılan: 1d')
 
     args = parser.parse_args()
 
-    print(f"\n--- {args.symbol} için Destek-Direnç Yakınlık Analizi ---")
+    logger.info(f"--- {args.symbol} için Destek-Direnç Yakınlık Analizi ---")
 
     try:
         ticker = yf.Ticker(args.symbol)
         data = ticker.history(period=args.period, interval=args.interval)
 
         if data.empty:
-            print(f"Hata: {args.symbol} için veri çekilemedi veya yeterli veri yok. Lütfen sembolü ve periyodu kontrol edin.")
+            logger.error(f"Hata: {args.symbol} için veri çekilemedi veya yeterli veri yok. Lütfen sembolü ve periyodu kontrol edin.")
         else:
             # open_prices = data['Open'] # Bu satırlar artık gerekli değil
             # high_prices = data['High']
@@ -149,7 +167,7 @@ if __name__ == '__main__':
 
             model = SupportResistanceModel()
             proximity_score = model.generate_proximity_score(data)
-            print(f"{args.symbol} Destek-Direnç Yakınlık Skoru: {proximity_score:.2f}")
+            logger.info(f"{args.symbol} Destek-Direnç Yakınlık Skoru: {proximity_score:.2f}")
 
     except Exception as e:
-        print(f"Veri çekme veya skor hesaplama sırasında bir hata oluştu: {e}")
+        logger.error(f"Veri çekme veya skor hesaplama sırasında bir hata oluştu: {e}")

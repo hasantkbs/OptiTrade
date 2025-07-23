@@ -1,95 +1,139 @@
 # OptiTrade
 
-OptiTrade, yapay zeka destekli bir ticaret sinyali üretim ve analiz platformudur. Çeşitli finansal modelleri kullanarak piyasa verilerini analiz eder, ticaret sinyalleri üretir ve bu sinyalleri bir puanlama motoru aracılığıyla değerlendirir. Platform, geriye dönük test (backtesting) yetenekleri ile stratejilerin performansını simüle etme imkanı sunar.
+OptiTrade is an AI-powered trading signal generation and analysis platform. It analyzes market data using various financial models, generates trading signals, and evaluates these signals through a scoring engine. The platform offers backtesting capabilities to simulate strategy performance.
 
-## Özellikler
+## Features
 
-- **Çeşitli Finansal Modeller:** Fiyat trendi, haber duyarlılığı, piyasa koşulları sınıflandırması, sosyal duyarlılık, hacim artışı ve destek/direnç seviyeleri gibi çeşitli yapay zeka modelleri.
-- **Ticaret Sinyali Puanlama Motoru:** Üretilen sinyalleri kapsamlı bir şekilde değerlendirir ve puanlar.
-- **Geriye Dönük Test (Backtesting) Simülatörü:** Geliştirilen ticaret stratejilerinin geçmiş veriler üzerindeki performansını simüle eder.
-- **Veri Çekme ve İşleme:** Finansal verileri otomatik olarak çeker ve işler.
+- **Diverse Financial Models:** Various AI models including price trend, news sentiment, market condition classification, social sentiment, volume surge, support/resistance levels, and a new **Scalping Model** for short-term analysis.
 
-## Kurulum
+## Debug Mode and Logging
 
-OptiTrade projesini yerel makinenizde kurmak ve çalıştırmak için aşağıdaki adımları izleyin:
+To enable debug mode and view detailed logs, ensure your `.env` file (in the project root) contains `DEBUG=True`. Logs will be printed to the console and saved to `optitrade.log`.
 
-### Önkoşullar
+
+- **Trading Signal Scoring Engine:** Comprehensively evaluates and scores generated signals.
+- **Backtesting Simulator:** Simulates the performance of developed trading strategies on historical data.
+- **Data Fetching and Processing:** Automatically fetches and processes financial data.
+
+## Setup
+
+Follow these steps to set up and run the OptiTrade project on your local machine:
+
+### Prerequisites
 
 - Python 3.8+
-- Conda (Anaconda veya Miniconda)
+- Conda (Anaconda or Miniconda)
 
-### Adımlar
+### Steps
 
-1.  **Depoyu Klonlayın:**
+1.  **Clone the Repository:**
     ```bash
     git clone https://github.com/hasantkbs/OptiTrade.git
     cd OptiTrade
     ```
 
-2.  **Conda Ortamını Oluşturun ve Etkinleştirin:**
-    Proje için gerekli tüm bağımlılıkları içeren bir Conda ortamı oluşturmak için `environment.yml` dosyasını kullanın:
+2.  **Create and Activate Conda Environment:**
+    Use the `environment.yml` file to create a Conda environment with all necessary dependencies for the project:
     ```bash
     conda env create -f environment.yml
-    conda activate optitrade
+    conda activate optitrade_env
     ```
 
-3.  **Gerekli Python Paketlerini Yükleyin:**
-    `requirements.txt` dosyasında belirtilen ek paketleri yükleyin:
+3.  **Install Required Python Packages:**
+    Install additional packages specified in `requirements.txt`:
     ```bash
     pip install -r requirements.txt
     ```
 
-## Kullanım
+## Usage
 
-Conda ortamını etkinleştirdikten sonra (yukarıdaki kurulum adımlarına bakın), projenin ana işlevlerini çalıştırmak için aşağıdaki betikleri kullanabilirsiniz:
+The OptiTrade application includes both a backend API server and a frontend web interface. To run the application, you need to use two separate terminal windows.
 
-### Veri Çekme
+After activating your Conda environment (see setup steps above), follow these steps:
 
-Finansal verileri çekmek için `fetch_data.py` betiğini kullanın. Örneğin, BTC-USD verilerini çekmek için:
+### Terminal 1: Backend (API Server)
 
-```bash
-python scripts/fetch_data.py --symbol BTC-USD
-```
+1.  Open a new terminal window.
+2.  Navigate to the project's root directory:
+    ```bash
+    cd /path/to/OptiTradeCode/
+    ```
+3.  Activate your Conda environment:
+    ```bash
+    conda activate optitrade_env
+    ```
+4.  Start the FastAPI server:
+    ```bash
+    uvicorn src.optitrade.api.server:app --reload
+    ```
+    Keep this terminal window open. The server will continue to run.
 
-### Ana Uygulamayı Çalıştırma
+### Terminal 2: Frontend (Web Interface)
 
-OptiTrade'in ana uygulamasını çalıştırmak için `main.py` betiğini kullanın. Bu betik, tüm modelleri entegre eder ve ticaret sinyalleri üretir. Bu komutu projenin kök dizininden çalıştırın:
+1.  Open another new terminal window.
+2.  Navigate to the project's root directory:
+    ```bash
+    cd /path/to/OptiTradeCode/
+    ```
+3.  Activate your Conda environment:
+    ```bash
+    conda activate optitrade_env
+    ```
+4.  Navigate to the frontend folder:
+    ```bash
+    cd frontend
+    ```
+5.  Start the React development server:
+    ```bash
+    npm start
+    ```
+    This command will automatically open `http://localhost:3000` in your web browser. If it doesn't, you can manually paste this address into your browser.
 
-```bash
-python -m src.optitrade.main --symbol BTC-USD
-```
+### Terminal 3: Monitor Logs (Optional)
 
-*Not: Eğer `ModuleNotFoundError` hatası alırsanız, `src` dizinine gidip `python -m optitrade.main --symbol BTC-USD` komutunu deneyebilirsiniz.*
+1.  Open another new terminal window.
+2.  Navigate to the project's root directory:
+    ```bash
+    cd /path/to/OptiTradeCode/
+    ```
+3.  Monitor the `optitrade.log` file in real-time:
+    ```bash
+    tail -f optitrade.log
+    ```
 
-```bash
-cd src
-python -m optitrade.main --symbol BTC-USD
-cd ..
-```
+### Other Usage Scripts (For Developers)
 
-### Puanlama Motorunu Çalıştırma
+Development-oriented scripts for fetching financial data, running the main application, or running the scoring engine are still available in the `scripts/` directory. Note that the `interval` parameter now supports more granular options (e.g., `1m`, `5m`, `15m`, `30m`, `60m`, `1h`, `1d`, `1wk`, `1mo`, `3mo`). The `period` for data fetching is automatically adjusted in the frontend based on the selected `interval` to comply with `yfinance` limitations.
 
-Üretilen ticaret sinyallerini puanlamak için `run_scoring_engine.py` betiğini kullanın:
+-   **Fetch Data:**
+    ```bash
+    python scripts/fetch_data.py --symbol BTC-USD --interval 1d
+    ```
+-   **Run Main Application (CLI):**
+    ```bash
+    python -m src.optitrade.main --symbol BTC-USD --interval 1d
+    ```
+-   **Run Scoring Engine:**
+    ```bash
+    python scripts/run_scoring_engine.py --symbol BTC-USD --interval 1d
+    ```
 
-```bash
-python scripts/run_scoring_engine.py --symbol BTC-USD
-```
+## Project Structure
 
-## Proje Yapısı
-
-Projenin ana dizin yapısı aşağıdaki gibidir:
+The main directory structure of the project is as follows:
 
 ```
 OptiTrade/
-├── data/                 # Ham, işlenmiş ve harici veri dosyaları
-├── notebooks/            # Jupyter not defterleri (veri keşfi, model geliştirme)
-├── scripts/              # Yardımcı betikler (veri çekme, puanlama motoru çalıştırma)
-└── src/                  # Ana kaynak kodu
-    └── optitrade/        # OptiTrade paketi
-        ├── alerting/     # Uyarı sistemleri
-        ├── backtesting/  # Geriye dönük test simülatörü
-        ├── data/         # Veri yükleme ve işleme modülleri
-        ├── models/       # Yapay zeka modelleri
-        ├── scoring/      # Sinyal puanlama motoru
-        └── utils/        # Yardımcı fonksiyonlar ve sınıflar
+├── data/                 # Raw, processed, and external data files
+├── notebooks/            # Jupyter notebooks (data exploration, model development)
+├── scripts/              # Utility scripts (data fetching, scoring engine execution)
+└── src/                  # Main source code
+    └── optitrade/        # OptiTrade package
+        ├── alerting/     # Alerting systems
+        ├── backtesting/  # Backtesting simulator
+        ├── data/         # Data loading and processing modules
+        ├── models/       # Artificial intelligence models
+        ├── scoring/      # Signal scoring engine
+        ├── api/          # FastAPI backend API endpoints (includes a placeholder /v1/models endpoint)
+        └── utils/        # Utility functions and classes
 ```

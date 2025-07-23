@@ -4,12 +4,20 @@ from transformers import pipeline
 import os
 from dotenv import load_dotenv
 from typing import List
+import logging
+from .. import config
 
-# Import from data_fetcher
-# from optitrade.utils.data_fetcher import NewsFetcher, NEWS_API_KEY # Bu import sadece __main__ bloğu için gerekli
+# Loglama yapılandırması
+logging.basicConfig(
+    level=config.LOG_LEVEL,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(config.LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
 
-# .env dosyasındaki değişkenleri yükle
-load_dotenv()
+logger = logging.getLogger(__name__)
 
 class NewsSentimentModel:
     """
@@ -92,7 +100,7 @@ if __name__ == '__main__':
     # Örnek kullanım
     # NewsFetcher ve NEWS_API_KEY sadece burada test amaçlı import ediliyor.
     # Normalde bu model, haber metinlerini doğrudan almalıdır.
-    from optitrade.utils.data_fetcher import NewsFetcher, NEWS_API_KEY
+    from ..utils.data_fetcher import NewsFetcher, NEWS_API_KEY
 
     model = NewsSentimentModel()
     fetcher = NewsFetcher()
@@ -102,13 +110,13 @@ if __name__ == '__main__':
     news_api_key = NEWS_API_KEY # .env dosyasından çekilen anahtar
 
     if not news_api_key:
-        print("Hata: NEWS_API_KEY .env dosyasında ayarlanmamış. Lütfen NewsAPI.org API anahtarınızı ekleyin.")
+        logger.error("Hata: NEWS_API_KEY .env dosyasında ayarlanmamış. Lütfen NewsAPI.org API anahtarınızı ekleyin.")
     else:
-        print(f"\n--- NewsAPI.org'dan '{query}' haberleri çekiliyor ---")
+        logger.info(f"--- NewsAPI.org'dan '{query}' haberleri çekiliyor ---")
         news_data = fetcher.fetch_news_from_newsapi(news_api_key, query=query, language='en')
 
         if news_data and news_data.get('articles'):
-            print(f"{len(news_data['articles'])} adet haber bulundu.")
+            logger.info(f"{len(news_data['articles'])} adet haber bulundu.")
             news_headlines = [article.get('title', '') for article in news_data['articles'] if article.get('title')]
             
             average_score = model.analyze_sentiment(news_headlines)
@@ -117,12 +125,12 @@ if __name__ == '__main__':
                 sentiment = "Pozitif"
             elif average_score < -0.1:
                 sentiment = "Negatif"
-            print(f"\n--- Ortalama Duygu Skoru ({query}) ---")
-            print(f"Ortalama Skor: {average_score:.2f}, Ortalama Duygu: {sentiment}")
+            logger.info(f"--- Ortalama Duygu Skoru ({query}) ---")
+            logger.info(f"Ortalama Skor: {average_score:.2f}, Ortalama Duygu: {sentiment}")
 
             # Her bir haberin skorunu da gösterebiliriz (isteğe bağlı)
             # for i, headline in enumerate(news_headlines):
             #     score = model._analyze_single_text_sentiment(headline)
-            #     print(f"Haber {i+1}: '{headline[:70]}...'\n  Skor: {score:.2f}")
+            #     logger.info(f"Haber {i+1}: '{headline[:70]}...\n  Skor: {score:.2f}'")
         else:
-            print("Analiz edilecek haber metni bulunamadı.")
+            logger.warning("Analiz edilecek haber metni bulunamadı.")

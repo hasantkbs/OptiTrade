@@ -3,3 +3,5 @@ transformers
 numpy
 python-dotenv
 praw
+fastapi
+uvicorn[standard]

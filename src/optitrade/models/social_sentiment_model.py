@@ -1,3 +1,18 @@
+import logging
+from .. import config
+
+# Loglama yapılandırması
+logging.basicConfig(
+    level=config.LOG_LEVEL,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(config.LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
 class SocialSentimentModel:
     """
     Sosyal medya mesajlarından duygu analizi yapan sınıf.
@@ -46,11 +61,11 @@ class SocialSentimentModel:
         Returns:
             float: Her zaman 0.0 (nötr).
         """
-        print(f"Reddit duygu analizi geçici olarak devre dışı bırakıldı. Nötr skor (0.0) dönüyor.")
+        logger.warning(f"Reddit duygu analizi geçici olarak devre dışı bırakıldı. Nötr skor (0.0) dönüyor.")
         return 0.0
 
 if __name__ == '__main__':
-    print("🔍 Sosyal Medya Duygu Analizi Başlatılıyor (Geçici Olarak Nötr)...")
+    logger.info("Sosyal Medya Duygu Analizi Başlatılıyor (Geçici Olarak Nötr)...")
 
     model = SocialSentimentModel()
 
@@ -61,11 +76,11 @@ if __name__ == '__main__':
         "Her şey kötüye gidiyor."
     ]
 
-    print(f"\n--- Simüle Sosyal Medya Duygu Analizi ---")
+    logger.info("--- Simüle Sosyal Medya Duygu Analizi ---")
     average_score = model.analyze_sentiment(social_media_messages)
-    print(f"Ortalama Skor: {average_score:.2f} (Her zaman 0.0 olmalı)")
+    logger.info(f"Ortalama Skor: {average_score:.2f} (Her zaman 0.0 olmalı)")
 
     # Reddit duygu analizi için örnek kullanım
     reddit_subreddit = "wallstreetbets"
     reddit_sentiment_score = model.analyze_reddit_sentiment(reddit_subreddit, limit=5)
-    print(f"Ortalama Reddit Duygu Skoru (r/{reddit_subreddit}): {reddit_sentiment_score:.2f} (Her zaman 0.0 olmalı)")
+    logger.info(f"Ortalama Reddit Duygu Skoru (r/{reddit_subreddit}): {reddit_sentiment_score:.2f} (Her zaman 0.0 olmalı)")

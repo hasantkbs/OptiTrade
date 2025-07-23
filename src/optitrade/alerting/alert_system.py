@@ -1,10 +1,26 @@
 import argparse
+import logging
+from .. import config
+
+# Loglama yapılandırması
+logging.basicConfig(
+    level=config.LOG_LEVEL,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(config.LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 class AlertSystem:
     """
     Belirli skor eşiği aşıldığında sinyal üreten sistem.
     """
-    def __init__(self, bullish_threshold: float = 0.7, bearish_threshold: float = -0.7):
+    def __init__(self, 
+                 bullish_threshold: float = config.ALERT_BULLISH_THRESHOLD, 
+                 bearish_threshold: float = config.ALERT_BEARISH_THRESHOLD):
         """
         Uyarı sistemini başlatır ve eşikleri ayarlar.
 
@@ -40,16 +56,16 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    print(f"\n--- Uyarı Sistemi Kontrolü ---")
+    logger.info(f"--- Uyarı Sistemi Kontrolü ---")
 
     alert_system = AlertSystem(bullish_threshold=args.bullish_threshold, bearish_threshold=args.bearish_threshold)
     alert_message = alert_system.check_for_alert(args.score)
 
-    print(alert_message)
+    logger.info(alert_message)
 
     # Örnek senaryolar
-    print("\n--- Örnek Senaryolar ---")
-    print(alert_system.check_for_alert(0.8)) # Güçlü boğa
-    print(alert_system.check_for_alert(0.5)) # Nötr
-    print(alert_system.check_for_alert(-0.8)) # Güçlü ayı
-    print(alert_system.check_for_alert(-0.5)) # Nötr
+    logger.info("--- Örnek Senaryolar ---")
+    logger.info(alert_system.check_for_alert(0.8)) # Güçlü boğa
+    logger.info(alert_system.check_for_alert(0.5)) # Nötr
+    logger.info(alert_system.check_for_alert(-0.8)) # Güçlü ayı
+    logger.info(alert_system.check_for_alert(-0.5)) # Nötr
