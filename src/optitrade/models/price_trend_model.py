@@ -141,10 +141,10 @@ class PriceTrendModel:
         # Bollinger Bantları Skoru
         if not bollinger_hband.empty and not pd.isna(bollinger_hband.iloc[-1]) and \
            not bollinger_lband.empty and not pd.isna(bollinger_lband.iloc[-1]) and \
-           not data.empty and not pd.isna(data.iloc[-1]):
-            if data.iloc[-1] > bollinger_hband.iloc[-1]:
+           'close' in data and not data['close'].empty and not pd.isna(data['close'].iloc[-1]):
+            if data['close'].iloc[-1] > bollinger_hband.iloc[-1]:
                 score -= 0.2 # Üst bandın üzerinde, aşırı alım
-            elif data.iloc[-1] < bollinger_lband.iloc[-1]:
+            elif data['close'].iloc[-1] < bollinger_lband.iloc[-1]:
                 score += 0.2 # Alt bandın altında, aşırı satım
 
         # ADX Skoru (Trend Gücü ve Yönü)
