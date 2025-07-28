@@ -1,0 +1,69 @@
+# OptiTrade Tahmin Modeli Geliştirme - Yapılacaklar Listesi
+
+Bu adımlar, BTC fiyat tahmin modelinin doğruluk oranını artırmak için gereklidir.
+
+## Tamamlanan Görevler:
+
+*   **Haber Çekme API'si Geliştirme:** CoinTelegraph'dan haber başlıkları ve linkleri çeken bir FastAPI tabanlı API geliştirildi ve test edildi.
+*   **Destek/Direnç Modeli Geliştirme ve Entegrasyon:** Geçmiş BTC verilerine göre destek ve direnç seviyelerini belirleyen bir model geliştirildi ve Scoring Engine'e entegre edildi.
+*   **Haber Duyarlılık Modeli Optimizasyonu:** FinBERT entegrasyonu ile haber duyarlılık analizi iyileştirildi.
+
+## Mevcut Durum ve Sonraki Adımlar:
+
+Projemizin mevcut durumu ve odaklanmamız gereken ana geliştirme alanları aşağıdadır:
+
+### Eksiklerimiz ve Geliştirme Alanları:
+
+1.  **Çoğu Model İçin Gerçek Zamanlı Veri Entegrasyonu:** Şu anda sadece `support_resistance_model` ve `news_sentiment_model` gerçek verileri çekiyor. Diğer modellerimiz hala varsayımsal veya manuel olarak girilen skorlarla çalışıyor. Bu modellerin her birinin kendi veri kaynaklarından (piyasa verileri, sosyal medya verileri vb.) gerçek zamanlı veri çekmesi ve bu verileri işlemesi gerekiyor.
+2.  **Kapsamlı Veri Çekme Hattı (Pipeline):** `data_fetcher.py` dosyasında çeşitli veri çekme fonksiyonları bulunsa da, bu fonksiyonlar henüz tüm modeller tarafından aktif olarak kullanılmıyor. Her modelin ihtiyaç duyduğu veriyi `data_fetcher` üzerinden almasını sağlayacak bir entegrasyon hattı oluşturmalıyız.
+3.  **Model Çıktı Standardizasyonu:** Tüm modellerin `ScoringEngine` tarafından kolayca tüketilebilecek standart bir skor formatı (örneğin, -1.0 ile +1.0 arası) üretmesini sağlamalıyız.
+4.  **Sağlam Hata Yönetimi ve Loglama:** Veri çekme ve model çalıştırma adımlarında daha kapsamlı hata yönetimi ve loglama mekanizmaları eklemek, sistemin kararlılığı için önemlidir.
+5.  **Otomatik Model Eğitimi/Yeniden Eğitimi:** Eğer modellerimiz makine öğrenimi tabanlıysa, yeni verilerle periyodik olarak yeniden eğitilmeleri için bir otomasyon süreci oluşturmalıyız.
+6.  **Geriye Dönük Test (Backtesting) Çerçevesi:** `ScoringEngine`'in geçmiş veriler üzerindeki performansını değerlendirmek için özel bir geriye dönük test çerçevesi geliştirmeliyiz.
+7.  **Kullanıcı Arayüzü Entegrasyonu:** `frontend` dizini mevcut olsa da, Python arka ucu ile bu arayüz arasında henüz net bir entegrasyon bulunmuyor.
+
+### Manuel Veri Alan (veya Henüz Gerçek Veri Entegre Edilmemiş) Modellerimiz:
+
+`ScoringEngine`'in örnek kullanımındaki varsayımsal skorlara dayanarak, şu modellerin henüz gerçek veri entegrasyonuna ihtiyacı olduğunu söyleyebiliriz:
+
+*   `price_trend_model.py` (Fiyat trendi analizi için piyasa verilerine ihtiyaç duyar)
+*   `volume_surge_model.py` (Hacim artışı analizi için piyasa verilerine ihtiyaç duyar)
+*   `social_sentiment_model.py` (Sosyal medya duyarlılık analizi için sosyal medya verilerine ihtiyaç duyar)
+*   `divergence_detection_model.py` (Fiyat ve gösterge uyumsuzlukları için piyasa verilerine ihtiyaç duyar)
+*   `event_impact_model.py` (Önemli olayların etkisini analiz etmek için olay verilerine (haberler, takvimler) ihtiyaç duyar)
+*   `market_condition_classifier.py` (Piyasa koşullarını sınıflandırmak için çeşitli piyasa göstergelerine ihtiyaç duyar)
+*   `scalping_model.py` (Yüksek frekanslı alım satım için yüksek frekanslı piyasa verilerine ihtiyaç duyar)
+
+## 1. Gerekli Kütüphaneleri Kurun
+
+Python ortamınızda aşağıdaki kütüphanelerin kurulu olduğundan emin olun. Eğer kurulu değillerse, terminalinizde aşağıdaki komutları çalıştırarak kurabilirsiniz:
+
+```bash
+pip install scikit-learn pandas numpy beautifulsoup4 requests fastapi uvicorn
+```
+
+*   `scikit-learn`: Makine öğrenimi modelleri için (Random Forest, vb.)
+*   `pandas`: Veri işleme ve analizi için
+*   `numpy`: Sayısal işlemler için
+*   `beautifulsoup4`: Web scraping için
+*   `requests`: HTTP istekleri için
+*   `fastapi`: Web API geliştirme için
+*   `uvicorn`: ASGI sunucusu için
+
+## 2. Doğruluk Oranı Beklentisi Hakkında
+
+Finansal piyasalarda %75-80 gibi yüksek bir doğruluk oranına ulaşmak son derece zordur ve çoğu zaman gerçekçi değildir. Piyasa dinamikleri çok karmaşık ve öngörülemezdir. Geliştireceğimiz model, mevcut verilerle en iyi performansı sergilemeye çalışacaktır, ancak bu hedefe ulaşmak garanti edilemez. Bu tür yüksek doğruluk oranları genellikle aşırı uyum (overfitting) veya çok spesifik, kısa süreli piyasa koşullarına bağımlılık sonucu ortaya çıkabilir.
+
+## 3. İleri Geliştirmeler (Daha Yüksek Doğruluk Hedefi İçin)
+
+Eğer daha yüksek bir doğruluk oranı hedefleniyorsa, aşağıdaki konuları düşünebilirsiniz:
+
+*   **Daha Fazla ve Çeşitli Veri Kaynakları:** Haber duyarlılığı (profesyonel NLP modelleriyle işlenmiş), makroekonomik veriler, sosyal medya verileri gibi dışsal ve yapısal olmayan verilerin entegrasyonu.
+*   **Daha Gelişmiş Özellik Mühendisliği:** Farklı zaman dilimlerinden türetilmiş özellikler, etkileşim özellikleri, piyasa mikro yapısı verileri.
+*   **Farklı Problem Tanımı:** Fiyatın tam yönünü tahmin etmek yerine, oynaklığı veya belirli bir eşiğin üzerindeki/altındaki fiyat hareketlerini tahmin etmek.
+*   **Risk Yönetimi:** Tahmin modelini bir ticaret stratejisiyle birleştirirken risk yönetimi ve pozisyon büyüklüğü gibi faktörleri göz önünde bulundurmak.
+*   **Haber Duyarlılık Modeli Optimizasyonu (`news_sentiment_model.py`):**
+    *   **Daha Gelişmiş NLP Modelleri Kullanımı:** FinBERT gibi transformer tabanlı modelleri entegre ederek haber metinlerindeki duyarlılığı daha doğru analiz edin.
+    *   **Finansal Duyarlılık Veri Setleri ile İnce Ayar (Fine-tuning):** Modelin finansal haberlere özel duyarlılık analizi yapabilmesi için ilgili veri setleri üzerinde fine-tuning yapın.
+    *   **Özellik Mühendisliği Geliştirme:** Haber kaynağı, yayınlanma zamanı, bahsedilen varlıklar gibi ek özellikleri çıkararak duyarlılık skorunun güvenilirliğini artırın.
+    *   **Zaman Serisi Duyarlılık Analizi:** Duyarlılık skorlarının zaman içindeki değişimlerini takip ederek piyasa hareketlerini öngörmede ek boyutlar kazandırın.

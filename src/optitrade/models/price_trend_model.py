@@ -59,86 +59,50 @@ class PriceTrendModel:
         self.bollinger_std = bollinger_std
         self.adx_window = adx_window
 
-    def generate_score(self, prices: pd.Series, interval: str = '1d') -> float:
+    def generate_score(self, data: pd.Series, interval: str = '1d') -> float:
         logger.debug(f"PriceTrendModel: generate_score called with interval: {interval}")
 
         # Interval'e göre pencere boyutlarını ayarla
-        # Bu değerler, farklı zaman aralıkları için optimize edilebilir.
-        # Şimdilik basit bir ölçeklendirme kullanıyorum.
         if interval == '1m':
-            rsi_window = 7
-            macd_fast_window = 6
-            macd_slow_window = 13
-            macd_signal_window = 5
-            sma_short_window = 10
-            sma_long_window = 30
-            bollinger_window = 15
-            adx_window = 7
+            short_window = 5
+            long_window = 20
         elif interval == '5m':
-            rsi_window = 10
-            macd_fast_window = 8
-            macd_slow_window = 17
-            macd_signal_window = 7
-            sma_short_window = 20
-            sma_long_window = 50
-            bollinger_window = 20
-            adx_window = 10
+            short_window = 10
+            long_window = 30
         elif interval == '15m':
-            rsi_window = 12
-            macd_fast_window = 10
-            macd_slow_window = 22
-            macd_signal_window = 8
-            sma_short_window = 30
-            sma_long_window = 80
-            bollinger_window = 20
-            adx_window = 12
+            short_window = 12
+            long_window = 40
         elif interval == '30m' or interval == '60m' or interval == '1h':
-            rsi_window = 14
-            macd_fast_window = 12
-            macd_slow_window = 26
-            macd_signal_window = 9
-            sma_short_window = 40
-            sma_long_window = 100
-            bollinger_window = 20
-            adx_window = 14
+            short_window = 14
+            long_window = 50
         else: # 1d, 1wk, 1mo ve diğerleri için varsayılan değerler
-            rsi_window = self.rsi_window
-            macd_fast_window = self.macd_fast_window
-            macd_slow_window = self.macd_slow_window
-            macd_signal_window = self.macd_signal_window
-            sma_short_window = self.sma_short_window
-            sma_long_window = self.sma_long_window
-            bollinger_window = self.bollinger_window
-            adx_window = self.adx_window
+            short_window = self.sma_short_window
+            long_window = self.sma_long_window
 
-        # Yeterli veri olup olmadığını kontrol et
-        min_data_points = max(rsi_window, macd_slow_window, sma_long_window, bollinger_window, adx_window)
-        if len(prices) < min_data_points:
-            # Yeterli veri yoksa nötr bir skor döndür
-            logger.warning(f"PriceTrendModel: Yeterli veri noktası yok ({len(prices)} mevcut, en az {min_data_points} gerekli). Nötr skor döndürülüyor.")
+        if data.empty or len(data) < long_window:
+            logger.warning("PriceTrendModel: Yeterli veri yok. Nötr skor döndürülüyor.")
             return 0.0
 
-        # Göstergeleri hesapla
+        # Hareketli ortalamaları hesapla
+        sma_short = ta.trend.sma_indicator(data['close'], window=self.sma_short_window)
+        sma_long = ta.trend.sma_indicator(data['close'], window=self.sma_long_window)
+
         # RSI
-        rsi = ta.momentum.rsi(prices, window=rsi_window)
+        rsi = ta.momentum.rsi(data['close'], window=self.rsi_window)
 
         # MACD
-        macd = ta.trend.macd(prices, window_fast=macd_fast_window, window_slow=macd_slow_window)
-        macd_signal = ta.trend.macd_signal(prices, window_fast=macd_fast_window, window_slow=macd_slow_window, window_sign=macd_signal_window)
-        macd_diff = ta.trend.macd_diff(prices, window_fast=macd_fast_window, window_slow=macd_slow_window, window_sign=macd_signal_window)
-
-        # Hareketli Ortalamalar
-        sma_short = ta.trend.sma_indicator(prices, window=sma_short_window)
-        sma_long = ta.trend.sma_indicator(prices, window=sma_long_window)
+        macd = ta.trend.macd(data['close'], window_fast=self.macd_fast_window, window_slow=self.macd_slow_window)
+        macd_signal = ta.trend.macd_signal(data['close'], window_fast=self.macd_fast_window, window_slow=self.macd_slow_window, window_sign=self.macd_signal_window)
+        macd_diff = ta.trend.macd_diff(data['close'], window_fast=self.macd_fast_window, window_slow=self.macd_slow_window, window_sign=self.macd_signal_window)
 
         # Bollinger Bantları
-        bollinger_hband = ta.volatility.bollinger_hband(prices, window=bollinger_window, window_dev=self.bollinger_std)
-        bollinger_lband = ta.volatility.bollinger_lband(prices, window=bollinger_window, window_dev=self.bollinger_std)
+        bollinger_hband = ta.volatility.bollinger_hband(data['close'], window=self.bollinger_window, window_dev=self.bollinger_std)
+        bollinger_lband = ta.volatility.bollinger_lband(data['close'], window=self.bollinger_window, window_dev=self.bollinger_std)
 
         # ADX
-        adx = ta.trend.adx(prices, prices, prices, window=adx_window) # high, low, close
-        adx_pos = ta.trend.adx_pos(prices, prices, prices, window=adx_window)
-        adx_neg = ta.trend.adx_neg(prices, prices, prices, window=adx_window)
+        adx = ta.trend.adx(data['high'], data['low'], data['close'], window=self.adx_window)
+        adx_pos = ta.trend.adx_pos(data['high'], data['low'], data['close'], window=self.adx_window)
+        adx_neg = ta.trend.adx_neg(data['high'], data['low'], data['close'], window=self.adx_window)
 
         # Skorlama mantığı
         score = 0.0
@@ -177,10 +141,10 @@ class PriceTrendModel:
         # Bollinger Bantları Skoru
         if not bollinger_hband.empty and not pd.isna(bollinger_hband.iloc[-1]) and \
            not bollinger_lband.empty and not pd.isna(bollinger_lband.iloc[-1]) and \
-           not prices.empty and not pd.isna(prices.iloc[-1]):
-            if prices.iloc[-1] > bollinger_hband.iloc[-1]:
+           not data.empty and not pd.isna(data.iloc[-1]):
+            if data.iloc[-1] > bollinger_hband.iloc[-1]:
                 score -= 0.2 # Üst bandın üzerinde, aşırı alım
-            elif prices.iloc[-1] < bollinger_lband.iloc[-1]:
+            elif data.iloc[-1] < bollinger_lband.iloc[-1]:
                 score += 0.2 # Alt bandın altında, aşırı satım
 
         # ADX Skoru (Trend Gücü ve Yönü)

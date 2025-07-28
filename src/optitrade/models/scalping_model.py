@@ -53,7 +53,7 @@ class ScalpingModel:
             logger.warning("ScalpingModel: Yeterli veri yok. Nötr skor döndürülüyor.")
             return 0.0
 
-        close_prices = data['Close']
+        close_prices = data['close']
 
         # Kısa vadeli hareketli ortalamalar
         fast_ma = ta.trend.sma_indicator(close_prices, window=fast_ma_window)

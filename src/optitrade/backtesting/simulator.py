@@ -150,7 +150,7 @@ class BacktestSimulator:
             
             prediction_scores_series = pd.Series(all_prediction_scores, index=data.index).fillna(0.0)
 
-            results = self._run_single_backtest(data['Close'], prediction_scores_series)
+            results = self._run_single_backtest(data['close'], prediction_scores_series)
 
             if results['total_return'] > best_return:
                 best_return = results['total_return']
@@ -172,17 +172,51 @@ if __name__ == '__main__':
     parser.add_argument('--exit_threshold', type=float, default=-0.5, help='Pozisyondan çıkmak için tahmin skoru eşiği. Varsayılan: -0.5')
     parser.add_argument('--optimize_weights', action='store_true', help='ScoringEngine ağırlıklarını optimize et.')
     parser.add_argument('--num_iterations', type=int, default=100, help='Optimizasyon için iterasyon sayısı. Varsayılan: 100')
+    parser.add_argument('--datafile', type=str, default=None, help='Lokal veri dosyası (CSV formatında). Eğer belirtilirse, yfinance yerine bu dosya kullanılır.')
 
     args = parser.parse_args()
 
-    logger.info(f"--- {args.symbol} için Backtest Simülasyonu ---")
+    logger.info(f"--- Backtest Simülasyonu ---")
 
+    data = None
     try:
-        ticker = yf.Ticker(args.symbol)
-        data = ticker.history(period=args.period, interval=args.interval)
+        if args.datafile:
+            logger.info(f"Lokal veri dosyası kullanılıyor: {args.datafile}")
+            data = pd.read_csv(args.datafile)
+            # Tarih sütununu Datetime formatına çevirip index olarak ayarlama
+            if 'Date' in data.columns:
+                data['Date'] = pd.to_datetime(data['Date'])
+                data.set_index('Date', inplace=True)
+            elif 'Timestamp' in data.columns: # Farklı olası sütun adları
+                data['Timestamp'] = pd.to_datetime(data['Timestamp'])
+                data.set_index('Timestamp', inplace=True)
+            else:
+                # Eğer bilinen bir tarih sütunu yoksa, ilk sütunu kullanmayı dene
+                potential_date_col = data.columns[0]
+                logger.warning(f"Standart 'Date' veya 'Timestamp' sütunu bulunamadı. İlk sütun olan '{potential_date_col}' tarih olarak kullanılıyor.")
+                data[potential_date_col] = pd.to_datetime(data[potential_date_col])
+                data.set_index(potential_date_col, inplace=True)
+
+            # yfinance ile uyumlu olması için sütun adlarını düzenle
+            data.rename(columns={c: c.lower() for c in data.columns}, inplace=True)
+            if 'volume btc' in data.columns:
+                data.rename(columns={'volume btc': 'volume'}, inplace=True)
+            logger.debug(f"Sütunlar yüklendikten ve küçük harfe çevrildikten sonra: {data.columns.tolist()}")
+            # Sadece gerekli sütunları seç
+            data = data[['open', 'high', 'low', 'close', 'volume']]
+
+
+        else:
+            logger.info(f"yfinance üzerinden {args.symbol} için veri çekiliyor...")
+            ticker = yf.Ticker(args.symbol)
+            data = ticker.history(period=args.period, interval=args.interval)
+            data.rename(columns={c: c.lower() for c in data.columns}, inplace=True)
+            logger.debug(f"Sütunlar yfinance'ten çekildikten ve küçük harfe çevrildikten sonra: {data.columns.tolist()}")
+            # Sadece gerekli sütunları seç
+            data = data[['open', 'high', 'low', 'close', 'volume']]
 
         if data.empty:
-            logger.error(f"Hata: {args.symbol} için veri çekilemedi veya yeterli veri yok. Lütfen sembolü ve periyodu kontrol edin.")
+            logger.error(f"Hata: Veri çekilemedi veya dosya boş. Lütfen girdi parametrelerini kontrol edin.")
         else:
             simulator = BacktestSimulator(entry_threshold=args.entry_threshold, exit_threshold=args.exit_threshold)
 

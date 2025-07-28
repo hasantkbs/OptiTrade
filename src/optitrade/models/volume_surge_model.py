@@ -80,15 +80,15 @@ class VolumeSurgeModel:
             volume_ma_window = self.volume_ma_window
 
         # Veri kontrolü
-        required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+        required_columns = ['open', 'high', 'low', 'close', 'volume']
         if not isinstance(data, pd.DataFrame) or data.empty or not all(col in data.columns for col in required_columns):
             raise ValueError(f"DataFrame boş olamaz ve {required_columns} sütunlarını içermelidir.")
 
-        open_prices = data['Open']
-        high_prices = data['High']
-        low_prices = data['Low']
-        close_prices = data['Close']
-        volumes = data['Volume']
+        open_prices = data['open']
+        high_prices = data['high']
+        low_prices = data['low']
+        close_prices = data['close']
+        volumes = data['volume']
 
         min_data_points = max(vwap_window, obv_window, volatility_window, volume_ma_window)
         if len(close_prices) < min_data_points:

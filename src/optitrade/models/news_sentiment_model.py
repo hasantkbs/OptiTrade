@@ -31,7 +31,7 @@ class NewsSentimentModel:
         Modeli başlatır ve Hugging Face duygu analizi pipeline'ını yükler.
         Çok dilli bir model kullanılarak Türkçe metinlerde daha iyi performans hedeflenir.
         """
-        self.sentiment_pipeline = pipeline("sentiment-analysis", model="nlptown/bert-base-multilingual-uncased-sentiment")
+        self.sentiment_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
 
     def _analyze_single_text_sentiment(self, news_text: str) -> float:
         """
@@ -42,11 +42,8 @@ class NewsSentimentModel:
 
         Returns:
             float: [-1.0, +1.0] arası pozitif/negatif skor.
-                    Pozitif için 0 ile 1, Negatif için -1 ile 0 arası.
         """
         if not isinstance(news_text, str):
-            # Bu hata, analyze_sentiment metodunun doğru çağrılmadığını gösterir.
-            # analyze_sentiment metodu artık bir liste bekliyor.
             raise TypeError("Haber metni bir string olmalıdır.")
         if not news_text.strip():
             return 0.0 # Boş metin için nötr skor
@@ -55,23 +52,14 @@ class NewsSentimentModel:
         label = result['label']
         score = result['score']
 
-        # nlptown/bert-base-multilingual-uncased-sentiment modeli '1 star'dan '5 stars'a kadar etiketler döndürür.
+        # FinBERT genellikle 'positive', 'negative', 'neutral' etiketleri döndürür.
         # Bu etiketleri -1.0 ile +1.0 arasına dönüştürelim.
-        # 1 star: -1.0 (çok negatif)
-        # 2 stars: -0.5
-        # 3 stars: 0.0 (nötr)
-        # 4 stars: 0.5
-        # 5 stars: 1.0 (çok pozitif)
-        if label == '1 star':
-            return float(-1.0 * score)
-        elif label == '2 stars':
-            return float(-0.5 * score)
-        elif label == '3 stars':
-            return float(0.0)
-        elif label == '4 stars':
-            return float(0.5 * score)
-        elif label == '5 stars':
-            return float(1.0 * score)
+        if label == 'positive':
+            return float(score)
+        elif label == 'negative':
+            return float(-score)
+        elif label == 'neutral':
+            return 0.0
         else:
             return 0.0 # Bilinmeyen etiketler için nötr
 
@@ -100,14 +88,15 @@ if __name__ == '__main__':
     # Örnek kullanım
     # NewsFetcher ve NEWS_API_KEY sadece burada test amaçlı import ediliyor.
     # Normalde bu model, haber metinlerini doğrudan almalıdır.
-    from ..utils.data_fetcher import NewsFetcher, NEWS_API_KEY
+    from ..utils.data_fetcher import NewsFetcher
+    import os
 
     model = NewsSentimentModel()
     fetcher = NewsFetcher()
 
     # NewsAPI.org'dan haber çek
     query = "Bitcoin"
-    news_api_key = NEWS_API_KEY # .env dosyasından çekilen anahtar
+    news_api_key = os.getenv('NEWS_API_KEY') # .env dosyasından çekilen anahtar
 
     if not news_api_key:
         logger.error("Hata: NEWS_API_KEY .env dosyasında ayarlanmamış. Lütfen NewsAPI.org API anahtarınızı ekleyin.")

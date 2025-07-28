@@ -93,13 +93,14 @@ class DivergenceDetectionModel:
             divergence_lookback_period = self.divergence_lookback_period
             tolerance_days = self.tolerance_days
 
-        required_columns = ['High', 'Low', 'Close']
+        required_columns = ['high', 'low', 'close']
         if not isinstance(data, pd.DataFrame) or data.empty or not all(col in data.columns for col in required_columns):
             raise ValueError(f"DataFrame boş olamaz ve {required_columns} sütunlarını içermelidir.")
 
-        prices = data['Close']
-        high_prices = data['High']
-        low_prices = data['Low']
+        prices = data['close']
+        high_prices = data['high']
+        low_prices = data['low']
+        close_prices = data['close']
 
         if len(prices) < max(self.indicator_window, self.macd_slow_window, extrema_order * 2 + 1):
             return {'bullish': False, 'bearish': False, 'score': 0.0, 'message': 'Yeterli veri yok.'}

@@ -1,173 +1,99 @@
+
+
 import pandas as pd
 import numpy as np
-import yfinance as yf
-import argparse
-import logging
-from .. import config
-
-# Loglama yapılandırması
-logging.basicConfig(
-    level=config.LOG_LEVEL,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(config.LOG_FILE),
-        logging.StreamHandler()
-    ]
-)
-
-logger = logging.getLogger(__name__)
+from scipy.signal import argrelextrema
+import os
 
 class SupportResistanceModel:
-    """
-    Destek-direnç seviyeleri ile mevcut fiyatın ilişkisini analiz eden model.
-    Kullanır: Pivot point, basit fraktal tespiti.
-    Girdi: Günlük fiyat geçmişi (OHLC).
-    Çıktı: Yakınlık skoru (0: uzakta, 1: çok yakın).
-    """
-    def __init__(self):
+    def __init__(self, order: int = 20, tolerance: float = 0.01):
+        self.order = order
+        self.tolerance = tolerance
+        self.supports = []
+        self.resistances = []
+
+    def find_support_resistance(self, data: pd.Series):
         """
-        Modeli başlatır.
+        Verilen bir fiyat serisindeki yerel minimum ve maksimum noktaları bularak
+        destek ve direnç seviyelerini tespit eder.
         """
-        self.fractal_window = config.SUPPORT_RESISTANCE_FRACTAL_WINDOW
+        local_min_indices = argrelextrema(data.values, np.less_equal, order=self.order)[0]
+        local_max_indices = argrelextrema(data.values, np.greater_equal, order=self.order)[0]
 
-    def calculate_pivot_points(self, high: pd.Series, low: pd.Series, close: pd.Series) -> dict:
+        self.supports = data.iloc[local_min_indices].tolist()
+        self.resistances = data.iloc[local_max_indices].tolist()
+        return self.supports, self.resistances
+
+    def generate_signal(self, current_price: float):
         """
-        Pivot noktalarını ve destek/direnç seviyelerini hesaplar.
-        Geleneksel Pivot Noktası formülünü kullanır.
+        Mevcut fiyata göre destek veya direnç sinyali üretir.
         """
-        if high.empty or low.empty or close.empty:
-            return {}
+        for level in self.supports:
+            if abs(current_price - level) / level <= self.tolerance:
+                return f"Yükselme Sinyali (Destek Seviyesi: {level:.2f})"
 
-        pivot_point = (high.iloc[-1] + low.iloc[-1] + close.iloc[-1]) / 3
-        r1 = (2 * pivot_point) - low.iloc[-1]
-        s1 = (2 * pivot_point) - high.iloc[-1]
-        r2 = pivot_point + (high.iloc[-1] - low.iloc[-1])
-        s2 = pivot_point - (high.iloc[-1] - low.iloc[-1])
-        r3 = high.iloc[-1] + 2 * (pivot_point - low.iloc[-1])
-        s3 = low.iloc[-1] - 2 * (high.iloc[-1] - pivot_point)
+        for level in self.resistances:
+            if abs(current_price - level) / level <= self.tolerance:
+                return f"Alçalma Sinyali (Direnç Seviyesi: {level:.2f})"
 
-        return {
-            'PP': pivot_point,
-            'R1': r1, 'S1': s1,
-            'R2': r2, 'S2': s2,
-            'R3': r3, 'S3': s3
-        }
+        return "Sinyal Yok"
 
-    def find_fractals(self, prices: pd.Series, window: int = 2) -> list:
+    def calculate_score(self, data: pd.DataFrame) -> float:
         """
-        Basit fraktalları (yerel zirveler ve dipler) bulur.
-        Bir nokta, kendisinden önceki ve sonraki 'window' kadar noktadan
-        daha yüksekse/düşükse fraktal olarak kabul edilir.
+        Destek ve direnç analizine dayalı bir puan hesaplar.
         """
-        fractals = []
-        if len(prices) < (2 * window + 1):
-            return fractals
-
-        for i in range(window, len(prices) - window):
-            # Yükseliş fraktalı (yerel zirve)
-            is_high_fractal = True
-            for j in range(1, window + 1):
-                if prices.iloc[i] <= prices.iloc[i-j] or prices.iloc[i] <= prices.iloc[i+j]:
-                    is_high_fractal = False
-                    break
-            if is_high_fractal:
-                fractals.append(prices.iloc[i])
-
-            # Düşüş fraktalı (yerel dip)
-            is_low_fractal = True
-            for j in range(1, window + 1):
-                if prices.iloc[i] >= prices.iloc[i-j] or prices.iloc[i] >= prices.iloc[i+j]:
-                    is_low_fractal = False
-                    break
-            if is_low_fractal:
-                fractals.append(prices.iloc[i])
-        return fractals
-
-    def generate_proximity_score(self, data: pd.DataFrame, interval: str = '1d') -> float:
-        logger.debug(f"SupportResistanceModel: generate_proximity_score called with interval: {interval}")
-
-        # Interval'e göre fraktal pencere boyutunu ayarla
-        if interval == '1m':
-            fractal_window = 1
-        elif interval == '5m':
-            fractal_window = 2
-        elif interval == '15m':
-            fractal_window = 3
-        elif interval == '30m' or interval == '60m' or interval == '1h':
-            fractal_window = 4
-        else: # 1d, 1wk, 1mo ve diğerleri için varsayılan değer
-            fractal_window = self.fractal_window
-
-        required_columns = ['High', 'Low', 'Close']
-        if not isinstance(data, pd.DataFrame) or data.empty or not all(col in data.columns for col in required_columns):
-            raise ValueError(f"DataFrame boş olamaz ve {required_columns} sütunlarını içermelidir.")
-
-        high = data['High']
-        low = data['Low']
-        close = data['Close']
-
-        if high.empty or low.empty or close.empty:
+        if 'close' not in data.columns or len(data) < self.order * 2:
             return 0.0
 
-        current_price = close.iloc[-1]
-
-        # Pivot Noktaları
-        pivot_levels = self.calculate_pivot_points(high, low, close)
-        levels = list(pivot_levels.values())
-
-        # Fraktallar
-        fractal_levels = self.find_fractals(close, window=fractal_window)
-        levels.extend(fractal_levels)
-
-        if not levels:
-            return 0.0
-
-        # Mevcut fiyata en yakın seviyeyi bul
-        min_distance = float('inf')
-        for level in levels:
-            if not pd.isna(level):
-                distance = abs(current_price - level)
-                if distance < min_distance:
-                    min_distance = distance
+        price_series = data['close']
+        current_price = price_series.iloc[-1]
         
-        # Fiyat aralığına göre normalizasyon
-        # Ortalama günlük aralığı kullanarak bir normalizasyon faktörü bulalım
-        avg_daily_range = (high - low).mean()
-        if avg_daily_range == 0:
+        self.find_support_resistance(price_series)
+        
+        signal = self.generate_signal(current_price)
+
+        if "Yükselme Sinyali" in signal:
+            return 0.75
+        elif "Alçalma Sinyali" in signal:
+            return -0.75
+        else:
             return 0.0
 
-        # Mesafe ne kadar küçükse skor o kadar yüksek olur
-        # Skor = 1 - (min_distance / avg_daily_range)
-        # Negatif skorları önlemek için max(0, ...) kullan
-        proximity_score = max(0, 1 - (min_distance / avg_daily_range))
+    def generate_proximity_score(self, data: pd.DataFrame, interval: str) -> float:
+        return self.calculate_score(data)
 
-        return float(proximity_score)
+if __name__ == "__main__":
+    # Proje ana dizinini bulmak için dosya yolunu ayarla
+    script_dir = os.path.dirname(__file__)
+    project_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
+    file_path = os.path.join(project_root, "archive", "BTC-Daily.csv")
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Destek-Direnç seviyelerine yakınlık skorunu hesaplar.')
-    parser.add_argument('--symbol', type=str, default='BTC-USD', help='Hisse senedi/kripto para sembolü (örn: BTC-USD, AAPL). Varsayılan: BTC-USD')
-    parser.add_argument('--period', type=str, default='1y', help='Veri çekme periyodu (örn: 1y, 6mo, 1mo). Varsayılan: 1y')
-    parser.add_argument('--interval', type=str, default='1d', help='Veri çekme aralığı (örn: 1d, 1wk, 1mo). Varsayılan: 1d')
-
-    args = parser.parse_args()
-
-    logger.info(f"--- {args.symbol} için Destek-Direnç Yakınlık Analizi ---")
+    print(f"Veri dosyası okunuyor: {file_path}")
 
     try:
-        ticker = yf.Ticker(args.symbol)
-        data = ticker.history(period=args.period, interval=args.interval)
+        # Veriyi yükle
+        df = pd.read_csv(file_path, parse_dates=['date'], index_col='date')
+        price_data = df['close'].dropna()
 
-        if data.empty:
-            logger.error(f"Hata: {args.symbol} için veri çekilemedi veya yeterli veri yok. Lütfen sembolü ve periyodu kontrol edin.")
-        else:
-            # open_prices = data['Open'] # Bu satırlar artık gerekli değil
-            # high_prices = data['High']
-            # low_prices = data['Low']
-            # close_prices = data['Close']
+        # Modeli başlat ve kullan
+        model = SupportResistanceModel(order=30, tolerance=0.02)
+        supports, resistances = model.find_support_resistance(price_data)
 
-            model = SupportResistanceModel()
-            proximity_score = model.generate_proximity_score(data)
-            logger.info(f"{args.symbol} Destek-Direnç Yakınlık Skoru: {proximity_score:.2f}")
+        print("\n--- Tespit Edilen Seviyeler ---")
+        print(f"Önemli Destek Seviyeleri: {[f'{s:.2f}' for s in supports[-5:]]} (Son 5)")
+        print(f"Önemli Direnç Seviyeleri: {[f'{r:.2f}' for r in resistances[-5:]]} (Son 5)")
 
+        last_price = price_data.iloc[-1]
+        print(f"\n--- Sinyal Analizi (Mevcut Fiyat: {last_price:.2f}) ---")
+
+        signal = model.generate_signal(last_price)
+        print(f"Sinyal: {signal}")
+
+        score = model.calculate_score(df.rename(columns={'close': 'Close'}))
+        print(f"Hesaplanan Puan: {score}")
+
+
+    except FileNotFoundError:
+        print(f"HATA: Veri dosyası bulunamadı. Lütfen '{file_path}' dosyasının mevcut olduğundan emin olun.")
     except Exception as e:
-        logger.error(f"Veri çekme veya skor hesaplama sırasında bir hata oluştu: {e}")
+        print(f"Bir hata oluştu: {e}")

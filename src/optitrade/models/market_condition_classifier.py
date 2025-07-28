@@ -42,10 +42,13 @@ class MarketConditionClassifier:
         Returns:
             str: Piyasa rejimi ('bull', 'bear', 'sideways').
         """
-        # VIX eşikleri (genel kabul görmüş değerler)
-        # 20 altı: Düşük volatilite, genellikle boğa piyasası
-        # 20-30 arası: Orta volatilite, belirsizlik
-        # 30 üstü: Yüksek volatilite, genellikle ayı piyasası/panik
+        # VIX endeksi: 30'un üzeri yüksek volatilite (genellikle düşüş), 20'nin altı düşük volatilite (genellikle yükseliş)
+        vix_score = 0
+        if vix_value is not None:
+            if vix_value > 30:
+                vix_score = -1  # Yüksek Risk
+            elif vix_value < 20:
+                vix_score = 1  # Düşük Risk
 
         # BTC Dominance eşikleri (kripto piyasası için)
         # Yüksek dominans (örn. >%50) genellikle altcoinler için ayı, BTC için boğa

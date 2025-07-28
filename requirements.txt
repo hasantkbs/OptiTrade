@@ -5,3 +5,7 @@ python-dotenv
 praw
 fastapi
 uvicorn[standard]
+scikit-learn
+tensorflow
+beautifulsoup4
+requests

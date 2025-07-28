@@ -40,7 +40,7 @@ def calculate_all_model_scores(historical_data: pd.DataFrame, models: dict, news
 
     # PriceTrendModel
     try:
-        model_scores['price_trend_score'] = models["price_trend"].generate_score(historical_data['Close'], interval=interval)
+        model_scores['price_trend_score'] = models["price_trend"].generate_score(historical_data['close'], interval=interval)
     except Exception as e:
         logger.error(f"Fiyat Trend Skoru hesaplanırken hata: {e}")
         model_scores['price_trend_score'] = 0.0
@@ -71,7 +71,7 @@ def calculate_all_model_scores(historical_data: pd.DataFrame, models: dict, news
 
     # SupportResistanceModel
     try:
-        model_scores['support_resistance_score'] = models["support_resistance"].generate_proximity_score(historical_data, interval=interval)
+        model_scores['support_resistance_score'] = models["support_resistance"].calculate_score(historical_data)
     except Exception as e:
         logger.error(f"Destek-Direnç Skoru hesaplanırken hata: {e}")
         model_scores['support_resistance_score'] = 0.0
@@ -95,15 +95,8 @@ def calculate_all_model_scores(historical_data: pd.DataFrame, models: dict, news
         model_scores['scalping_score'] = 0.0
 
     # MarketConditionClassifier
-    # VIX verisini çek
-    vix_val = None
-    try:
-        vix_data = yf.download('^VIX', period='5d', interval='1d', auto_adjust=True)
-        if not vix_data.empty:
-            vix_val = float(vix_data['Close'].iloc[-1].item())
-    except Exception as e:
-        logger.error(f"VIX verisi çekilirken hata oluştu: {e}. Varsayılan 20.0 kullanılıyor.")
-        vix_val = 20.0
+    # Backtest sırasında VIX verisi çekmeyi atla
+    vix_val = 20.0 # Varsayılan değer
     
     # BTC Dominance ve Total Market Cap için varsayılan değerler (gerçek uygulamada API'den çekilmeli)
     btc_dom_val = 0.50 # %50
