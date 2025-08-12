@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import ta.volume
 import ta.volatility
-import yfinance as yf
 import argparse
 import logging
 from .. import config

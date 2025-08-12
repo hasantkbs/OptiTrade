@@ -40,7 +40,10 @@ def calculate_all_model_scores(historical_data: pd.DataFrame, models: dict, news
 
     # PriceTrendModel
     try:
-        model_scores['price_trend_score'] = models["price_trend"].generate_score(historical_data['close'], interval=interval)
+        scores = {}
+        scores['price_trend_score'] = models['price_trend'].generate_score(
+        data=historical_data  # Pass the full DataFrame
+    )
     except Exception as e:
         logger.error(f"Fiyat Trend Skoru hesaplanırken hata: {e}")
         model_scores['price_trend_score'] = 0.0

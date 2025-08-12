@@ -49,47 +49,6 @@ class ScoringEngine:
         if total_weight != 0:
             self.weights = {k: v / total_weight for k, v in self.weights.items()}
 
-    def _load_btc_daily_data(self):
-        script_dir = os.path.dirname(__file__)
-        project_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
-        file_path = os.path.join(project_root, "archive", "BTC-Daily.csv")
-        try:
-            df = pd.read_csv(file_path, parse_dates=['date'], index_col='date')
-            price_data = df['close'].dropna()
-            return price_data
-        except FileNotFoundError:
-            logger.error(f"BTC-Daily.csv not found at {file_path}")
-            return None
-        except Exception as e:
-            logger.error(f"Error loading BTC-Daily.csv: {e}")
-            return None
-
-    def _get_support_resistance_score(self):
-        price_data = self._load_btc_daily_data()
-        if price_data is None or price_data.empty:
-            logger.warning("Could not load price data for support/resistance model. Returning 0 score.")
-            return 0.0
-
-        # Use the last price as current price for signal generation
-        current_price = price_data.iloc[-1]
-
-        # Calculate support and resistance levels
-        supports, resistances = support_resistance_model.find_support_resistance(price_data, order=30)
-
-        # Generate signal
-        signal_text = support_resistance_model.generate_signal(current_price, supports, resistances, tolerance=0.02)
-
-        # Convert signal to a numerical score
-        score = 0.0
-        if signal_text.startswith("Yükselme Sinyali"):
-            score = 0.8 # Strong positive signal
-        elif signal_text.startswith("Alçalma Sinyali"):
-            score = -0.8 # Strong negative signal
-        # If "Sinyal Yok", score remains 0.0
-
-        logger.info(f"Support/Resistance Signal: {signal_text} -> Score: {score:.2f}")
-        return score
-
     def generate_final_score(self, model_scores: dict) -> float:
         """
         Farklı modellerden gelen skorları birleştirerek nihai bir tahmin skoru üretir.
@@ -102,10 +61,6 @@ class ScoringEngine:
         Returns:
             float: Nihai tahmin skoru (genellikle -1.0 ile 1.0 arası).
         """
-        # Calculate support/resistance score if not provided in model_scores
-        if 'support_resistance_score' not in model_scores:
-            model_scores['support_resistance_score'] = self._get_support_resistance_score()
-
         final_score = 0.0
         for score_name, weight in self.weights.items():
             score_value = model_scores.get(score_name)

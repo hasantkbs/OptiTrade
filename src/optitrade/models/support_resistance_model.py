@@ -59,8 +59,7 @@ class SupportResistanceModel:
         else:
             return 0.0
 
-    def generate_proximity_score(self, data: pd.DataFrame, interval: str) -> float:
-        return self.calculate_score(data)
+    
 
 if __name__ == "__main__":
     # Proje ana dizinini bulmak için dosya yolunu ayarla

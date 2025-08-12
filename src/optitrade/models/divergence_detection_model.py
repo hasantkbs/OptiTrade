@@ -3,7 +3,6 @@ import numpy as np
 import ta.momentum
 import ta.trend
 from scipy.signal import argrelextrema
-import yfinance as yf
 import argparse
 import logging
 from .. import config

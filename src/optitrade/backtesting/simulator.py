@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -242,7 +245,7 @@ if __name__ == '__main__':
                         continue
                     
                     historical_data = data.iloc[:i+1]
-                    model_scores = simulator._calculate_all_model_scores_for_date(historical_data)
+                    model_scores = calculate_all_model_scores(historical_data, simulator.models)
                     final_score = scoring_engine.generate_final_score(model_scores)
                     all_prediction_scores.append(final_score)
                 
