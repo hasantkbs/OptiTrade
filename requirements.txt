@@ -12,3 +12,5 @@ requests
 yfinance
 ta
 websockets
+pytest
+xgboost

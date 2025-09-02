@@ -1,23 +1,40 @@
+
+
 import asyncio
 import logging
 import sys
 import os
 
-# Add the project root to the Python path to allow for absolute imports
+# Proje kök dizinini Python yoluna ekle
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.optitrade.realtime.processor import RealtimeProcessor
+from src.optitrade.realtime.binance_stream_handler import BinanceStreamHandler
 
-# --- Configuration ---
-BINANCE_WS_URL = "wss://stream.binance.com:9443/ws"
-BAR_INTERVAL_MINUTES = 1 # Aggregate trades into 1-minute bars
-MODEL_LOOKBACK_BARS = 50 # Number of bars needed for the PriceTrendModel (e.g., for SMA_LONG_WINDOW)
+# --- Yapılandırma ---
+# Binance Futures için anlık Mark Price (saniyede 1 güncelleme)
+STREAM_NAME = "btcusdt@markPrice@1s"
+
+
+async def handle_message(data: dict):
+    """
+    WebSocket'ten gelen her mesaj için çağrılacak callback fonksiyonu.
+    Sadece 'markPriceUpdate' olaylarını işler.
+    """
+    event_type = data.get('e')
+    if event_type == 'markPriceUpdate':
+        symbol = data.get('s')
+        mark_price = data.get('p')
+        
+        if symbol and mark_price:
+            # Ekrana daha temiz bir çıktı için aynı satıra yazdır (carriage return \r kullanarak)
+            print(f"---> SEMBOL: {symbol}, ANLIK FIYAT (MARK): {float(mark_price):.2f}", end="\r")
+
 
 async def main():
     """
-    Initializes and runs the real-time data processing pipeline.
+    Gerçek zamanlı veri akışını başlatır ve yönetir.
     """
-    # Configure basic logging to see output from the processor
+    # Temel loglama yapılandırması
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -25,19 +42,21 @@ async def main():
     )
     
     logger = logging.getLogger(__name__)
-    logger.info(f"Starting RealtimeProcessor for {BAR_INTERVAL_MINUTES}-minute bars...")
+    logger.info(f"Binance Futures Gerçek Zamanlı Veri Akışı Başlatılıyor...")
+    logger.info(f"Stream: {STREAM_NAME}")
 
-    # Create and run the real-time processor
-    processor = RealtimeProcessor(
-        stream_url=BINANCE_WS_URL,
-        bar_interval_minutes=BAR_INTERVAL_MINUTES,
-        model_lookback_bars=MODEL_LOOKBACK_BARS
+    # Stream handler'ı başlat
+    handler = BinanceStreamHandler(
+        on_message_callback=handle_message
     )
-    await processor.start()
+    
+    # Veri akışını başlat ve sonsuza kadar çalıştır
+    # Kullanıcı CTRL+C ile çıkana kadar çalışmaya devam edecek
+    await handler.start(stream_name=STREAM_NAME)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nReal-time processor manually stopped.")
+        print("\nVeri akışı kullanıcı tarafından durduruldu.")
 

@@ -1,86 +1,87 @@
+import numpy as np
+from transformers import pipeline
 import logging
-from .. import config
+from typing import Dict, Any
+
+from .base_model import BaseModel
+from ..utils.data_fetcher import DataFetcher
 
 # Loglama yapılandırması
-logging.basicConfig(
-    level=config.LOG_LEVEL,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(config.LOG_FILE),
-        logging.StreamHandler()
-    ]
-)
-
 logger = logging.getLogger(__name__)
 
-class SocialSentimentModel:
+class SocialSentimentModel(BaseModel):
     """
-    Sosyal medya mesajlarından duygu analizi yapan sınıf.
-    Şimdilik her zaman nötr (0.0) döner.
+    Sosyal medya (Reddit) gönderileri üzerinden duyarlılık analizi yaparak bir skor üretir ve detaylı bilgi döndürür.
     """
-    def __init__(self):
-        """
-        Modeli başlatır. Duygu analizi her zaman nötr (0.0) dönecek şekilde ayarlanmıştır.
-        """
-        pass # Duygu analizi pipeline'ı veya RedditFetcher başlatmaya gerek yok
+    def __init__(self, data_fetcher: DataFetcher):
+        super().__init__(data_fetcher)
+        try:
+            logger.info("Duyarlılık analizi modeli (ProsusAI/finbert) Sosyal Medya için yükleniyor...")
+            self.sentiment_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
+            logger.info("Duyarlılık analizi modeli başarıyla yüklendi.")
+        except Exception as e:
+            logger.error(f"Hugging Face pipeline yüklenirken hata oluştu: {e}")
+            self.sentiment_pipeline = None
 
-    def analyze_sentiment_for_text(self, social_media_text: str) -> float:
-        """
-        Verilen tek bir sosyal medya metninin duygu skorunu hesaplar.
-        Şimdilik her zaman nötr (0.0) döner.
+    def _calculate_sentiment_score(self, text: str) -> float:
+        if not self.sentiment_pipeline or not isinstance(text, str) or not text.strip():
+            return 0.0
 
-        Args:
-            social_media_text (str): Analiz edilecek sosyal medya metni.
+        try:
+            truncated_text = text[:512]
+            result = self.sentiment_pipeline(truncated_text)[0]
+            label = result['label']
+            score = result['score']
 
-        Returns:
-            float: Her zaman 0.0 (nötr).
-        """
-        return 0.0
+            if label == 'positive':
+                return float(score)
+            elif label == 'negative':
+                return float(-score)
+            else: # neutral
+                return 0.0
+        except Exception as e:
+            logger.warning(f"Metin analizi sırasında bir hata oluştu: '{text[:50]}...'. Hata: {e}")
+            return 0.0
 
-    def analyze_sentiment(self, social_media_messages: list[str]) -> float:
-        """
-        Verilen sosyal medya mesajları listesinin ortalama duygu skorunu hesaplar.
-        Şimdilik her zaman nötr (0.0) döner.
+    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]: # interval parametresini ekle
+        if not self.sentiment_pipeline:
+            logger.error("Duyarlılık analizi modeli yüklenemediği için tahmin yapılamıyor.")
+            return {"score": 0.0, "details": "Model yüklenemedi."}
 
-        Args:
-            social_media_messages (list[str]): Analiz edilecek sosyal medya mesajları listesi.
+        query = symbol.split('-')[0]
+        logger.info(f"'{query}' için Reddit gönderileri çekiliyor ve analiz ediliyor...")
 
-        Returns:
-            float: Her zaman 0.0 (nötr).
-        """
-        return 0.0
+        try:
+            posts = self.data_fetcher.get_reddit_posts(query=query, limit=25)
+            if not posts:
+                logger.warning(f"'{query}' için Reddit gönderisi bulunamadı.")
+                return {"score": 0.0, "details": "Reddit gönderisi bulunamadı."}
 
-    def analyze_reddit_sentiment(self, subreddit_name: str, limit: int = 10) -> float:
-        """
-        Reddit duygu analizi şimdilik devre dışı bırakılmıştır ve her zaman nötr (0.0) döner.
+            scores = [self._calculate_sentiment_score(post) for post in posts]
+            average_score = np.mean(scores) if scores else 0.0
+            
+            sentiment_direction = "Nötr"
+            if average_score > 0.1: sentiment_direction = "Pozitif"
+            elif average_score < -0.1: sentiment_direction = "Negatif"
 
-        Args:
-            subreddit_name (str): Reddit subreddit'inin adı (örn: "wallstreetbets").
-            limit (int): Çekilecek gönderi sayısı.
+            details = f"{len(posts)} Reddit gönderisi analiz edildi. Genel duyarlılık: {sentiment_direction}"
+            logger.info(f"Sosyal Medya Duyarlılık Analizi Sonucu: Sembol='{symbol}', Ortalama Skor={average_score:.4f}, Detay: {details}")
+            return {"score": float(average_score), "details": details}
 
-        Returns:
-            float: Her zaman 0.0 (nötr).
-        """
-        logger.warning(f"Reddit duygu analizi geçici olarak devre dışı bırakıldı. Nötr skor (0.0) dönüyor.")
-        return 0.0
+        except Exception as e:
+            logger.error(f"Sosyal medya duyarlılık tahmini sırasında genel bir hata oluştu: {e}", exc_info=True)
+            return {"score": 0.0, "details": "Hata oluştu."}
 
+# Örnek Kullanım
 if __name__ == '__main__':
-    logger.info("Sosyal Medya Duygu Analizi Başlatılıyor (Geçici Olarak Nötr)...")
-
-    model = SocialSentimentModel()
-
-    # Simüle edilmiş sosyal medya verisi için örnek kullanım
-    social_media_messages = [
-        "Bu harika bir gün!",
-        "Piyasa biraz durgun.",
-        "Her şey kötüye gidiyor."
-    ]
-
-    logger.info("--- Simüle Sosyal Medya Duygu Analizi ---")
-    average_score = model.analyze_sentiment(social_media_messages)
-    logger.info(f"Ortalama Skor: {average_score:.2f} (Her zaman 0.0 olmalı)")
-
-    # Reddit duygu analizi için örnek kullanım
-    reddit_subreddit = "wallstreetbets"
-    reddit_sentiment_score = model.analyze_reddit_sentiment(reddit_subreddit, limit=5)
-    logger.info(f"Ortalama Reddit Duygu Skoru (r/{reddit_subreddit}): {reddit_sentiment_score:.2f} (Her zaman 0.0 olmalı)")
+    logger.info("--- SocialSentimentModel Test Başlatıldı ---")
+    try:
+        fetcher = DataFetcher()
+        model = SocialSentimentModel(data_fetcher=fetcher)
+        prediction = model.predict(symbol="Bitcoin", interval="1d") # interval parametresini ekle
+        print("--- Test Sonucu ---")
+        print(f"Model Adı: {model.name}")
+        print(f"Tahmin: {prediction}")
+    except Exception as e:
+        logger.error(f"Test sırasında bir hata oluştu: {e}", exc_info=True)
+    logger.info("--- SocialSentimentModel Test Tamamlandı ---")

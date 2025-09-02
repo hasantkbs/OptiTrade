@@ -1,125 +1,94 @@
-import pandas as pd
 import numpy as np
 from transformers import pipeline
-import os
-from dotenv import load_dotenv
-from typing import List
 import logging
+from typing import List, Dict, Any
+
+from .base_model import BaseModel
+from ..utils.data_fetcher import DataFetcher
 from .. import config
 
 # Loglama yapılandırması
-logging.basicConfig(
-    level=config.LOG_LEVEL,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(config.LOG_FILE),
-        logging.StreamHandler()
-    ]
-)
-
 logger = logging.getLogger(__name__)
 
-class NewsSentimentModel:
+class NewsSentimentModel(BaseModel):
     """
-    Günlük haber başlıkları üzerinden duygu analizi yapan model.
-    Kullanır: Hugging Face Transformers kütüphanesi (BERT tabanlı).
-    Girdi: Günlük haber başlıkları, içerikleri.
-    Çıktı: [-1.0, +1.0] arası pozitif/negatif skor.
+    Haber başlıkları üzerinden duyarlılık analizi yaparak bir alım-satım sinyali skoru üretir ve detaylı bilgi döndürür.
     """
-    def __init__(self):
-        """
-        Modeli başlatır ve Hugging Face duygu analizi pipeline'ını yükler.
-        Çok dilli bir model kullanılarak Türkçe metinlerde daha iyi performans hedeflenir.
-        """
-        self.sentiment_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
+    def __init__(self, data_fetcher: DataFetcher):
+        super().__init__(data_fetcher)
+        try:
+            logger.info("Duyarlılık analizi modeli (ProsusAI/finbert) yükleniyor...")
+            self.sentiment_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
+            logger.info("Duyarlılık analizi modeli başarıyla yüklendi.")
+        except Exception as e:
+            logger.error(f"Hugging Face pipeline yüklenirken hata oluştu: {e}")
+            self.sentiment_pipeline = None
 
-    def _analyze_single_text_sentiment(self, news_text: str) -> float:
-        """
-        Verilen tek bir haber metninin duygu skorunu hesaplar.
-
-        Args:
-            news_text (str): Analiz edilecek haber metni veya başlığı.
-
-        Returns:
-            float: [-1.0, +1.0] arası pozitif/negatif skor.
-        """
-        if not isinstance(news_text, str):
-            raise TypeError("Haber metni bir string olmalıdır.")
-        if not news_text.strip():
-            return 0.0 # Boş metin için nötr skor
-
-        result = self.sentiment_pipeline(news_text)[0]
-        label = result['label']
-        score = result['score']
-
-        # FinBERT genellikle 'positive', 'negative', 'neutral' etiketleri döndürür.
-        # Bu etiketleri -1.0 ile +1.0 arasına dönüştürelim.
-        if label == 'positive':
-            return float(score)
-        elif label == 'negative':
-            return float(-score)
-        elif label == 'neutral':
-            return 0.0
-        else:
-            return 0.0 # Bilinmeyen etiketler için nötr
-
-    def analyze_sentiment(self, news_texts: List[str]) -> float:
-        """
-        Verilen haber metinleri listesinin ortalama duygu skorunu hesaplar.
-
-        Args:
-            news_texts (List[str]): Analiz edilecek haber metinleri veya başlıkları listesi.
-
-        Returns:
-            float: [-1.0, +1.0] arası ortalama pozitif/negatif skor.
-        """
-        if not isinstance(news_texts, list):
-            raise TypeError("Haber metinleri bir liste olmalıdır.")
-        if not news_texts:
-            return 0.0 # Boş liste için nötr skor
-
-        scores = [self._analyze_single_text_sentiment(text) for text in news_texts if text.strip()]
-        if scores:
-            return float(np.mean(scores))
-        else:
+    def _calculate_sentiment_score(self, text: str) -> float:
+        if not self.sentiment_pipeline or not isinstance(text, str) or not text.strip():
             return 0.0
 
-if __name__ == '__main__':
-    # Örnek kullanım
-    # NewsFetcher ve NEWS_API_KEY sadece burada test amaçlı import ediliyor.
-    # Normalde bu model, haber metinlerini doğrudan almalıdır.
-    from ..utils.data_fetcher import NewsFetcher
-    import os
+        try:
+            truncated_text = text[:512]
+            result = self.sentiment_pipeline(truncated_text)[0]
+            label = result['label']
+            score = result['score']
 
-    model = NewsSentimentModel()
-    fetcher = NewsFetcher()
+            if label == 'positive':
+                return float(score)
+            elif label == 'negative':
+                return float(-score)
+            else: # neutral
+                return 0.0
+        except Exception as e:
+            logger.warning(f"Metin analizi sırasında bir hata oluştu: '{text[:50]}...'. Hata: {e}")
+            return 0.0
 
-    # NewsAPI.org'dan haber çek
-    query = "Bitcoin"
-    news_api_key = os.getenv('NEWS_API_KEY') # .env dosyasından çekilen anahtar
+    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]: # interval parametresini ekle
+        if not self.sentiment_pipeline:
+            logger.error("Duyarlılık analizi modeli yüklenemediği için tahmin yapılamıyor.")
+            return {"score": 0.0, "details": "Model yüklenemedi."}
 
-    if not news_api_key:
-        logger.error("Hata: NEWS_API_KEY .env dosyasında ayarlanmamış. Lütfen NewsAPI.org API anahtarınızı ekleyin.")
-    else:
-        logger.info(f"--- NewsAPI.org'dan '{query}' haberleri çekiliyor ---")
-        news_data = fetcher.fetch_news_from_newsapi(news_api_key, query=query, language='en')
+        query = symbol.split('-')[0]
+        logger.info(f"'{query}' için haberler çekiliyor ve duyarlılık analizi yapılıyor...")
 
-        if news_data and news_data.get('articles'):
-            logger.info(f"{len(news_data['articles'])} adet haber bulundu.")
-            news_headlines = [article.get('title', '') for article in news_data['articles'] if article.get('title')]
+        try:
+            # Haber çekme işlemi interval'den doğrudan etkilenmese de, tutarlılık için parametreyi ekleyebiliriz
+            news_data = self.data_fetcher.get_news(query=query) # interval burada kullanılmıyor
+            if not news_data or not news_data.get('articles'):
+                logger.warning(f"'{query}' için haber bulunamadı.")
+                return {"score": 0.0, "details": "Haber bulunamadı."}
+
+            headlines = [article['title'] for article in news_data['articles'] if article.get('title')]
+            if not headlines:
+                logger.warning("Analiz edilecek haber başlığı bulunamadı.")
+                return {"score": 0.0, "details": "Haber başlığı bulunamadı."}
+
+            scores = [self._calculate_sentiment_score(h) for h in headlines]
+            average_score = np.mean(scores) if scores else 0.0
             
-            average_score = model.analyze_sentiment(news_headlines)
-            sentiment = "Nötr"
-            if average_score > 0.1:
-                sentiment = "Pozitif"
-            elif average_score < -0.1:
-                sentiment = "Negatif"
-            logger.info(f"--- Ortalama Duygu Skoru ({query}) ---")
-            logger.info(f"Ortalama Skor: {average_score:.2f}, Ortalama Duygu: {sentiment}")
+            sentiment_direction = "Nötr"
+            if average_score > 0.1: sentiment_direction = "Pozitif"
+            elif average_score < -0.1: sentiment_direction = "Negatif"
 
-            # Her bir haberin skorunu da gösterebiliriz (isteğe bağlı)
-            # for i, headline in enumerate(news_headlines):
-            #     score = model._analyze_single_text_sentiment(headline)
-            #     logger.info(f"Haber {i+1}: '{headline[:70]}...\n  Skor: {score:.2f}'")
-        else:
-            logger.warning("Analiz edilecek haber metni bulunamadı.")
+            details = f"{len(headlines)} haber analiz edildi. Genel duyarlılık: {sentiment_direction}"
+            logger.info(f"Haber Duyarlılık Analizi Sonucu: Sembol='{symbol}', Ortalama Skor={average_score:.4f}, Detay: {details}")
+            return {"score": float(average_score), "details": details}
+
+        except Exception as e:
+            logger.error(f"Haber duyarlılık tahmini sırasında genel bir hata oluştu: {e}", exc_info=True)
+            return {"score": 0.0, "details": "Hata oluştu."}
+
+# Örnek Kullanım
+if __name__ == '__main__':
+    logger.info("--- NewsSentimentModel Test Başlatıldı ---")
+    try:
+        fetcher = DataFetcher()
+        news_model = NewsSentimentModel(data_fetcher=fetcher)
+        prediction = news_model.predict(symbol="BTC-USD", interval="1d") # interval parametresini ekle
+        print("--- Test Sonucu ---")
+        print(f"Model Adı: {news_model.name}")
+        print(f"Tahmin: {prediction}")
+    except Exception as e:
+        logger.error(f"Test sırasında bir hata oluştu: {e}", exc_info=True)
+    logger.info("--- NewsSentimentModel Test Tamamlandı ---")

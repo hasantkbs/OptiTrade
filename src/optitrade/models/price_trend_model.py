@@ -1,129 +1,149 @@
+
 import pandas as pd
 import numpy as np
 import ta
-import argparse
 import logging
+from typing import Dict, Any, Tuple
+
+from .base_model import BaseModel
+from ..utils.data_fetcher import DataFetcher
 from .. import config
 
-# Logging configuration
-logging.basicConfig(
-    level=config.LOG_LEVEL,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(config.LOG_FILE),
-        logging.StreamHandler()
-    ]
-)
+# Loglama yapılandırması
 logger = logging.getLogger(__name__)
 
-class PriceTrendModel:
+class PriceTrendModel(BaseModel):
     """
-    Generates a score from price data using technical analysis indicators.
+    Teknik analiz göstergelerini kullanarak bir fiyat trendi skoru üretir ve detaylı bilgi döndürür.
     """
-    def __init__(self, rsi_window: int = config.PRICE_TREND_RSI_WINDOW, **kwargs):
-        """
-        Initializes the model and sets indicator parameters.
-        """
-        self.rsi_window = rsi_window
-        self.macd_fast_window = config.PRICE_TREND_MACD_FAST_WINDOW
-        self.macd_slow_window = config.PRICE_TREND_MACD_SLOW_WINDOW
-        self.macd_signal_window = config.PRICE_TREND_MACD_SIGNAL_WINDOW
-        self.sma_short_window = config.PRICE_TREND_SMA_SHORT_WINDOW
-        self.sma_long_window = config.PRICE_TREND_SMA_LONG_WINDOW
-        self.bollinger_window = config.PRICE_TREND_BOLLINGER_WINDOW
-        self.bollinger_std = config.PRICE_TREND_BOLLINGER_STD
-        self.adx_window = config.PRICE_TREND_ADX_WINDOW
+    def __init__(self, data_fetcher: DataFetcher):
+        super().__init__(data_fetcher)
+        # Orijinal (genellikle günlük) pencere boyutlarını sakla
+        self.base_rsi_window = config.PRICE_TREND_RSI_WINDOW
+        self.base_macd_fast = config.PRICE_TREND_MACD_FAST_WINDOW
+        self.base_macd_slow = config.PRICE_TREND_MACD_SLOW_WINDOW
+        self.base_macd_sign = config.PRICE_TREND_MACD_SIGNAL_WINDOW
+        self.base_sma_short = config.PRICE_TREND_SMA_SHORT_WINDOW
+        self.base_sma_long = config.PRICE_TREND_SMA_LONG_WINDOW
+        self.base_bollinger_window = config.PRICE_TREND_BOLLINGER_WINDOW
+        self.base_bollinger_std = config.PRICE_TREND_BOLLINGER_STD
+        self.base_adx_window = config.PRICE_TREND_ADX_WINDOW
+        
+        # En uzun periyodu hesapla, yeterli veri çekmek için
+        self.base_required_data_points = max(self.base_rsi_window, self.base_macd_slow, self.base_sma_long, self.base_bollinger_window, self.base_adx_window) + 5
 
-    def generate_score(self, data: pd.DataFrame) -> float:
-        """
-        Calculates a trend score based on a dataframe of historical price data.
-        The dataframe must contain 'Open', 'High', 'Low', 'Close' columns.
-        """
-        logger.debug(f"PriceTrendModel: generate_score called.")
-        logger.debug(f"Input data shape: {data.shape}")
+    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
+        logger.info(f"'{self.name}' modeli '{symbol}' için '{interval}' aralığında çalıştırılıyor...")
+        
+        # Interval'e göre pencere boyutlarını ölçeklendir
+        scaling_factor = self._get_scaling_factor(interval)
+        rsi_window = int(self.base_rsi_window * scaling_factor)
+        macd_fast = int(self.base_macd_fast * scaling_factor)
+        macd_slow = int(self.base_macd_slow * scaling_factor)
+        macd_sign = int(self.base_macd_sign * scaling_factor)
+        sma_short = int(self.base_sma_short * scaling_factor)
+        sma_long = int(self.base_sma_long * scaling_factor)
+        bollinger_window = int(self.base_bollinger_window * scaling_factor)
+        adx_window = int(self.base_adx_window * scaling_factor)
 
-        if data.empty or len(data) < self.sma_long_window:
-            logger.warning("PriceTrendModel: Not enough data to generate a score. Returning neutral score.")
-            return 0.0
+        # Ölçeklendirilmiş pencere boyutlarına göre gerekli veri noktasını hesapla
+        required_data_points = max(rsi_window, macd_slow, sma_long, bollinger_window, adx_window) + 5
 
-        # Work on a copy to avoid side effects
+        # Interval'e göre veri çekme periyodunu ayarla
+        period_map = {"15m": "60d", "4h": "730d", "1d": "5y"}
+        fetch_period = period_map.get(interval, "5y")
+
+        data = self.data_fetcher.get_market_data(symbol, period=fetch_period, interval=interval)
+
+        if data.empty or len(data) < required_data_points:
+            logger.warning(f"'{self.name}': Yeterli veri yok ({len(data)}/{required_data_points}). Nötr skor (0.0) döndürülüyor.")
+            return {"score": 0.0, "details": "Yetersiz veri"}
+
+        try:
+            score, details = self._calculate_score(data, rsi_window, macd_fast, macd_slow, macd_sign, sma_short, sma_long, bollinger_window, self.base_bollinger_std, adx_window)
+            logger.info(f"'{self.name}' modeli sonucu: Skor={score:.4f}, Detay: {details}")
+            return {"score": score, "details": details}
+        except Exception as e:
+            logger.error(f"'{self.name}' skoru hesaplanırken hata oluştu: {e}", exc_info=True)
+            return {"score": 0.0, "details": "Model çalışırken hata oluştu."}
+
+    def _get_scaling_factor(self, interval: str) -> float:
+        """
+        Farklı zaman aralıkları için ölçeklendirme faktörünü döndürür.
+        Varsayım: Temel aralık 1d (günlük) veridir.
+        """
+        if interval == "1d": return 1.0
+        if interval == "4h": return 6.0  # 1 gün = 6 * 4 saat
+        if interval == "15m": return 96.0 # 1 gün = 96 * 15 dakika
+        return 1.0 # Bilinmeyen aralıklar için varsayılan
+
+    def _calculate_score(self, data: pd.DataFrame, rsi_window: int, macd_fast: int, macd_slow: int, macd_sign: int, sma_short: int, sma_long: int, bollinger_window: int, bollinger_std: float, adx_window: int) -> Tuple[float, str]:
         data = data.copy()
-
-        # Ensure column names are lowercase for consistency
-        data.columns = [col.lower() for col in data.columns]
-        logger.debug(f"Data columns after lowercasing: {data.columns.tolist()}")
-        logger.debug(f"Shape of data['close']: {data['close'].shape if 'close' in data.columns else 'N/A'}")
-        logger.debug(f"Shape of data['high']: {data['high'].shape if 'high' in data.columns else 'N/A'}")
-        logger.debug(f"Shape of data['low']: {data['low'].shape if 'low' in data.columns else 'N/A'}")
-
-        # Calculate indicators
-        rsi = ta.momentum.rsi(data['close'], window=self.rsi_window)
-        macd_diff = ta.trend.macd_diff(data['close'], window_fast=self.macd_fast_window, window_slow=self.macd_slow_window, window_sign=self.macd_signal_window)
-        sma_short = ta.trend.sma_indicator(data['close'], window=self.sma_short_window)
-        sma_long = ta.trend.sma_indicator(data['close'], window=self.sma_long_window)
-        bollinger_hband = ta.volatility.bollinger_hband(data['close'], window=self.bollinger_window, window_dev=self.bollinger_std)
-        bollinger_lband = ta.volatility.bollinger_lband(data['close'], window=self.bollinger_window, window_dev=self.bollinger_std)
-        adx = ta.trend.adx(data['high'], data['low'], data['close'], window=self.adx_window)
-        adx_pos = ta.trend.adx_pos(data['high'], data['low'], data['close'], window=self.adx_window)
-        adx_neg = ta.trend.adx_neg(data['high'], data['low'], data['close'], window=self.adx_window)
-
-        # --- Scoring Logic ---
+        details = []
         score = 0.0
-        # RSI Score
+
+        # Göstergeleri hesapla (ölçeklendirilmiş pencerelerle)
+        rsi = ta.momentum.rsi(data['Close'], window=rsi_window)
+        macd_diff = ta.trend.macd_diff(data['Close'], window_fast=macd_fast, window_slow=macd_slow, window_sign=macd_sign)
+        sma_short_val = ta.trend.sma_indicator(data['Close'], window=sma_short)
+        sma_long_val = ta.trend.sma_indicator(data['Close'], window=sma_long)
+        adx = ta.trend.adx(data['High'], data['Low'], data['Close'], window=adx_window)
+        adx_pos = ta.trend.adx_pos(data['High'], data['Low'], data['Close'], window=adx_window)
+        adx_neg = ta.trend.adx_neg(data['High'], data['Low'], data['Close'], window=adx_window)
+
+        # --- Skorlama Mantığı ve Detaylar ---
         last_rsi = rsi.iloc[-1]
         if not pd.isna(last_rsi):
-            if last_rsi > 70: score -= (last_rsi - 70) / 30 * 0.5
-            elif last_rsi < 30: score += (30 - last_rsi) / 30 * 0.5
+            if last_rsi > 70: 
+                score -= (last_rsi - 70) / 30 * 0.5
+                details.append(f"RSI Aşırı Alım ({last_rsi:.2f})")
+            elif last_rsi < 30: 
+                score += (30 - last_rsi) / 30 * 0.5
+                details.append(f"RSI Aşırı Satım ({last_rsi:.2f})")
 
-        # MACD Score
-        if not macd_diff.empty and not pd.isna(macd_diff.iloc[-1]) and not pd.isna(macd_diff.iloc[-2]):
-            if macd_diff.iloc[-1] > 0 and macd_diff.iloc[-2] <= 0: score += 0.4
-            elif macd_diff.iloc[-1] < 0 and macd_diff.iloc[-2] >= 0: score -= 0.4
+        last_macd_diff = macd_diff.iloc[-1]
+        if not pd.isna(last_macd_diff):
+            score += (last_macd_diff / data['Close'].iloc[-1]) * 5
+            if last_macd_diff > 0: details.append("MACD Pozitif Momentum")
+            else: details.append("MACD Negatif Momentum")
 
-        # Moving Average Score
-        if not sma_short.empty and not pd.isna(sma_short.iloc[-1]) and not sma_long.empty and not pd.isna(sma_long.iloc[-1]):
-            if sma_short.iloc[-1] > sma_long.iloc[-1]: score += 0.1
-            else: score -= 0.1
+        last_sma_short = sma_short_val.iloc[-1]
+        last_sma_long = sma_long_val.iloc[-1]
+        if not pd.isna(last_sma_short) and not pd.isna(last_sma_long):
+            if last_sma_short > last_sma_long: 
+                score += 0.15
+                details.append("SMA Altın Kesişim")
+            else: 
+                score -= 0.15
+                details.append("SMA Ölüm Kesişimi")
 
-        # Bollinger Bands Score
-        if not pd.isna(bollinger_hband.iloc[-1]) and not pd.isna(bollinger_lband.iloc[-1]):
-            if data['close'].iloc[-1] > bollinger_hband.iloc[-1]: score -= 0.2
-            elif data['close'].iloc[-1] < bollinger_lband.iloc[-1]: score += 0.2
+        last_adx = adx.iloc[-1]
+        if not pd.isna(last_adx) and last_adx > 25:
+            last_adx_pos = adx_pos.iloc[-1]
+            last_adx_neg = adx_neg.iloc[-1]
+            if not pd.isna(last_adx_pos) and not pd.isna(last_adx_neg):
+                if last_adx_pos > last_adx_neg: 
+                    score += 0.15
+                    details.append(f"ADX Güçlü Yükseliş Trendi ({last_adx:.2f})")
+                else: 
+                    score -= 0.15
+                    details.append(f"ADX Güçlü Düşüş Trendi ({last_adx:.2f})")
+        
+        final_score = float(np.tanh(score))
+        final_details = ", ".join(details) if details else "Nötr trend sinyali."
+        return final_score, final_details
 
-        # ADX Score
-        if not pd.isna(adx.iloc[-1]) and not pd.isna(adx_pos.iloc[-1]) and not pd.isna(adx_neg.iloc[-1]):
-            if adx.iloc[-1] > 25:
-                if adx_pos.iloc[-1] > adx_neg.iloc[-1]: score += 0.2
-                else: score -= 0.2
-
-        # Normalize the final score to be between -1.0 and 1.0
-        normalized_score = np.tanh(score)
-        logger.debug(f"PriceTrendModel: generated score = {normalized_score:.4f}")
-        return float(normalized_score)
-
+# Örnek Kullanım
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Calculate the price trend score from a CSV file.')
-    parser.add_argument(
-        "--filepath", 
-        type=str, 
-        required=True, 
-        help='Path to the historical data CSV file (e.g., data/BTC-USD_1h.csv).'
-    )
-    args = parser.parse_args()
-
-    logger.info(f"--- Calculating Price Trend Score for {args.filepath} ---")
-
-    if not os.path.exists(args.filepath):
-        logger.error(f"Error: File not found at {args.filepath}")
-    else:
-        try:
-            # Load data from the CSV file
-            data_df = pd.read_csv(args.filepath, index_col='Date', parse_dates=True)
-            
-            # Instantiate the model and generate the score
-            model = PriceTrendModel()
-            trend_score = model.generate_score(data_df)
-            logger.info(f"Calculated Price Trend Score: {trend_score:.4f}")
-
-        except Exception as e:
-            logger.error(f"An error occurred during score calculation: {e}")
+    logger.info("--- PriceTrendModel Test Başlatıldı ---")
+    try:
+        fetcher = DataFetcher()
+        model = PriceTrendModel(data_fetcher=fetcher)
+        prediction = model.predict(symbol="BTC-USD", interval="1d")
+        
+        print("--- Test Sonucu ---")
+        print(f"Model Adı: {model.name}")
+        print(f"Tahmin: {prediction}")
+    except Exception as e:
+        logger.error(f"Test sırasında bir hata oluştu: {e}", exc_info=True)
+    logger.info("--- PriceTrendModel Test Tamamlandı ---")

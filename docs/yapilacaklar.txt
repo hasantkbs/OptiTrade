@@ -1,0 +1,37 @@
+# OptiTrade Tahmin Modeli Geliştirme - Yapılacaklar Listesi
+
+Bu liste, OptiTrade projesinin gelecekteki geliştirme alanlarını ve iyileştirme hedeflerini içermektedir.
+
+## Tamamlanan Ana Geliştirmeler:
+
+*   **Modüler Mimari:** Proje, merkezi `DataFetcher`, `BaseModel` arayüzü ve dinamik `ScoringEngine` ile modüler bir yapıya kavuşturuldu.
+*   **Çeşitli Finansal Modeller:** Fiyat Trendi, Hacim Artışı, Haber Duyarlılığı, Sosyal Medya Duyarlılığı, Destek/Direnç, Uyumsuzluk Tespiti ve Formasyon Analizi modelleri entegre edildi.
+*   **Makine Öğrenmesi Modeli:** XGBoost tabanlı bir ML modeli entegre edildi ve farklı zaman aralıkları için eğitilebilir hale getirildi.
+*   **Gerçek Zamanlı Veri Akışı:** Binance Futures WebSocket API entegrasyonu ile canlı piyasa verisi altyapısı kuruldu.
+*   **Gelişmiş API:** Tüm modellerden gelen detaylı skorları ve anlık piyasa fiyatını içeren zenginleştirilmiş bir API endpoint'i oluşturuldu.
+*   **Kullanıcı Arayüzü İyileştirmeleri:** Frontend, analiz aralığı seçimi, tahmin yönü, anlık piyasa fiyatı ve her modelin skoruna ait detaylı açıklamaları gösterecek şekilde güncellendi.
+
+## Mevcut Durum ve Sonraki Adımlar:
+
+### Önemli Hatırlatma: Model Parametre Optimizasyonu
+
+Modellerimiz artık farklı zaman aralıklarında (15m, 4h, 1d) veri çekip analiz yapabilmektedir. Ancak, kural tabanlı modellerin iç parametreleri (pencere boyutları, toleranslar vb.) ve Makine Öğrenmesi modelinin özellikleri/hiperparametreleri şu anda **günlük (1d) verilere göre heuristik olarak ölçeklendirilmiştir**. Bu, modellerin farklı aralıklarda çalışmasını sağlasa da, o aralık için **en iyi performansı garanti etmez**.
+
+**Gerçek optimizasyon için:** Her bir zaman aralığı (15m, 4h, 1d) için her bir modelin parametrelerinin (ve ML modeli için özellik mühendisliği ile hiperparametrelerin) özel olarak ayarlanması ve eğitilmesi gerekmektedir. Bu, genellikle kapsamlı bir geriye dönük test çerçevesi ve/veya gelişmiş optimizasyon algoritmaları gerektiren, uzun soluklu bir araştırma ve geliştirme sürecidir.
+
+### Geliştirme Alanları:
+
+1.  **Geriye Dönük Test (Backtesting) Çerçevesi:** `ScoringEngine`'in ve tüm modellerin geçmiş veriler üzerindeki gerçek performansını objektif olarak değerlendirecek kapsamlı bir backtesting sistemi geliştirilmelidir. Bu, model ağırlıklarının ve parametrelerinin bilimsel olarak optimize edilmesinin temelini oluşturacaktır.
+2.  **Otomatik Model Eğitimi/Yeniden Eğitimi:** Makine öğrenmesi modellerinin yeni verilerle periyodik olarak otomatik olarak yeniden eğitilmesi için bir otomasyon süreci kurulmalıdır. Bu, modelin piyasa koşullarına adaptasyonunu sağlar.
+3.  **Daha Fazla ve Çeşitli Veri Kaynakları:**
+    *   Makroekonomik veriler (enflasyon, faiz oranları vb.)
+    *   Zincir üstü (On-chain) veriler (işlem hacmi, aktif adresler vb.)
+    *   Daha fazla haber ve sosyal medya kaynağı entegrasyonu.
+4.  **Gelişmiş Formasyon Tespiti:** `formasyon.txt` dosyasındaki diğer formasyonların (Bayraklar, Takozlar, Simetrik Üçgenler vb.) tespiti için `FormationDetectionModel` daha da geliştirilebilir.
+5.  **Risk Yönetimi ve Pozisyon Büyüklüğü:** Tahmin modelini bir ticaret stratejisiyle birleştirirken, risk yönetimi prensiplerini (örneğin Kelly kriteri, sabit kesirli ticaret) ve pozisyon büyüklüğü hesaplamalarını entegre etmek.
+6.  **Uyarı ve Bildirim Sistemi:** `alerting` modülünü kullanarak, belirli sinyal eşiklerine ulaşıldığında kullanıcılara e-posta, Telegram veya diğer kanallar aracılığıyla bildirim gönderme özelliği eklenebilir.
+7.  **Veritabanı Entegrasyonu:** Çekilen verilerin ve üretilen sinyallerin kalıcı olarak saklanması için bir veritabanı (örn: PostgreSQL, SQLite) entegrasyonu yapılabilir. Bu, veri analizi ve geçmiş performans takibi için önemlidir.
+8.  **Frontend İyileştirmeleri:**
+    *   Geçmiş fiyat grafiğini tekrar ekleme (API'den veri çekerek).
+    *   Model skorları için daha interaktif görselleştirmeler.
+    *   Kullanıcının kendi parametrelerini ayarlayabileceği bir arayüz (örn: RSI pencere boyutu).

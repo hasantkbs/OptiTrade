@@ -147,8 +147,18 @@ class BacktestSimulator:
                 
                 historical_data_slice = data.iloc[:i+1]
                 # Merkezi fonksiyonu çağır (backtest için haber/sosyal medya verisi olmadan)
-                model_scores = calculate_all_model_scores(historical_data_slice, self.models)
+                # Geçici olarak dummy haber başlıkları ve sosyal medya sorgusu ekleyelim
+                dummy_news_headlines = ["Bitcoin price surges as institutional adoption grows.", "Crypto market experiences a sharp decline.", "New regulations might impact digital assets."]
+                dummy_social_media_query = "bitcoin" # This will trigger the simulated social media data
+
+                model_scores = calculate_all_model_scores(
+                    historical_data=historical_data_slice,
+                    models=self.models,
+                    news_headlines=dummy_news_headlines,
+                    social_media_query=dummy_social_media_query
+                )
                 final_score = current_scoring_engine.generate_final_score(model_scores)
+                logger.debug(f"Iteration {iteration + 1}: Model Scores: {model_scores}, Final Score: {final_score}")
                 all_prediction_scores.append(final_score)
             
             prediction_scores_series = pd.Series(all_prediction_scores, index=data.index).fillna(0.0)
@@ -252,7 +262,7 @@ if __name__ == '__main__':
                 prediction_scores_series = pd.Series(all_prediction_scores, index=data.index)
                 prediction_scores_series = prediction_scores_series.fillna(0.0)
 
-                results = simulator._run_single_backtest(data['Close'], prediction_scores_series)
+                results = simulator._run_single_backtest(data['close'], prediction_scores_series)
 
                 logger.info(f"Toplam Getiri: {results['total_return']:.2%}")
                 logger.info(f"Toplam İşlem Sayısı: {results['num_trades']}")

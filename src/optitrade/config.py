@@ -93,19 +93,23 @@ DIVERGENCE_TOLERANCE_DAYS = 5         # Fiyat ve gösterge ekstremumlarını eş
 # PUANLAMA MOTORU YAPILANDIRMASI (ScoringEngine)
 # -----------------------------------------------------------------------------
 # Her bir modelin nihai skora katkısını belirleyen ağırlıklar.
-# Bu ağırlıklar, backtesting ile optimize edilebilir.
-SCORING_ENGINE_WEIGHTS = {
-    'price_trend_score': 0.2177,
-    'volume_surge_score': 0.0021,
-    'news_sentiment_score': 0.0596,
-    'social_sentiment_score': 0.3155,
-    'support_resistance_score': 0.1221,
-    'divergence_score': 0.1369,
-    'event_impact_score': 0.1462,
+# Anahtarlar, `src/optitrade/models` altındaki model sınıflarının adları olmalıdır.
+# Bu ağırlıkların toplamının 1.0 olması tavsiye edilir.
+MODEL_WEIGHTS = {
+    "MachineLearningModel": 0.30,
+    "FormationDetectionModel": 0.20,
+    "PriceTrendModel": 0.15,
+    "DivergenceDetectionModel": 0.15,
+    "SupportResistanceModel": 0.10,
+    "VolumeSurgeModel": 0.05,
+    "NewsSentimentModel": 0.025,
+    "SocialSentimentModel": 0.025,
+    # Diğer modeller eklendikçe ve güncellendikçe ağırlıkları ayarlanmalıdır.
 }
 
-# Piyasa koşullarına göre skor ayarlama faktörleri.
-SCORING_ADJUSTMENT_BULL_POSITIVE = 1.1  # Boğa piyasasında pozitif skorlar için çarpan.
-SCORING_ADJUSTMENT_BULL_NEGATIVE = 0.9  # Boğa piyasasında negatif skorlar için çarpan.
-SCORING_ADJUSTMENT_BEAR_POSITIVE = 0.9  # Ayı piyasasında pozitif skorlar için çarpan.
-SCORING_ADJUSTMENT_BEAR_NEGATIVE = 1.1  # Ayı piyasasında negatif skorlar için çarpan.
+
+# Piyasa koşullarına göre skor ayarlama faktörleri (İsteğe bağlı, gelecekte kullanılabilir)
+SCORING_ADJUSTMENT_BULL_POSITIVE = 1.1
+SCORING_ADJUSTMENT_BULL_NEGATIVE = 0.9
+SCORING_ADJUSTMENT_BEAR_POSITIVE = 0.9
+SCORING_ADJUSTMENT_BEAR_NEGATIVE = 1.1

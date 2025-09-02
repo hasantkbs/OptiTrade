@@ -1,0 +1,63 @@
+# Trading Formasyonları ve Anlamları
+
+Bu dosya, OptiTrade projesinin tanıyabileceği temel ve ileri düzey teknik analiz formasyonlarını içerir.
+
+---
+
+## Düşüş Formasyonları (Bearish Patterns) - Satış Sinyalleri
+
+1.  **Omuz-Baş-Omuz (Head and Shoulders)**
+    *   **Açıklama:** Bir yükseliş trendinin sonunda ortaya çıkan, üç tepeden oluşan bir formasyondur. Ortadaki tepe (baş) diğer ikisinden (omuzlar) daha yüksektir. Boyun çizgisinin (destek) aşağı yönlü kırılması, düşüşün teyidi olarak kabul edilir.
+    *   **Sinyal:** Güçlü Satış.
+
+2.  **İkili Tepe (Double Top)**
+    *   **Açıklama:** Fiyatların yaklaşık olarak aynı seviyede iki tepe yapması ve ardından aradaki destek seviyesini kırmasıyla oluşur. "M" harfine benzer. Yükseliş trendinin zayıfladığını ve düşüşün başlayabileceğini gösterir.
+    *   **Sinyal:** Satış.
+
+3.  **Alçalan Üçgen (Descending Triangle)**
+    *   **Açıklama:** Fiyatların sabit bir destek seviyesi ile giderek alçalan tepeler arasında sıkışmasıyla oluşur. Genellikle destek seviyesinin kırılmasıyla sonuçlanan bir düşüş formasyonudur.
+    *   **Sinyal:** Satış.
+
+4.  **Ayı Bayrağı (Bear Flag)**
+    *   **Açıklama:** Keskin bir düşüşün (bayrak direği) ardından gelen, yukarı yönlü eğimli kısa süreli bir konsolidasyon dönemidir. Genellikle düşüş trendinin devam edeceğini gösterir.
+    *   **Sinyal:** Satış (Devam).
+
+5.  **Yükselen Takoz (Rising Wedge)**
+    *   **Açıklama:** Fiyatların yukarı yönlü iki sıkışan trend çizgisi arasında hareket etmesiyle oluşur. Genellikle aşağı yönlü bir kırılma ile sonuçlanan bir düşüş formasyonudur.
+    *   **Sinyal:** Satış.
+
+---
+
+## Yükseliş Formasyonları (Bullish Patterns) - Alış Sinyalleri
+
+1.  **Ters Omuz-Baş-Omuz (Inverse Head and Shoulders)**
+    *   **Açıklama:** Bir düşüş trendinin sonunda ortaya çıkan, üç dipten oluşan bir formasyondur. Ortadaki dip (baş) diğer ikisinden (omuzlar) daha düşüktür. Boyun çizgisinin (direnç) yukarı yönlü kırılması, yükselişin teyidi olarak kabul edilir.
+    *   **Sinyal:** Güçlü Alış.
+
+2.  **İkili Dip (Double Bottom)**
+    *   **Açıklama:** Fiyatların yaklaşık olarak aynı seviyede iki dip yapması ve ardından aradaki direnç seviyesini kırmasıyla oluşur. "W" harfine benzer. Düşüş trendinin zayıfladığını ve yükselişin başlayabileceğini gösterir.
+    *   **Sinyal:** Alış.
+
+3.  **Yükselen Üçgen (Ascending Triangle)**
+    *   **Açıklama:** Fiyatların sabit bir direnç seviyesi ile giderek yükselen dipler arasında sıkışmasıyla oluşur. Genellikle direnç seviyesinin kırılmasıyla sonuçlanan bir yükseliş formasyonudur.
+    *   **Sinyal:** Alış.
+
+4.  **Boğa Bayrağı (Bull Flag)**
+    *   **Açıklama:** Keskin bir yükselişin (bayrak direği) ardından gelen, aşağı yönlü eğimli kısa süreli bir konsolidasyon dönemidir. Genellikle yükseliş trendinin devam edeceğini gösterir.
+    *   **Sinyal:** Alış (Devam).
+
+5.  **Alçalan Takoz (Falling Wedge)**
+    *   **Açıklama:** Fiyatların aşağı yönlü iki sıkışan trend çizgisi arasında hareket etmesiyle oluşur. Genellikle yukarı yönlü bir kırılma ile sonuçlanan bir yükseliş formasyonudur.
+    *   **Sinyal:** Alış.
+
+---
+
+## Trend Devam / İki Yönlü Formasyonlar (Continuation / Bilateral Patterns)
+
+1.  **Simetrik Üçgen (Symmetrical Triangle)**
+    *   **Açıklama:** Fiyatların alçalan bir direnç çizgisi ve yükselen bir destek çizgisi arasında sıkışmasıyla oluşur. Kararsızlık dönemini ifade eder ve genellikle mevcut trendin yönünde kırılır.
+    *   **Sinyal:** Nötr (Kırılıma göre pozisyon alınır).
+
+2.  **Dikdörtgen Formasyonu (Rectangle Formation)**
+    *   **Açıklama:** Fiyatların iki yatay destek ve direnç çizgisi arasında hareket ettiği bir konsolidasyon dönemidir. Kırılım yönüne göre sinyal üretir.
+    *   **Sinyal:** Nötr (Kırılıma göre pozisyon alınır).

@@ -8,7 +8,7 @@ import logging
 from .. import config
 
 from .price_trend_model import PriceTrendModel
-from .volume_surge_model import VolumeSurgeModel
+# from .volume_surge_model import VolumeSurgeModel
 from .news_sentiment_model import NewsSentimentModel
 from .social_sentiment_model import SocialSentimentModel
 from .support_resistance_model import SupportResistanceModel
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # Anahtar: modelin adı (küçük harf), Değer: modelin sınıfı.
 MODEL_REGISTRY = {
     "price_trend": PriceTrendModel,
-    "volume_surge": VolumeSurgeModel,
+    # "volume_surge": VolumeSurgeModel, # Temporarily disabled
     "news_sentiment": NewsSentimentModel,
     "social_sentiment": SocialSentimentModel,
     "support_resistance": SupportResistanceModel,
