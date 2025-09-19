@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from typing import Union, List, Dict
 import praw
 import logging
+import tweepy
 
 # .env dosyasındaki değişkenleri yükle
 load_dotenv()
@@ -38,9 +39,9 @@ class MarketDataHandler:
         self.cache_expiry_days = cache_expiry_days
         os.makedirs(self.cache_dir, exist_ok=True)
 
-    def _get_cache_filepath(self, symbol: str, period: str, interval: str) -> str:
+    def _get_cache_filepath(self, asset_type: str, symbol: str, period: str, interval: str) -> str:
         """Önbellek dosyasının yolunu oluşturur."""
-        return os.path.join(self.cache_dir, f"{symbol.replace('-', '_')}_market_{period}_{interval}.csv")
+        return os.path.join(self.cache_dir, f"{asset_type}_{symbol.replace('-', '_')}_market_{period}_{interval}.csv")
 
     def _is_cache_valid(self, filepath: str) -> bool:
         """Önbellek dosyasının geçerli olup olmadığını kontrol eder."""
@@ -49,9 +50,9 @@ class MarketDataHandler:
         file_mod_time = datetime.fromtimestamp(os.path.getmtime(filepath))
         return (datetime.now() - file_mod_time) <= timedelta(days=self.cache_expiry_days)
 
-    def fetch_data(self, symbol: str, period: str, interval: str) -> pd.DataFrame:
+    def fetch_data(self, asset_type: str, symbol: str, period: str, interval: str) -> pd.DataFrame:
         """Piyasa verilerini çeker, önbelleği kontrol eder ve gerekirse günceller."""
-        cache_filepath = self._get_cache_filepath(symbol, period, interval)
+        cache_filepath = self._get_cache_filepath(asset_type, symbol, period, interval)
 
         if self._is_cache_valid(cache_filepath):
             logger.info(f"Piyasa verisi önbellekten okunuyor: {cache_filepath}")
@@ -70,10 +71,113 @@ class MarketDataHandler:
             logger.error(f"yfinance ile veri çekilirken hata oluştu: {e}")
             return pd.DataFrame()
 
+    def _get_financial_cache_filepath(self, symbol: str, statement_type: str) -> str:
+        """Finansal tablo için önbellek dosyasının yolunu oluşturur."""
+        return os.path.join(self.cache_dir, f"stock_{symbol.replace('-', '_')}_{statement_type}.json")
+
+    def _get_info_cache_filepath(self, symbol: str) -> str:
+        """Ticker info için önbellek dosyasının yolunu oluşturur."""
+        return os.path.join(self.cache_dir, f"stock_{symbol.replace('-', '_')}_info.json")
+
+    def _get_risk_free_rate_cache_filepath(self) -> str:
+        """Risksiz faiz oranı için önbellek dosyasının yolunu oluşturur."""
+        return os.path.join(self.cache_dir, "risk_free_rate.json")
+
+    def fetch_financial_statement(self, symbol: str, statement_type: str) -> Union[Dict, None]:
+        """
+        Hisse senedi için finansal tablo verilerini (gelir tablosu, bilanço, nakit akışı) çeker.
+        Veriyi JSON olarak önbelleğe alır.
+        """
+        cache_filepath = self._get_financial_cache_filepath(symbol, statement_type)
+
+        if self._is_cache_valid(cache_filepath):
+            logger.info(f"Finansal tablo verisi önbellekten okunuyor: {cache_filepath}")
+            with open(cache_filepath, 'r') as f:
+                return json.load(f)
+
+        logger.info(f"Yeni finansal tablo verisi çekiliyor: {symbol} (Tablo: {statement_type})""")
+        try:
+            ticker = yf.Ticker(symbol)
+            data = None
+            if statement_type == "financials":
+                data = ticker.financials
+            elif statement_type == "balance_sheet":
+                data = ticker.balance_sheet
+            elif statement_type == "cashflow":
+                data = ticker.cashflow
+            
+            if data is not None and not data.empty:
+                # DataFrame'i JSON'a çevir
+                data_json = json.loads(data.to_json(orient="index"))
+                with open(cache_filepath, 'w') as f:
+                    json.dump(data_json, f)
+                logger.info(f"Finansal tablo verisi önbelleğe alındı: {cache_filepath}")
+                return data_json
+            return None
+        except Exception as e:
+            logger.error(f"yfinance ile finansal tablo verisi çekilirken hata oluştu: {e}")
+            return None
+
+    def fetch_ticker_info(self, symbol: str) -> Union[Dict, None]:
+        """
+        Hisse senedi için genel bilgileri (info) çeker.
+        Veriyi JSON olarak önbelleğe alır.
+        """
+        cache_filepath = self._get_info_cache_filepath(symbol)
+
+        if self._is_cache_valid(cache_filepath):
+            logger.info(f"Ticker bilgisi önbellekten okunuyor: {cache_filepath}")
+            with open(cache_filepath, 'r') as f:
+                return json.load(f)
+
+        logger.info(f"Yeni ticker bilgisi çekiliyor: {symbol}")
+        try:
+            ticker = yf.Ticker(symbol)
+            info = ticker.info
+            
+            if info:
+                with open(cache_filepath, 'w') as f:
+                    json.dump(info, f)
+                logger.info(f"Ticker bilgisi önbelleğe alındı: {cache_filepath}")
+                return info
+            return None
+        except Exception as e:
+            logger.error(f"yfinance ile ticker bilgisi çekilirken hata oluştu: {e}")
+            return None
+
+    def fetch_risk_free_rate(self) -> Union[float, None]:
+        """
+        Risksiz faiz oranını (10 yıllık ABD Hazine tahvili getirisi) çeker.
+        Veriyi JSON olarak önbelleğe alır.
+        """
+        cache_filepath = self._get_risk_free_rate_cache_filepath()
+
+        if self._is_cache_valid(cache_filepath):
+            logger.info(f"Risksiz faiz oranı önbellekten okunuyor: {cache_filepath}")
+            with open(cache_filepath, 'r') as f:
+                return json.load().get('rate')
+
+        logger.info("Yeni risksiz faiz oranı çekiliyor (^TNX)")
+        try:
+            tnx = yf.Ticker("^TNX")
+            # Son bir günün verisini çek ve en son kapanış fiyatını al
+            history = tnx.history(period="1d")
+            if not history.empty:
+                rate = history['Close'].iloc[-1] / 100 # Yüzdeye çevir
+                with open(cache_filepath, 'w') as f:
+                    json.dump({'rate': rate, 'timestamp': datetime.now().isoformat()}, f)
+                logger.info(f"Risksiz faiz oranı önbelleğe alındı: {rate:.4f}")
+                return rate
+            return None
+        except Exception as e:
+            logger.error(f"yfinance ile risksiz faiz oranı çekilirken hata oluştu: {e}")
+            return None
+
 class NewsDataHandler:
     """Çeşitli API'lerden haber verilerini çekmek için bir sınıf."""
-    def __init__(self, news_api_key: str = config.NEWS_API_KEY):
+    def __init__(self, news_api_key: str = config.NEWS_API_KEY, guardian_api_key: str = config.GUARDIAN_API_KEY):
         self.news_api_key = news_api_key
+        self.guardian_api_key = guardian_api_key
 
     def fetch_news(self, query: str, language: str = 'en', sort_by: str = 'relevancy') -> Union[Dict, None]:
         """NewsAPI.org'dan haberleri çeker."""
@@ -91,9 +195,25 @@ class NewsDataHandler:
             logger.error(f"NewsAPI.org API Hatası: {e}")
             return None
 
+    def fetch_guardian_news(self, query: str) -> Union[Dict, None]:
+        """The Guardian API'sinden haberleri çeker."""
+        if not self.guardian_api_key:
+            logger.error("The Guardian için API anahtarı gerekli.")
+            return None
+        
+        base_url = "https://content.guardianapis.com/search"
+        params = {"q": query, "api-key": self.guardian_api_key}
+        try:
+            response = requests.get(base_url, params=params)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"The Guardian API Hatası: {e}")
+            return None
+
 class SocialMediaDataHandler:
     """Reddit gibi sosyal medya platformlarından veri çeker."""
-    def __init__(self, client_id: str = config.REDDIT_CLIENT_ID, client_secret: str = config.REDDIT_CLIENT_SECRET, user_agent: str = config.REDDIT_USER_AGENT):
+    def __init__(self, client_id: str = config.REDDIT_CLIENT_ID, client_secret: str = config.REDDIT_CLIENT_SECRET, user_agent: str = config.REDDIT_USER_AGENT, twitter_api_key: str = config.TWITTER_API_KEY, twitter_api_secret_key: str = config.TWITTER_API_SECRET_KEY, twitter_access_token: str = config.TWITTER_ACCESS_TOKEN, twitter_access_token_secret: str = config.TWITTER_ACCESS_TOKEN_SECRET):
         if not all([client_id, client_secret, user_agent]):
             logger.warning("Reddit API kimlik bilgileri eksik. Sosyal medya verileri çekilemeyecek.")
             self.reddit = None
@@ -103,6 +223,12 @@ class SocialMediaDataHandler:
                 client_secret=client_secret,
                 user_agent=user_agent
             )
+        
+        if not all([twitter_api_key, twitter_api_secret_key, twitter_access_token, twitter_access_token_secret]):
+            logger.warning("Twitter API kimlik bilgileri eksik. Tweetler çekilemeyecek.")
+            self.twitter_client = None
+        else:
+            self.twitter_client = tweepy.Client(bearer_token=None, consumer_key=twitter_api_key, consumer_secret=twitter_api_secret_key, access_token=twitter_access_token, access_token_secret=twitter_access_token_secret)
 
     def fetch_reddit_posts(self, query: str, limit: int = 25) -> List[str]:
         """Belirli bir sorguya göre Reddit genelinde gönderileri arar."""
@@ -116,6 +242,21 @@ class SocialMediaDataHandler:
                 results.append(f"{post.title}. {post.selftext}")
         except Exception as e:
             logger.error(f"Reddit arama hatası: {e}")
+        return results
+
+    def fetch_tweets(self, query: str, limit: int = 25) -> List[str]:
+        """Belirli bir sorguya göre Twitter'da tweetleri arar."""
+        if not self.twitter_client:
+            return []
+        
+        results = []
+        try:
+            tweets = self.twitter_client.search_recent_tweets(query=query, max_results=limit)
+            if tweets.data:
+                for tweet in tweets.data:
+                    results.append(tweet.text)
+        except Exception as e:
+            logger.error(f"Twitter arama hatası: {e}")
         return results
 
 class MacroDataHandler:
@@ -179,17 +320,18 @@ class DataFetcher:
     def __init__(self):
         """Tüm veri işleyicilerini (handler) başlatır."""
         self.market_handler = MarketDataHandler()
-        self.news_handler = NewsDataHandler()
-        self.social_media_handler = SocialMediaDataHandler()
+        self.news_handler = NewsDataHandler(news_api_key=config.NEWS_API_KEY, guardian_api_key=config.GUARDIAN_API_KEY)
+        self.social_media_handler = SocialMediaDataHandler(client_id=config.REDDIT_CLIENT_ID, client_secret=config.REDDIT_CLIENT_SECRET, user_agent=config.REDDIT_USER_AGENT, twitter_api_key=config.TWITTER_API_KEY, twitter_api_secret_key=config.TWITTER_API_SECRET_KEY, twitter_access_token=config.TWITTER_ACCESS_TOKEN, twitter_access_token_secret=config.TWITTER_ACCESS_TOKEN_SECRET)
         self.macro_handler = MacroDataHandler()
         self.onchain_handler = OnChainDataHandler()
         logger.info("DataFetcher servisi başlatıldı.")
 
-    def get_market_data(self, symbol: str, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
+    def get_market_data(self, asset_type: str, symbol: str, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
         """
         Belirtilen sembol için piyasa verilerini (OHLCV) çeker.
 
         Args:
+            asset_type (str): Varlık tipi (crypto veya stock).
             symbol (str): Hisse senedi/kripto para sembolü (örn: "BTC-USD").
             period (str): Veri çekme periyodu (örn: "1y", "6mo", "max").
             interval (str): Veri çekme aralığı (örn: "1d", "1h", "15m").
@@ -197,7 +339,41 @@ class DataFetcher:
         Returns:
             pd.DataFrame: Piyasa verilerini içeren DataFrame.
         """
-        return self.market_handler.fetch_data(symbol, period, interval)
+        return self.market_handler.fetch_data(asset_type, symbol, period, interval)
+
+    def get_financial_statement(self, symbol: str, statement_type: str) -> Union[Dict, None]:
+        """
+        Belirtilen hisse senedi için finansal tablo verilerini çeker.
+
+        Args:
+            symbol (str): Hisse senedi sembolü (örn: "AAPL").
+            statement_type (str): Tablo tipi ("financials", "balance_sheet", "cashflow").
+
+        Returns:
+            dict: Finansal tablo verilerini içeren bir sözlük.
+        """
+        return self.market_handler.fetch_financial_statement(symbol, statement_type)
+
+    def get_ticker_info(self, symbol: str) -> Union[Dict, None]:
+        """
+        Belirtilen hisse senedi için genel bilgileri (info) çeker.
+
+        Args:
+            symbol (str): Hisse senedi sembolü (örn: "AAPL").
+
+        Returns:
+            dict: Ticker bilgilerini içeren bir sözlük.
+        """
+        return self.market_handler.fetch_ticker_info(symbol)
+
+    def get_risk_free_rate(self) -> Union[float, None]:
+        """
+        Risksiz faiz oranını (10 yıllık ABD Hazine tahvili getirisi) çeker.
+
+        Returns:
+            float: Risksiz faiz oranı.
+        """
+        return self.market_handler.fetch_risk_free_rate()
 
     def get_news(self, query: str) -> Union[Dict, None]:
         """
@@ -211,6 +387,18 @@ class DataFetcher:
         """
         return self.news_handler.fetch_news(query)
 
+    def get_guardian_news(self, query: str) -> Union[Dict, None]:
+        """
+        Belirtilen sorgu ile ilgili The Guardian haberlerini çeker.
+
+        Args:
+            query (str): Aranacak anahtar kelime (örn: "Bitcoin").
+
+        Returns:
+            dict: Haber verilerini içeren bir sözlük.
+        """
+        return self.news_handler.fetch_guardian_news(query)
+
     def get_reddit_posts(self, query: str, limit: int = 25) -> List[str]:
         """
         Belirtilen sorgu ile ilgili Reddit gönderilerini çeker.
@@ -223,6 +411,19 @@ class DataFetcher:
             List[str]: Gönderi içeriklerini içeren bir liste.
         """
         return self.social_media_handler.fetch_reddit_posts(query, limit)
+
+    def get_tweets(self, query: str, limit: int = 25) -> List[str]:
+        """
+        Belirtilen sorgu ile ilgili tweetleri çeker.
+
+        Args:
+            query (str): Aranacak anahtar kelime (örn: "#Bitcoin").
+            limit (int): Çekilecek maksimum tweet sayısı.
+
+        Returns:
+            List[str]: Tweet metinlerini içeren bir liste.
+        """
+        return self.social_media_handler.fetch_tweets(query, limit)
 
     def get_federal_fund_rate(self) -> Union[Dict, None]:
         """
@@ -278,3 +479,21 @@ if __name__ == '__main__':
         print(f"İlk Reddit Gönderisi: {reddit_posts[0][:100]}...")
     else:
         logger.warning("Reddit gönderisi çekilemedi veya bulunamadı.")
+
+    # 4. The Guardian Haber Verisi Çekme Testi
+    guardian_news = fetcher.get_guardian_news("Bitcoin")
+    if guardian_news and guardian_news.get('response', {}).get('results'):
+        logger.info(f"The Guardian'dan {len(guardian_news['response']['results'])} adet Bitcoin haberi bulundu.")
+        # İlk makalenin başlığını yazdır
+        print(f"İlk The Guardian Haberi: {guardian_news['response']['results'][0]['webTitle']}")
+    else:
+        logger.warning("The Guardian haberi çekilemedi veya bulunamadı.")
+
+    # 5. Twitter Verisi Çekme Testi
+    tweets = fetcher.get_tweets("#Bitcoin", limit=5)
+    if tweets:
+        logger.info(f"{len(tweets)} adet tweet bulundu.")
+        # İlk tweeti yazdır
+        print(f"İlk Tweet: {tweets[0][:100]}...")
+    else:
+        logger.warning("Tweet çekilemedi veya bulunamadı.")

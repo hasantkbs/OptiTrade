@@ -1,0 +1,41 @@
+Development Log - September 19, 2025
+
+- Renamed `docs/yapilacaklar.txt` to `TODO.md`.
+- Created `changelog` directory for development logs.
+
+## Changes on 2025-09-19
+
+### Frontend UI Development
+- Marked "Frontend UI Geliştirmesi" as complete in `TODO.md`.
+
+### Backend API Update
+- Added `asset_type` parameter to `/api/v1/signals` and `/api/v1/market_data` endpoints in `src/optitrade/api/server.py`.
+- Propagated `asset_type` parameter through `ScoringEngine` and `DataFetcher` calls.
+- Updated `MarketDataHandler` to include `asset_type` in the cache key for market data.
+
+### Stock Data Fetching
+- Added `fetch_ticker_info` and `_get_info_cache_filepath` to `MarketDataHandler` in `src/optitrade/utils/data_fetcher.py` to fetch general ticker information (e.g., shares outstanding, market cap).
+- Added `get_ticker_info` to `DataFetcher` in `src/optitrade/utils/data_fetcher.py`.
+- Added `fetch_risk_free_rate` and `_get_risk_free_rate_cache_filepath` to `MarketDataHandler` in `src/optitrade/utils/data_fetcher.py` to fetch the 10-year US Treasury yield (`^TNX`).
+- Added `get_risk_free_rate` to `DataFetcher` in `src/optitrade/utils/data_fetcher.py`.
+- Ensured `fetch_financial_statement` in `MarketDataHandler` correctly handles `cashflow` data.
+
+### New Model: FinancialRatioModel
+- Created `src/optitrade/models/financial_ratio_model.py` for stock fundamental analysis.
+- Implemented calculation and scoring for Price-to-Earnings (P/E) and Price-to-Book (P/B) ratios.
+- Extended the model to include Debt-to-Equity (D/E), Earnings Per Share (EPS) Growth, Price-to-Sales (P/S), and EBITDA Margin ratios with corresponding scoring logic.
+- Added `FinancialRatioModel` to `MODEL_WEIGHTS_DEFAULT`, `MODEL_WEIGHTS_STRONG_TREND`, and `MODEL_WEIGHTS_RANGING` in `src/optitrade/config.py`.
+
+### Model Weight Optimization for Stocks
+- Added new stock-specific model weight profiles (`MODEL_WEIGHTS_STOCK_DEFAULT`, `MODEL_WEIGHTS_STOCK_STRONG_TREND`, `MODEL_WEIGHTS_STOCK_RANGING`) to `src/optitrade/config.py`.
+- Updated `ScoringEngine` in `src/optitrade/scoring/scoring_engine.py` to dynamically select model weight profiles based on the `asset_type` (crypto or stock) and market regime.
+
+### New Model: DCFModel
+- Created `src/optitrade/models/dcf_model.py` for Discounted Cash Flow (DCF) valuation.
+- Implemented fetching of cash flow statements, ticker info, and risk-free rate within the model.
+- Implemented calculation of Weighted Average Cost of Capital (WACC).
+- Implemented historical Free Cash Flow (FCF) calculation and future FCF projection.
+- Implemented Terminal Value calculation.
+- Implemented intrinsic value per share calculation.
+- Implemented scoring based on the upside potential derived from the intrinsic value and current market price.
+- Fixed a bug where `risk_free_rate` was not correctly passed to the `_calculate_intrinsic_value` method.

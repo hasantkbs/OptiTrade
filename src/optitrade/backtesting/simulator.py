@@ -31,12 +31,14 @@ class BacktestSimulator:
     """
     Tahmin motorunun geçmiş verilerle doğruluğunu ölçen simülatör.
     """
-    def __init__(self, entry_threshold: float = 0.5, exit_threshold: float = -0.5):
+    def __init__(self, entry_threshold: float = 0.5, exit_threshold: float = -0.5, commission_rate: float = 0.001, slippage: float = 0.0005):
         """
-        Simülatörü başlatır ve strateji eşiklerini ayarlar.
+        Simülatörü başlatır ve strateji eşiklerini, komisyon ve kayma oranlarını ayarlar.
         """
         self.entry_threshold = entry_threshold
         self.exit_threshold = exit_threshold
+        self.commission_rate = commission_rate
+        self.slippage = slippage
         self.models = initialize_models()
         self.min_data_points_for_models = 60 # Geçici olarak sabit bir değer
 
@@ -70,19 +72,31 @@ class BacktestSimulator:
                 logger.warning(f"BacktestSimulator: current_score is NaN at index {i}. Skipping this data point.")
                 continue
 
+            # Pozisyona giriş (Long)
             if position == 0 and current_score >= self.entry_threshold:
                 position = 1
-                entry_price = current_price
+                entry_price = current_price * (1 + self.slippage) # Fiyat kayması ekle
+                capital *= (1 - self.commission_rate) # Komisyonu düş
+                logger.info(f"Giriş: {entry_price:.2f} | Skor: {current_score:.2f}")
+
+            # Pozisyondan çıkış (Long)
             elif position == 1 and current_score <= self.exit_threshold:
                 position = 0
-                trade_return = (current_price - entry_price) / entry_price
+                exit_price = current_price * (1 - self.slippage) # Fiyat kayması ekle
+                capital *= (1 - self.commission_rate) # Komisyonu düş
+                trade_return = (exit_price - entry_price) / entry_price
                 trade_returns.append(trade_return)
                 capital *= (1 + trade_return)
+                logger.info(f"Çıkış: {exit_price:.2f} | Skor: {current_score:.2f} | Getiri: {trade_return:.2%}")
 
+        # Backtest sonunda hala pozisyon açıksa, son fiyattan kapat
         if position == 1:
-            trade_return = (prices.iloc[-1] - entry_price) / entry_price
+            exit_price = prices.iloc[-1] * (1 - self.slippage)
+            capital *= (1 - self.commission_rate)
+            trade_return = (exit_price - entry_price) / entry_price
             trade_returns.append(trade_return)
             capital *= (1 + trade_return)
+            logger.info(f"Son Kapanış: {exit_price:.2f} | Getiri: {trade_return:.2%}")
 
         total_return = (capital - initial_capital) / initial_capital
         num_trades = len(trade_returns)
@@ -183,6 +197,8 @@ if __name__ == '__main__':
     parser.add_argument('--interval', type=str, default='1d', choices=['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '1d', '5d', '1wk', '1mo', '3mo'], help='Veri çekme aralığı (yfinance için: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo). Varsayılan: 1d')
     parser.add_argument('--entry_threshold', type=float, default=0.5, help='Pozisyona girmek için tahmin skoru eşiği. Varsayılan: 0.5')
     parser.add_argument('--exit_threshold', type=float, default=-0.5, help='Pozisyondan çıkmak için tahmin skoru eşiği. Varsayılan: -0.5')
+    parser.add_argument('--commission_rate', type=float, default=0.001, help='İşlem başına komisyon oranı. Varsayılan: 0.001 (0.1%)')
+    parser.add_argument('--slippage', type=float, default=0.0005, help='İşlem başına fiyat kayması (slippage). Varsayılan: 0.0005 (0.05%)')
     parser.add_argument('--optimize_weights', action='store_true', help='ScoringEngine ağırlıklarını optimize et.')
     parser.add_argument('--num_iterations', type=int, default=100, help='Optimizasyon için iterasyon sayısı. Varsayılan: 100')
     parser.add_argument('--datafile', type=str, default=None, help='Lokal veri dosyası (CSV formatında). Eğer belirtilirse, yfinance yerine bu dosya kullanılır.')
@@ -231,7 +247,12 @@ if __name__ == '__main__':
         if data.empty:
             logger.error(f"Hata: Veri çekilemedi veya dosya boş. Lütfen girdi parametrelerini kontrol edin.")
         else:
-            simulator = BacktestSimulator(entry_threshold=args.entry_threshold, exit_threshold=args.exit_threshold)
+            simulator = BacktestSimulator(
+                entry_threshold=args.entry_threshold, 
+                exit_threshold=args.exit_threshold,
+                commission_rate=args.commission_rate,
+                slippage=args.slippage
+            )
 
             if args.optimize_weights:
                 best_weights, best_results = simulator.optimize_scoring_engine_weights(data, args.num_iterations)

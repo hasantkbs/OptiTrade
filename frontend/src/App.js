@@ -29,6 +29,8 @@ const modelCategories = {
 function App() {
   const [symbol, setSymbol] = useState('BTC-USD');
   const [interval, setInterval] = useState('1d');
+  const [rsiPeriod, setRsiPeriod] = useState(14); // Yeni RSI periyodu state'i
+  const [assetType, setAssetType] = useState('crypto'); // Yeni varlık tipi state'i
   const [analysisResult, setAnalysisResult] = useState(null);
   const [chartData, setChartData] = useState([]); // Fiyat grafiği için state
   const [isLoading, setIsLoading] = useState(false);
@@ -50,8 +52,8 @@ function App() {
     try {
       // Eş zamanlı olarak iki API isteğini de yap
       const [signalsResponse, chartResponse] = await Promise.all([
-        fetch(`http://127.0.0.1:8000/api/v1/signals?symbol=${symbol}&interval=${interval}`),
-        fetch(`http://127.0.0.1:8000/api/v1/market_data?symbol=${symbol}&interval=${interval}`)
+        fetch(`http://127.0.0.1:8000/api/v1/signals?symbol=${symbol}&interval=${interval}&rsi_period=${rsiPeriod}&asset_type=${assetType}`),
+        fetch(`http://127.0.0.1:8000/api/v1/market_data?symbol=${symbol}&interval=${interval}&asset_type=${assetType}`)
       ]);
 
       const signalsData = await signalsResponse.json();
@@ -115,13 +117,24 @@ function App() {
             type="text"
             value={symbol}
             onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-            placeholder="Sembol girin (örn: BTC-USD)"
+            placeholder="Sembol girin (örn: BTC-USD, AAPL)"
           />
+          <select value={assetType} onChange={(e) => setAssetType(e.target.value)}>
+            <option value="crypto">Kripto</option>
+            <option value="stock">Hisse Senedi</option>
+          </select>
           <select value={interval} onChange={(e) => setInterval(e.target.value)}>
             <option value="15m">15 Dakika</option>
             <option value="4h">4 Saat</option>
             <option value="1d">1 Gün</option>
           </select>
+          <input
+            type="number"
+            value={rsiPeriod}
+            onChange={(e) => setRsiPeriod(e.target.value)}
+            placeholder="RSI Periyodu"
+            min="1"
+          />
           <button onClick={fetchData} disabled={isLoading}>
             {isLoading ? 'Analiz Ediliyor...' : 'Analiz Et'}
           </button>

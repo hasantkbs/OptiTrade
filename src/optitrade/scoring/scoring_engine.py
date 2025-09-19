@@ -27,11 +27,18 @@ class ScoringEngine:
     def __init__(self, data_fetcher: DataFetcher, db_handler: DatabaseHandler):
         self.data_fetcher = data_fetcher
         self.db_handler = db_handler
-        # Tüm ağırlık profillerini yükle
+        # Varlık tipine göre tüm ağırlık profillerini yükle
         self.weight_profiles = {
-            "DEFAULT": config.MODEL_WEIGHTS_DEFAULT,
-            "STRONG_TREND": config.MODEL_WEIGHTS_STRONG_TREND,
-            "RANGING": config.MODEL_WEIGHTS_RANGING
+            "crypto": {
+                "DEFAULT": config.MODEL_WEIGHTS_DEFAULT,
+                "STRONG_TREND": config.MODEL_WEIGHTS_STRONG_TREND,
+                "RANGING": config.MODEL_WEIGHTS_RANGING
+            },
+            "stock": {
+                "DEFAULT": config.MODEL_WEIGHTS_STOCK_DEFAULT,
+                "STRONG_TREND": config.MODEL_WEIGHTS_STOCK_STRONG_TREND,
+                "RANGING": config.MODEL_WEIGHTS_STOCK_RANGING
+            }
         }
         self.models = self._load_models()
         self.alert_system = AlertSystem()
@@ -46,10 +53,11 @@ class ScoringEngine:
     def _load_models(self) -> Dict[str, BaseModel]:
         logger.info("Modeller yükleniyor...")
         loaded_models = {}
-        # Ağırlık profillerindeki tüm benzersiz model adlarını topla
+        # Tüm ağırlık profillerindeki tüm benzersiz model adlarını topla
         all_model_names = set()
-        for profile in self.weight_profiles.values():
-            all_model_names.update(profile.keys())
+        for asset_profiles in self.weight_profiles.values():
+            for profile in asset_profiles.values():
+                all_model_names.update(profile.keys())
 
         for _, name, _ in pkgutil.iter_modules(models.__path__):
             try:
@@ -64,21 +72,24 @@ class ScoringEngine:
         logger.info(f"{len(loaded_models)} adet model başarıyla yüklendi: {list(loaded_models.keys())}")
         return loaded_models
 
-    def _select_weights(self, regime: str) -> Dict[str, float]:
-        """Piyasa rejimine göre uygun ağırlık profilini seçer."""
+    def _select_weights(self, regime: str, asset_type: str) -> Dict[str, float]:
+        """Piyasa rejimine ve varlık tipine göre uygun ağırlık profilini seçer."""
+        asset_profiles = self.weight_profiles.get(asset_type, self.weight_profiles["crypto"]) # Varlık tipi yoksa kripto varsay
+        
         if "Strong" in regime:
-            logger.info(f"Rejim '{regime}' -> GÜÇLÜ TREND ağırlıkları seçildi.")
-            return self.weight_profiles["STRONG_TREND"]
+            logger.info(f"Varlık Tipi '{asset_type}', Rejim '{regime}' -> GÜÇLÜ TREND ağırlıkları seçildi.")
+            return asset_profiles["STRONG_TREND"]
         elif "Weak" in regime:
-            logger.info(f"Rejim '{regime}' -> YATAY PİYASA ağırlıkları seçildi.")
-            return self.weight_profiles["RANGING"]
+            logger.info(f"Varlık Tipi '{asset_type}', Rejim '{regime}' -> YATAY PİYASA ağırlıkları seçildi.")
+            return asset_profiles["RANGING"]
         else: # Unknown veya diğer durumlar için
-            logger.info(f"Rejim '{regime}' -> VARSAYILAN ağırlıklar seçildi.")
-            return self.weight_profiles["DEFAULT"]
+            logger.info(f"Varlık Tipi '{asset_type}', Rejim '{regime}' -> VARSAYILAN ağırlıklar seçildi.")
+            return asset_profiles["DEFAULT"]
 
-    def run_engine(self, symbol: str, interval: str = "1d", model_params: Dict[str, Any] = None) -> Dict[str, Any]:
+    def run_engine(self, asset_type: str, symbol: str, interval: str = "1d", model_params: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Yüklenen tüm modelleri çalıştırır, nihai bir skor üretir ve risk analizi yapar.
+        asset_type: Varlık tipi (crypto veya stock).
         model_params: Her model için özel parametreleri içeren bir sözlük (örn: {"PriceTrendModel": {"rsi_window": 20}})
         """
         if model_params is None:
@@ -86,19 +97,18 @@ class ScoringEngine:
 
         # 1. Piyasa Rejimini Belirle
         regime_model = self.models.get("MarketConditionClassifier")
-        # Rejim modeline özel parametreleri uygula
         regime_model_specific_params = model_params.get("MarketConditionClassifier", {})
         regime_result = regime_model.predict(symbol=symbol, interval=interval, **regime_model_specific_params) if regime_model else {"regime": "Unknown", "details": "Rejim modeli yüklenemedi."}
         market_regime = regime_result.get("regime", "Unknown")
 
-        # 2. Rejime Göre Ağırlıkları Seç ve Normalize Et
-        active_weights = self._select_weights(market_regime)
+        # 2. Rejime ve Varlık Tipine Göre Ağırlıkları Seç ve Normalize Et
+        active_weights = self._select_weights(market_regime, asset_type)
         normalized_weights = self._normalize_weights(active_weights)
 
         # 3. Anlık piyasa fiyatını ve ATR'yi çek/hesapla
         period_map = {"15m": "60d", "4h": "730d", "1d": "5y"}
         fetch_period = period_map.get(interval, "5y")
-        latest_data = self.data_fetcher.get_market_data(symbol=symbol, period=fetch_period, interval=interval)
+        latest_data = self.data_fetcher.get_market_data(asset_type=asset_type, symbol=symbol, period=fetch_period, interval=interval)
         current_price = None
         atr = None
         if not latest_data.empty:
@@ -119,7 +129,7 @@ class ScoringEngine:
         model_outputs = {"MarketConditionClassifier": regime_result} # Rejim bilgisini de çıktılara ekle
         support_resistance_levels = {}
 
-        logger.info(f"Scoring Engine, '{symbol}' için '{market_regime}' rejiminde çalıştırılıyor...")
+        logger.info(f"Scoring Engine, '{symbol}' ('{asset_type}') için '{market_regime}' rejiminde çalıştırılıyor...")
         for model_name, model_instance in self.models.items():
             if model_name == "MarketConditionClassifier":
                 continue # Zaten çalıştırdık
@@ -130,9 +140,9 @@ class ScoringEngine:
                 continue
 
             try:
-                # Modele özel parametreleri al
                 model_specific_params = model_params.get(model_name, {})
-                prediction = model_instance.predict(symbol=symbol, interval=interval, **model_specific_params)
+                # Her modele asset_type bilgisini de gönder
+                prediction = model_instance.predict(symbol=symbol, interval=interval, asset_type=asset_type, **model_specific_params)
                 score = prediction.get('score', 0.0)
                 final_score += score * weight
                 model_outputs[model_name] = prediction

@@ -38,6 +38,12 @@ class FormationDetectionModel(BaseModel):
                 score, details = self._detect_triangles(prices)
             if score == 0.0:
                 score, details = self._detect_double_top_bottom(prices)
+            if score == 0.0:
+                score, details = self._detect_flags(prices)
+            if score == 0.0:
+                score, details = self._detect_wedges(prices)
+            if score == 0.0:
+                score, details = self._detect_rectangles(prices)
             
             logger.info(f"'{self.name}' modeli sonucu: Skor={score:.2f}, Detay: {details}")
             return {"score": score, "details": details}
@@ -122,6 +128,83 @@ class FormationDetectionModel(BaseModel):
                 if prices.iloc[-1] > peak:
                     return 0.75, f"İkili Dip formasyonu ({peak:.2f} üstünde) teyit edildi."
         return 0.0, "Formasyon bulunamadı"
+
+    def _detect_flags(self, prices: pd.Series) -> Tuple[float, str]:
+        # Bayrak formasyonları için daha fazla veri noktası gerekebilir
+        if len(prices) < 50: # Örnek olarak 50 bar
+            return 0.0, "Bayrak formasyonu tespiti için yetersiz veri."
+
+        # Son keskin hareketi (bayrak direği) bul
+        # Boğa Bayrağı: Keskin yükseliş, ardından hafif düşüş konsolidasyonu
+        # Ayı Bayrağı: Keskin düşüş, ardından hafif yükseliş konsolidasyonu
+
+        # Basit bir yaklaşım: Son 10 barın değişimine bak
+        recent_change = (prices.iloc[-1] - prices.iloc[-10]) / prices.iloc[-10]
+
+        # Daha sofistike bir bayrak tespiti için trend çizgileri ve kanal analizi gerekir.
+        # Bu sadece bir başlangıç noktasıdır.
+
+        if recent_change > 0.05: # %5'ten fazla yükseliş (potansiyel boğa direği)
+            # Sonraki 10 barda hafif düşüş veya yatay hareket var mı?
+            consolidation_prices = prices.iloc[-10:]
+            if (consolidation_prices.iloc[-1] - consolidation_prices.iloc[0]) / consolidation_prices.iloc[0] < 0.02 and \
+               (consolidation_prices.iloc[-1] - consolidation_prices.iloc[0]) / consolidation_prices.iloc[0] > -0.02:
+                return 0.6, "Potansiyel Boğa Bayrağı formasyonu."
+        elif recent_change < -0.05: # %5'ten fazla düşüş (potansiyel ayı direği)
+            # Sonraki 10 barda hafif yükseliş veya yatay hareket var mı?
+            consolidation_prices = prices.iloc[-10:]
+            if (consolidation_prices.iloc[-1] - consolidation_prices.iloc[0]) / consolidation_prices.iloc[0] > -0.02 and \
+               (consolidation_prices.iloc[-1] - consolidation_prices.iloc[0]) / consolidation_prices.iloc[0] < 0.02:
+                return -0.6, "Potansiyel Ayı Bayrağı formasyonu."
+
+        return 0.0, "Bayrak formasyonu bulunamadı"
+
+    def _detect_wedges(self, prices: pd.Series) -> Tuple[float, str]:
+        highs, lows = self._get_extrema(prices.tail(90))
+        if len(lows) < 2 or len(highs) < 2:
+            return 0.0, "Formasyon bulunamadı"
+
+        # Yükselen Takoz (Rising Wedge): Yükselen destek ve direnç çizgileri sıkışır, direnç daha diktir.
+        # Genellikle düşüşle sonuçlanır.
+        lows_x = np.arange(len(lows))
+        highs_x = np.arange(len(highs))
+
+        lows_slope, _ = np.polyfit(lows_x, lows.values, 1)
+        highs_slope, _ = np.polyfit(highs_x, highs.values, 1)
+
+        if lows_slope > 0 and highs_slope > 0 and highs_slope > lows_slope:
+            # Fiyatlar sıkışıyor mu?
+            if (highs.iloc[-1] - lows.iloc[-1]) / prices.iloc[-1] < self.tolerance * 2: # Toleransın iki katı kadar daralma
+                return -0.7, "Potansiyel Yükselen Takoz formasyonu (düşüş beklenir)."
+
+        # Alçalan Takoz (Falling Wedge): Alçalan destek ve direnç çizgileri sıkışır, destek daha diktir.
+        # Genellikle yükselişle sonuçlanır.
+        if lows_slope < 0 and highs_slope < 0 and lows_slope < highs_slope:
+            # Fiyatlar sıkışıyor mu?
+            if (highs.iloc[-1] - lows.iloc[-1]) / prices.iloc[-1] < self.tolerance * 2:
+                return 0.7, "Potansiyel Alçalan Takoz formasyonu (yükseliş beklenir)."
+
+        return 0.0, "Takoz formasyonu bulunamadı"
+
+    def _detect_rectangles(self, prices: pd.Series) -> Tuple[float, str]:
+        highs, lows = self._get_extrema(prices.tail(90))
+        if len(lows) < 2 or len(highs) < 2:
+            return 0.0, "Formasyon bulunamadı"
+
+        # Dikdörtgen Formasyonu: Fiyatların yatay destek ve direnç arasında hareket etmesi
+        # Destek ve direnç çizgilerinin yaklaşık olarak yatay ve paralel olması gerekir.
+        
+        # Son birkaç yüksek ve düşük noktanın ortalamasını alarak yataylık kontrolü
+        avg_high = highs.mean()
+        avg_low = lows.mean()
+
+        # Yüksek noktaların ve düşük noktaların standart sapması düşük olmalı
+        if highs.std() / avg_high < self.tolerance and lows.std() / avg_low < self.tolerance:
+            # Fiyatlar bu aralıkta mı?
+            if prices.iloc[-1] < avg_high and prices.iloc[-1] > avg_low:
+                return 0.0, "Dikdörtgen Formasyonu içinde konsolidasyon. Kırılım bekleniyor."
+
+        return 0.0, "Dikdörtgen formasyonu bulunamadı"
 
 # Örnek Kullanım
 if __name__ == '__main__':

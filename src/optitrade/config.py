@@ -28,15 +28,24 @@ DATABASE_FILE = "data/optitrade.db"
 # -----------------------------------------------------------------------------
 
 # Reddit API (PRAW)
-REDDIT_CLIENT_ID = os.getenv("REDDIT_CLIENT_ID")
-REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
+REDDIT_CLIENT_ID = os.getenv("kSlf5qJ1Po-OxCL3qs-Vhw")
+REDDIT_CLIENT_SECRET = os.getenv("vtSpZN21CugAvTGkfAUzTR2D3znvBw")
 REDDIT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", "OptiTrade_App/1.0")
 
+# Twitter API
+TWITTER_API_KEY = os.getenv("XYSpRPvbYoGfnyyLEhfRAV2Ui")
+TWITTER_API_SECRET_KEY = os.getenv("YvQ2jVwiaUOrAxDNS40uoEyOxuM8NYzErL5jiMU31L8FovQnOx")
+TWITTER_ACCESS_TOKEN = os.getenv("1856235494071545856-8RJWP0jjQEzkjoLdQ8YzBReHFaQJGk")
+TWITTER_ACCESS_TOKEN_SECRET = os.getenv("LVlUwrNdw6Ru36MCTLsfOBhGHE9e6r4i4vjNj5v2Imc9F")
+
 # NewsAPI
-NEWS_API_KEY = os.getenv("NEWS_API_KEY")
+NEWS_API_KEY = os.getenv("4c0d941b9b8a4ce68c091e0fceacb708")
+
+# The Guardian API
+GUARDIAN_API_KEY = os.getenv("cbf3e823-0603-4098-adee-b579ef3c8416")
 
 # Alpha Vantage API
-ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
+ALPHA_VANTAGE_API_KEY = os.getenv("Y2HFXHHI55EAG9XX")
 
 
 # -----------------------------------------------------------------------------
@@ -141,3 +150,105 @@ ONCHAIN_LONG_WINDOW = 50
 
 # Dinamik stop-loss hesaplaması için ATR (Average True Range) çarpanı.
 RISK_ATR_MULTIPLIER = 2.0
+
+# -----------------------------------------------------------------------------
+# SCORING ENGINE YAPILANDIRMASI
+# -----------------------------------------------------------------------------
+
+# Alım/satım sinyali üretmek için gereken minimum skor eşiği.
+SIGNAL_THRESHOLD = 0.5
+
+# -----------------------------------------------------------------------------
+# MODEL AĞIRLIKLARI (MODEL WEIGHTS)
+# -----------------------------------------------------------------------------
+
+# Farklı piyasa rejimleri için model ağırlıkları.
+# Toplamları 1 olmak zorunda değildir, ScoringEngine tarafından normalize edilirler.
+
+# Varsayılan (bilinmeyen veya karmaşık rejimler için)
+MODEL_WEIGHTS_DEFAULT = {
+    "PriceTrendModel": 0.25,
+    "VolumeSurgeModel": 0.15,
+    "NewsSentimentModel": 0.1,
+    "SocialSentimentModel": 0.05,
+    "OnChainModel": 0.1,
+    "CorrelationModel": 0.05,
+    "SupportResistanceModel": 0.1,
+    "DivergenceDetectionModel": 0.1,
+    "FormationDetectionModel": 0.1,
+    "FinancialRatioModel": 0.1, # Hisse senetleri için
+}
+
+# Güçlü Trend (yükselen veya düşen)
+MODEL_WEIGHTS_STRONG_TREND = {
+    "PriceTrendModel": 0.4,
+    "VolumeSurgeModel": 0.2,
+    "NewsSentimentModel": 0.05,
+    "SocialSentimentModel": 0.0,
+    "OnChainModel": 0.1,
+    "CorrelationModel": 0.0,
+    "SupportResistanceModel": 0.1,
+    "DivergenceDetectionModel": 0.15,
+    "FormationDetectionModel": 0.0,
+    "FinancialRatioModel": 0.0, # Trendde daha az önemli
+}
+
+# Yatay Piyasa (menkul kıymet belirli bir aralıkta işlem gördüğünde)
+MODEL_WEIGHTS_RANGING = {
+    "PriceTrendModel": 0.1,
+    "VolumeSurgeModel": 0.1,
+    "NewsSentimentModel": 0.1,
+    "SocialSentimentModel": 0.1,
+    "OnChainModel": 0.05,
+    "CorrelationModel": 0.1,
+    "SupportResistanceModel": 0.2,
+    "DivergenceDetectionModel": 0.15,
+    "FormationDetectionModel": 0.1,
+    "FinancialRatioModel": 0.1, # Yatayda daha önemli
+}
+
+# -----------------------------------------------------------------------------
+# MODEL AĞIRLIKLARI - HİSSE SENEDİ (STOCK MODEL WEIGHTS)
+# -----------------------------------------------------------------------------
+
+# Varsayılan (bilinmeyen veya karmaşık rejimler için) - Hisse Senedi
+MODEL_WEIGHTS_STOCK_DEFAULT = {
+    "PriceTrendModel": 0.20,
+    "VolumeSurgeModel": 0.10,
+    "NewsSentimentModel": 0.15,
+    "SocialSentimentModel": 0.0, # Hisse senetleri için daha az güvenilir
+    "OnChainModel": 0.0, # Hisse senetleri için geçerli değil
+    "CorrelationModel": 0.1,
+    "SupportResistanceModel": 0.1,
+    "DivergenceDetectionModel": 0.1,
+    "FormationDetectionModel": 0.05,
+    "FinancialRatioModel": 0.2, # Hisse senetleri için önemli
+}
+
+# Güçlü Trend (yükselen veya düşen) - Hisse Senedi
+MODEL_WEIGHTS_STOCK_STRONG_TREND = {
+    "PriceTrendModel": 0.35,
+    "VolumeSurgeModel": 0.15,
+    "NewsSentimentModel": 0.1,
+    "SocialSentimentModel": 0.0,
+    "OnChainModel": 0.0,
+    "CorrelationModel": 0.05,
+    "SupportResistanceModel": 0.1,
+    "DivergenceDetectionModel": 0.1,
+    "FormationDetectionModel": 0.0,
+    "FinancialRatioModel": 0.15, # Trendde de temel analiz önemli
+}
+
+# Yatay Piyasa (menkul kıymet belirli bir aralıkta işlem gördüğünde) - Hisse Senedi
+MODEL_WEIGHTS_STOCK_RANGING = {
+    "PriceTrendModel": 0.1,
+    "VolumeSurgeModel": 0.1,
+    "NewsSentimentModel": 0.15,
+    "SocialSentimentModel": 0.0,
+    "OnChainModel": 0.0,
+    "CorrelationModel": 0.1,
+    "SupportResistanceModel": 0.15,
+    "DivergenceDetectionModel": 0.1,
+    "FormationDetectionModel": 0.05,
+    "FinancialRatioModel": 0.25, # Yatayda temel analiz daha da önemli
+}

@@ -75,12 +75,14 @@ def get_data_fetcher() -> DataFetcher:
 
 @app.get("/api/v1/signals", response_model=Dict[str, Any])
 def get_trading_signals(
+    asset_type: str = Query("crypto", description="Varlık tipi (crypto veya stock)"),
     symbol: str = Query(..., description="Analiz edilecek finansal varlık sembolü (örn: BTC-USD)"),
     interval: str = Query("1d", description="Analiz aralığı (örn: 15m, 4h, 1d)"),
-    model_params: Optional[str] = Query(None, description="JSON formatında model parametreleri (örn: {"PriceTrendModel":{"rsi_window":20}})"),
+    rsi_period: Optional[int] = Query(None, description="RSI periyodu (örn: 14). Eğer belirtilmezse modelin varsayılan değeri kullanılır."),
+    model_params: Optional[str] = Query(None, description="JSON formatında diğer model parametreleri (örn: {"VolumeSurgeModel":{"window":5}})"),
     scoring_engine: ScoringEngine = Depends(get_scoring_engine)
 ):
-    logger.info(f"Sinyal isteği alındı: Sembol='{symbol}', Aralık='{interval}'")
+    logger.info(f"Sinyal isteği alındı: Varlık Tipi='{asset_type}', Sembol='{symbol}', Aralık='{interval}'")
     if not symbol:
         raise HTTPException(
             status_code=400,
@@ -91,34 +93,36 @@ def get_trading_signals(
     if model_params:
         try:
             parsed_model_params = json.loads(model_params)
-            logger.info(f"Alınan model parametreleri: {parsed_model_params}")
+            logger.info(f"Alınan diğer model parametreleri: {parsed_model_params}")
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="model_params geçerli bir JSON formatında değil.")
 
+    # RSI periyodu doğrudan parametre olarak geldiyse, PriceTrendModel için ayarla
+    if rsi_period is not None:
+        if "PriceTrendModel" not in parsed_model_params:
+            parsed_model_params["PriceTrendModel"] = {}
+        parsed_model_params["PriceTrendModel"]["rsi_window"] = rsi_period
+        logger.info(f"RSI periyodu PriceTrendModel için ayarlandı: {rsi_period}")
+
     try:
         # Analiz ve tüm hesaplamalar artık ScoringEngine içinde yapılıyor
-        analysis_result = scoring_engine.run_engine(symbol=symbol, interval=interval, model_params=parsed_model_params)
+        analysis_result = scoring_engine.run_engine(asset_type=asset_type, symbol=symbol, interval=interval, model_params=parsed_model_params)
         return analysis_result
-    except Exception as e:
-        logger.error(f"'{symbol}' için analiz yapılırken bir hata oluştu: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Sunucu hatası: Analiz işlemi sırasında beklenmedik bir sorun oluştu."
-        )
 
 @app.get("/api/v1/market_data", response_model=List[Dict[str, Any]])
 def get_market_data_for_chart(
+    asset_type: str = Query("crypto", description="Varlık tipi (crypto veya stock)"),
     symbol: str = Query(..., description="Grafik için finansal varlık sembolü (örn: BTC-USD)"),
     interval: str = Query("1d", description="Grafik için analiz aralığı (örn: 15m, 4h, 1d)"),
     data_fetcher: DataFetcher = Depends(get_data_fetcher)
 ):
     """Frontend'de grafik çizimi için geçmiş piyasa verilerini sağlar."""
-    logger.info(f"Grafik verisi isteği alındı: Sembol='{symbol}', Aralık='{interval}'")
+    logger.info(f"Grafik verisi isteği alındı: Varlık Tipi='{asset_type}', Sembol='{symbol}', Aralık='{interval}'")
     try:
         period_map = {"15m": "60d", "4h": "730d", "1d": "5y"}
         fetch_period = period_map.get(interval, "5y")
         
-        market_data = data_fetcher.get_market_data(symbol=symbol, period=fetch_period, interval=interval)
+        market_data = data_fetcher.get_market_data(asset_type=asset_type, symbol=symbol, period=fetch_period, interval=interval)
         
         if market_data.empty:
             return []
