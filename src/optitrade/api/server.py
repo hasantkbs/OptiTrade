@@ -2,12 +2,14 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+import json
 
 # OptiTrade'in yeni mimari bileşenlerini içe aktar
 from .. import config
 from ..utils.data_fetcher import DataFetcher
 from ..scoring.scoring_engine import ScoringEngine
+from ..database.database_handler import DatabaseHandler
 
 # Loglama yapılandırması
 logging.basicConfig(
@@ -30,19 +32,21 @@ async def lifespan(app: FastAPI):
     Uygulama başladığında servisleri başlatır ve uygulama kapandığında kaynakları serbest bırakır.
     """
     logger.info("OptiTrade API başlatılıyor...")
-    # Merkezi DataFetcher servisini başlat
+    # Servisleri başlat
     data_fetcher = DataFetcher()
-    # ScoringEngine'i DataFetcher ile başlat
-    scoring_engine = ScoringEngine(data_fetcher=data_fetcher)
+    db_handler = DatabaseHandler()
+    scoring_engine = ScoringEngine(data_fetcher=data_fetcher, db_handler=db_handler)
     
     # Servisleri global sözlüğe kaydet
     app_lifespan_services["data_fetcher"] = data_fetcher
     app_lifespan_services["scoring_engine"] = scoring_engine
+    app_lifespan_services["db_handler"] = db_handler
     
     logger.info("Tüm servisler başarıyla başlatıldı.")
     yield
     # Uygulama kapandığında çalışacak kod (temizlik vb.)
     logger.info("OptiTrade API kapatılıyor...")
+    db_handler.close_connection()
     app_lifespan_services.clear()
 
 # FastAPI uygulamasını başlat
@@ -73,8 +77,8 @@ def get_data_fetcher() -> DataFetcher:
 def get_trading_signals(
     symbol: str = Query(..., description="Analiz edilecek finansal varlık sembolü (örn: BTC-USD)"),
     interval: str = Query("1d", description="Analiz aralığı (örn: 15m, 4h, 1d)"),
-    scoring_engine: ScoringEngine = Depends(get_scoring_engine),
-    data_fetcher: DataFetcher = Depends(get_data_fetcher)
+    model_params: Optional[str] = Query(None, description="JSON formatında model parametreleri (örn: {"PriceTrendModel":{"rsi_window":20}})"),
+    scoring_engine: ScoringEngine = Depends(get_scoring_engine)
 ):
     logger.info(f"Sinyal isteği alındı: Sembol='{symbol}', Aralık='{interval}'")
     if not symbol:
@@ -83,32 +87,53 @@ def get_trading_signals(
             detail="Lütfen 'symbol' parametresi ile geçerli bir sembol girin."
         )
 
+    parsed_model_params = {}
+    if model_params:
+        try:
+            parsed_model_params = json.loads(model_params)
+            logger.info(f"Alınan model parametreleri: {parsed_model_params}")
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="model_params geçerli bir JSON formatında değil.")
+
     try:
-        # Sembolün anlık piyasa fiyatını çek
-        # En son fiyatı almak için kısa bir periyot ve interval kullan
-        # Not: 1m interval sadece 7 günlük veri çekebilir, 15m için 60 gün, 4h için 730 gün
-        # Bu yüzden period parametresini interval'e göre ayarlamak daha doğru olur.
-        period_map = {"15m": "60d", "4h": "730d", "1d": "5y"}
-        fetch_period = period_map.get(interval, "5y") # Varsayılan 5 yıl
-
-        latest_data = data_fetcher.get_market_data(symbol=symbol, period=fetch_period, interval=interval)
-        current_price = None
-        if not latest_data.empty:
-            current_price = latest_data['Close'].iloc[-1]
-            logger.info(f"'{symbol}' için anlık piyasa fiyatı: {current_price:.2f}")
-        else:
-            logger.warning(f"'{symbol}' için anlık piyasa fiyatı çekilemedi.")
-
-        analysis_result = scoring_engine.run_engine(symbol=symbol, interval=interval)
-        
-        analysis_result["current_market_price"] = float(current_price) if current_price is not None else None
-
+        # Analiz ve tüm hesaplamalar artık ScoringEngine içinde yapılıyor
+        analysis_result = scoring_engine.run_engine(symbol=symbol, interval=interval, model_params=parsed_model_params)
         return analysis_result
     except Exception as e:
         logger.error(f"'{symbol}' için analiz yapılırken bir hata oluştu: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Sunucu hatası: Analiz işlemi sırasında beklenmedik bir sorun oluştu."
+        )
+
+@app.get("/api/v1/market_data", response_model=List[Dict[str, Any]])
+def get_market_data_for_chart(
+    symbol: str = Query(..., description="Grafik için finansal varlık sembolü (örn: BTC-USD)"),
+    interval: str = Query("1d", description="Grafik için analiz aralığı (örn: 15m, 4h, 1d)"),
+    data_fetcher: DataFetcher = Depends(get_data_fetcher)
+):
+    """Frontend'de grafik çizimi için geçmiş piyasa verilerini sağlar."""
+    logger.info(f"Grafik verisi isteği alındı: Sembol='{symbol}', Aralık='{interval}'")
+    try:
+        period_map = {"15m": "60d", "4h": "730d", "1d": "5y"}
+        fetch_period = period_map.get(interval, "5y")
+        
+        market_data = data_fetcher.get_market_data(symbol=symbol, period=fetch_period, interval=interval)
+        
+        if market_data.empty:
+            return []
+
+        # Recharts'ın beklediği formata dönüştür (JSON array)
+        market_data.reset_index(inplace=True)
+        # Tarih formatını daha okunabilir yapalım
+        market_data['Date'] = market_data['Date'].dt.strftime('%Y-%m-%d %H:%M')
+        return market_data.to_dict(orient='records')
+
+    except Exception as e:
+        logger.error(f"'{symbol}' için grafik verisi çekilirken bir hata oluştu: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Sunucu hatası: Grafik verisi çekilirken bir sorun oluştu."
         )
 
 @app.get("/")

@@ -128,6 +128,25 @@ After activating your Conda environment (see setup steps above), follow these st
     ```
     This will continuously print live BTCUSDT mark price updates to your console.
 
+### Terminal 4: Automatic Model Training (Optional)
+
+To ensure the machine learning models adapt to new market data, you can run the training scheduler. This script will automatically retrain the models for all intervals (1d, 4h, 15m) every Sunday at 02:00.
+
+1.  Open a new terminal window.
+2.  Navigate to the project's root directory:
+    ```bash
+    cd /path/to/OptiTradeCode/
+    ```
+3.  Activate your Conda environment:
+    ```bash
+    conda activate optitrade_env
+    ```
+4.  Start the training scheduler:
+    ```bash
+    python scripts/run_training_scheduler.py
+    ```
+    Keep this terminal running in the background (e.g., using `screen` or `tmux` on a server) for the scheduler to work continuously.
+
 ## Project Structure
 
 The main directory structure of the project is as follows:

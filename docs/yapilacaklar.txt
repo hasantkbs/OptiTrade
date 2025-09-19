@@ -4,6 +4,7 @@ Bu liste, OptiTrade projesinin gelecekteki geliştirme alanlarını ve iyileşti
 
 ## Tamamlanan Ana Geliştirmeler:
 
+*   **Tahmini Hedef Fiyat:** Yükseliş/Düşüş sinyallerine göre en yakın destek/direnç seviyeleri kullanılarak tahmini bir hedef fiyat hesaplaması eklendi.
 *   **Modüler Mimari:** Proje, merkezi `DataFetcher`, `BaseModel` arayüzü ve dinamik `ScoringEngine` ile modüler bir yapıya kavuşturuldu.
 *   **Çeşitli Finansal Modeller:** Fiyat Trendi, Hacim Artışı, Haber Duyarlılığı, Sosyal Medya Duyarlılığı, Destek/Direnç, Uyumsuzluk Tespiti ve Formasyon Analizi modelleri entegre edildi.
 *   **Makine Öğrenmesi Modeli:** XGBoost tabanlı bir ML modeli entegre edildi ve farklı zaman aralıkları için eğitilebilir hale getirildi.
@@ -24,14 +25,28 @@ Modellerimiz artık farklı zaman aralıklarında (15m, 4h, 1d) veri çekip anal
 1.  **Geriye Dönük Test (Backtesting) Çerçevesi:** `ScoringEngine`'in ve tüm modellerin geçmiş veriler üzerindeki gerçek performansını objektif olarak değerlendirecek kapsamlı bir backtesting sistemi geliştirilmelidir. Bu, model ağırlıklarının ve parametrelerinin bilimsel olarak optimize edilmesinin temelini oluşturacaktır.
 2.  **Otomatik Model Eğitimi/Yeniden Eğitimi:** Makine öğrenmesi modellerinin yeni verilerle periyodik olarak otomatik olarak yeniden eğitilmesi için bir otomasyon süreci kurulmalıdır. Bu, modelin piyasa koşullarına adaptasyonunu sağlar.
 3.  **Daha Fazla ve Çeşitli Veri Kaynakları:**
-    *   Makroekonomik veriler (enflasyon, faiz oranları vb.)
-    *   Zincir üstü (On-chain) veriler (işlem hacmi, aktif adresler vb.)
+    *   Makroekonomik veriler (enflasyon, faiz oranları vb.) - **(İlk adım tamamlandı: Faiz oranları entegre edildi)**
+    *   Zincir üstü (On-chain) veriler (işlem hacmi, aktif adresler vb.) - **(İlk adım tamamlandı: Günlük işlem sayısı entegre edildi)**
     *   Daha fazla haber ve sosyal medya kaynağı entegrasyonu.
-4.  **Gelişmiş Formasyon Tespiti:** `formasyon.txt` dosyasındaki diğer formasyonların (Bayraklar, Takozlar, Simetrik Üçgenler vb.) tespiti için `FormationDetectionModel` daha da geliştirilebilir.
-5.  **Risk Yönetimi ve Pozisyon Büyüklüğü:** Tahmin modelini bir ticaret stratejisiyle birleştirirken, risk yönetimi prensiplerini (örneğin Kelly kriteri, sabit kesirli ticaret) ve pozisyon büyüklüğü hesaplamalarını entegre etmek.
-6.  **Uyarı ve Bildirim Sistemi:** `alerting` modülünü kullanarak, belirli sinyal eşiklerine ulaşıldığında kullanıcılara e-posta, Telegram veya diğer kanallar aracılığıyla bildirim gönderme özelliği eklenebilir.
-7.  **Veritabanı Entegrasyonu:** Çekilen verilerin ve üretilen sinyallerin kalıcı olarak saklanması için bir veritabanı (örn: PostgreSQL, SQLite) entegrasyonu yapılabilir. Bu, veri analizi ve geçmiş performans takibi için önemlidir.
+4.  **Gelişmiş Formasyon Tespiti:** - **(Geliştiriliyor: Simetrik Üçgen eklendi)** `formasyon.txt` dosyasındaki diğer formasyonların (Bayraklar, Takozlar, Simetrik Üçgenler vb.) tespiti için `FormationDetectionModel` daha da geliştirilebilir.
+5.  **Risk Yönetimi ve Pozisyon Büyüklüğü:** - **(Tamamlandı: Basitleştirilmiş Kelly Kriteri entegre edildi)** Tahmin modelini bir ticaret stratejisiyle birleştirirken, risk yönetimi prensiplerini (örneğin Kelly kriteri, sabit kesirli ticaret) ve pozisyon büyüklüğü hesaplamalarını entegre etmek.
+6.  **Uyarı ve Bildirim Sistemi:** - **(Tamamlandı: E-posta bildirimleri eklendi)** `alerting` modülünü kullanarak, belirli sinyal eşiklerine ulaşıldığında kullanıcılara e-posta, Telegram veya diğer kanallar aracılığıyla bildirim gönderme özelliği eklenebilir.
+7.  **Veritabanı Entegrasyonu:** - **(Tamamlandı: Sinyallerin SQLite'a kaydedilmesi eklendi)** Çekilen verilerin ve üretilen sinyallerin kalıcı olarak saklanması için bir veritabanı (örn: PostgreSQL, SQLite) entegrasyonu yapılabilir. Bu, veri analizi ve geçmiş performans takibi için önemlidir.
 8.  **Frontend İyileştirmeleri:**
-    *   Geçmiş fiyat grafiğini tekrar ekleme (API'den veri çekerek).
-    *   Model skorları için daha interaktif görselleştirmeler.
+    *   Geçmiş fiyat grafiğini tekrar ekleme (API'den veri çekerek). - **(Tamamlandı)**
+    *   Model skorları için daha interaktif görselleştirmeler. - **(Tamamlandı: Radar Grafiği eklendi)**
     *   Kullanıcının kendi parametrelerini ayarlayabileceği bir arayüz (örn: RSI pencere boyutu).
+
+## Eklenen Yeni Fikirler ve İyileştirmeler
+
+1.  **Dinamik Model Ağırlıkları için "Piyasa Rejimi" Tespiti:** - **(Tamamlandı)** Sistemin, mevcut piyasa koşulunu (örn: Güçlü Trend, Yatay Piyasa) otomatik olarak algılayıp model ağırlıklarını bu koşullara göre dinamik olarak ayarlaması.
+2.  **Korelasyon Analizi Modeli:** - **(Tamamlandı)** Analiz edilen varlığın S&P 500 ve Altın gibi diğer büyük piyasalarla olan korelasyonunu analiz ederek ek bir bağlam sunması.
+
+## Bilinen Sorunlar ve İyileştirme Notları
+
+*   **Otomatik Kod Düzenleme Zorlukları:** Büyük kod bloklarında veya sık güncellenen dosyalarda `replace` komutunun `old_string` eşleşmeme sorunları yaşanmaktadır. Bu durum, manuel müdahale veya daha küçük, atomik değişiklikler gerektirebilir. Gelecekte bu tür otomatik düzenlemeler için daha sağlam yöntemler araştırılmalıdır.
+
+## Eklenen Yeni Fikirler ve İyileştirmeler
+
+1.  **Dinamik Model Ağırlıkları için "Piyasa Rejimi" Tespiti:** - **(Tamamlandı)** Sistemin, mevcut piyasa koşulunu (örn: Güçlü Trend, Yatay Piyasa) otomatik olarak algılayıp model ağırlıklarını bu koşullara göre dinamik olarak ayarlaması.
+2.  **Korelasyon Analizi Modeli:** - **(Tamamlandı)** Analiz edilen varlığın S&P 500 ve Altın gibi diğer büyük piyasalarla olan korelasyonunu analiz ederek ek bir bağlam sunması.

@@ -17,6 +17,11 @@ LOG_LEVEL = "DEBUG" if DEBUG else "INFO"
 # Log dosyası adı.
 LOG_FILE = "optitrade.log"
 
+# -----------------------------------------------------------------------------
+# VERİTABANI YAPILANDIRMASI
+# -----------------------------------------------------------------------------
+DATABASE_FILE = "data/optitrade.db"
+
 
 # -----------------------------------------------------------------------------
 # API ANAHTARLARI VE YAPILANDIRMALARI
@@ -40,6 +45,14 @@ ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 # Boğa ve ayı sinyalleri için kullanılacak skor eşikleri.
 ALERT_BULLISH_THRESHOLD = 0.7
 ALERT_BEARISH_THRESHOLD = -0.7
+
+# E-posta uyarıları için SMTP yapılandırması
+# Bu değerleri .env dosyanızda tanımlamanız gerekmektedir.
+SMTP_SERVER = os.getenv("SMTP_SERVER")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SMTP_USERNAME = os.getenv("SMTP_USERNAME")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+ALERT_RECIPIENT_EMAIL = os.getenv("ALERT_RECIPIENT_EMAIL")
 
 
 # -----------------------------------------------------------------------------
@@ -90,26 +103,41 @@ DIVERGENCE_TOLERANCE_DAYS = 5         # Fiyat ve gösterge ekstremumlarını eş
 
 
 # -----------------------------------------------------------------------------
-# PUANLAMA MOTORU YAPILANDIRMASI (ScoringEngine)
+# FORMASYON TESPİT MODELİ YAPILANDIRMASI (FormationDetectionModel)
 # -----------------------------------------------------------------------------
-# Her bir modelin nihai skora katkısını belirleyen ağırlıklar.
-# Anahtarlar, `src/optitrade/models` altındaki model sınıflarının adları olmalıdır.
-# Bu ağırlıkların toplamının 1.0 olması tavsiye edilir.
-MODEL_WEIGHTS = {
-    "MachineLearningModel": 0.30,
-    "FormationDetectionModel": 0.20,
-    "PriceTrendModel": 0.15,
-    "DivergenceDetectionModel": 0.15,
-    "SupportResistanceModel": 0.10,
-    "VolumeSurgeModel": 0.05,
-    "NewsSentimentModel": 0.025,
-    "SocialSentimentModel": 0.025,
-    # Diğer modeller eklendikçe ve güncellendikçe ağırlıkları ayarlanmalıdır.
-}
+# Formasyon tespiti için ekstremum arama penceresi ve tolerans.
+FORMATION_EXTREMA_ORDER = 10
+FORMATION_TOLERANCE = 0.03
+FORMATION_REQUIRED_DATA_POINTS = 150
 
 
-# Piyasa koşullarına göre skor ayarlama faktörleri (İsteğe bağlı, gelecekte kullanılabilir)
-SCORING_ADJUSTMENT_BULL_POSITIVE = 1.1
-SCORING_ADJUSTMENT_BULL_NEGATIVE = 0.9
-SCORING_ADJUSTMENT_BEAR_POSITIVE = 0.9
-SCORING_ADJUSTMENT_BEAR_NEGATIVE = 1.1
+# -----------------------------------------------------------------------------
+# PİYASA REJİMİ SINIFLANDIRICI YAPILANDIRMASI (MarketConditionClassifier)
+# -----------------------------------------------------------------------------
+# ADX göstergesi için pencere boyutu ve trend eşiği.
+MARKET_CLASSIFIER_ADX_WINDOW = 14
+MARKET_CLASSIFIER_ADX_THRESHOLD = 25
+
+
+# -----------------------------------------------------------------------------
+# KORELASYON MODELİ YAPILANDIRMASI (CorrelationModel)
+# -----------------------------------------------------------------------------
+# Korelasyon hesaplaması için pencere boyutu ve karşılaştırılacak varlıklar.
+CORRELATION_WINDOW = 30
+CORRELATION_ASSETS = ['SPY', 'GLD']
+
+
+# -----------------------------------------------------------------------------
+# ON-CHAIN MODELİ YAPILANDIRMASI (OnChainModel)
+# -----------------------------------------------------------------------------
+# Hareketli ortalama pencereleri.
+ONCHAIN_SHORT_WINDOW = 14
+ONCHAIN_LONG_WINDOW = 50
+
+
+# -----------------------------------------------------------------------------
+# RİSK YÖNETİMİ YAPILANDIRMASI (RiskManager)
+# -----------------------------------------------------------------------------
+
+# Dinamik stop-loss hesaplaması için ATR (Average True Range) çarpanı.
+RISK_ATR_MULTIPLIER = 2.0

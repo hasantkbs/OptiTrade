@@ -18,33 +18,31 @@ class PriceTrendModel(BaseModel):
     """
     def __init__(self, data_fetcher: DataFetcher):
         super().__init__(data_fetcher)
-        # Orijinal (genellikle günlük) pencere boyutlarını sakla
-        self.base_rsi_window = config.PRICE_TREND_RSI_WINDOW
-        self.base_macd_fast = config.PRICE_TREND_MACD_FAST_WINDOW
-        self.base_macd_slow = config.PRICE_TREND_MACD_SLOW_WINDOW
-        self.base_macd_sign = config.PRICE_TREND_MACD_SIGNAL_WINDOW
-        self.base_sma_short = config.PRICE_TREND_SMA_SHORT_WINDOW
-        self.base_sma_long = config.PRICE_TREND_SMA_LONG_WINDOW
-        self.base_bollinger_window = config.PRICE_TREND_BOLLINGER_WINDOW
-        self.base_bollinger_std = config.PRICE_TREND_BOLLINGER_STD
-        self.base_adx_window = config.PRICE_TREND_ADX_WINDOW
-        
-        # En uzun periyodu hesapla, yeterli veri çekmek için
-        self.base_required_data_points = max(self.base_rsi_window, self.base_macd_slow, self.base_sma_long, self.base_bollinger_window, self.base_adx_window) + 5
 
     def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
         logger.info(f"'{self.name}' modeli '{symbol}' için '{interval}' aralığında çalıştırılıyor...")
         
+        # Parametreleri kwargs'tan al, yoksa config'den varsayılanları kullan
+        rsi_window = kwargs.get('rsi_window', config.PRICE_TREND_RSI_WINDOW)
+        macd_fast = kwargs.get('macd_fast', config.PRICE_TREND_MACD_FAST_WINDOW)
+        macd_slow = kwargs.get('macd_slow', config.PRICE_TREND_MACD_SLOW_WINDOW)
+        macd_sign = kwargs.get('macd_sign', config.PRICE_TREND_MACD_SIGNAL_WINDOW)
+        sma_short = kwargs.get('sma_short', config.PRICE_TREND_SMA_SHORT_WINDOW)
+        sma_long = kwargs.get('sma_long', config.PRICE_TREND_SMA_LONG_WINDOW)
+        bollinger_window = kwargs.get('bollinger_window', config.PRICE_TREND_BOLLINGER_WINDOW)
+        bollinger_std = kwargs.get('bollinger_std', config.PRICE_TREND_BOLLINGER_STD)
+        adx_window = kwargs.get('adx_window', config.PRICE_TREND_ADX_WINDOW)
+
         # Interval'e göre pencere boyutlarını ölçeklendir
         scaling_factor = self._get_scaling_factor(interval)
-        rsi_window = int(self.base_rsi_window * scaling_factor)
-        macd_fast = int(self.base_macd_fast * scaling_factor)
-        macd_slow = int(self.base_macd_slow * scaling_factor)
-        macd_sign = int(self.base_macd_sign * scaling_factor)
-        sma_short = int(self.base_sma_short * scaling_factor)
-        sma_long = int(self.base_sma_long * scaling_factor)
-        bollinger_window = int(self.base_bollinger_window * scaling_factor)
-        adx_window = int(self.base_adx_window * scaling_factor)
+        rsi_window = int(rsi_window * scaling_factor)
+        macd_fast = int(macd_fast * scaling_factor)
+        macd_slow = int(macd_slow * scaling_factor)
+        macd_sign = int(macd_sign * scaling_factor)
+        sma_short = int(sma_short * scaling_factor)
+        sma_long = int(sma_long * scaling_factor)
+        bollinger_window = int(bollinger_window * scaling_factor)
+        adx_window = int(adx_window * scaling_factor)
 
         # Ölçeklendirilmiş pencere boyutlarına göre gerekli veri noktasını hesapla
         required_data_points = max(rsi_window, macd_slow, sma_long, bollinger_window, adx_window) + 5
@@ -60,11 +58,8 @@ class PriceTrendModel(BaseModel):
             return {"score": 0.0, "details": "Yetersiz veri"}
 
         try:
-            score, details = self._calculate_score(data, rsi_window, macd_fast, macd_slow, macd_sign, sma_short, sma_long, bollinger_window, self.base_bollinger_std, adx_window)
+            score, details = self._calculate_score(data, rsi_window, macd_fast, macd_slow, macd_sign, sma_short, sma_long, bollinger_window, bollinger_std, adx_window)
             logger.info(f"'{self.name}' modeli sonucu: Skor={score:.4f}, Detay: {details}")
-            return {"score": score, "details": details}
-        except Exception as e:
-            logger.error(f"'{self.name}' skoru hesaplanırken hata oluştu: {e}", exc_info=True)
             return {"score": 0.0, "details": "Model çalışırken hata oluştu."}
 
     def _get_scaling_factor(self, interval: str) -> float:

@@ -1,5 +1,10 @@
 import argparse
 import logging
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from typing import Dict, Any
+
 from .. import config
 
 # Loglama yapılandırması
@@ -16,37 +21,66 @@ logger = logging.getLogger(__name__)
 
 class AlertSystem:
     """
-    Belirli skor eşiği aşıldığında sinyal üreten sistem.
+    Belirli skor eşiği aşıldığında sinyal üreten ve bildirim gönderen sistem.
     """
     def __init__(self, 
                  bullish_threshold: float = config.ALERT_BULLISH_THRESHOLD, 
                  bearish_threshold: float = config.ALERT_BEARISH_THRESHOLD):
-        """
-        Uyarı sistemini başlatır ve eşikleri ayarlar.
-
-        Args:
-            bullish_threshold (float): Boğa sinyali için skor eşiği.
-            bearish_threshold (float): Ayı sinyali için skor eşiği.
-        """
         self.bullish_threshold = bullish_threshold
         self.bearish_threshold = bearish_threshold
 
-    def check_for_alert(self, score: float) -> str:
-        """
-        Verilen skora göre uyarı sinyali kontrolü yapar.
+    def send_email_alert(self, subject: str, body: str):
+        """Belirtilen konu ve içerik ile bir e-posta gönderir."""
+        if not all([config.SMTP_SERVER, config.SMTP_USERNAME, config.SMTP_PASSWORD, config.ALERT_RECIPIENT_EMAIL]):
+            logger.warning("SMTP e-posta ayarları eksik. .env dosyasını kontrol edin. E-posta gönderilmeyecek.")
+            return
 
-        Args:
-            score (float): Nihai tahmin skoru.
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = config.SMTP_USERNAME
+            msg['To'] = config.ALERT_RECIPIENT_EMAIL
+            msg['Subject'] = subject
+            msg.attach(MIMEText(body, 'plain'))
 
-        Returns:
-            str: Uyarı mesajı veya boş string.
+            server = smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT)
+            server.starttls()
+            server.login(config.SMTP_USERNAME, config.SMTP_PASSWORD)
+            server.send_message(msg)
+            server.quit()
+            logger.info(f"Uyarı e-postası başarıyla gönderildi: {config.ALERT_RECIPIENT_EMAIL}")
+        except Exception as e:
+            logger.error(f"E-posta gönderilirken bir hata oluştu: {e}", exc_info=True)
+
+    def check_and_dispatch_alert(self, symbol: str, analysis_result: Dict[str, Any]):
         """
+        Analiz sonucunu kontrol eder ve gerekirse uyarı gönderir.
+        """
+        score = analysis_result.get("final_score", 0.0)
+        alert_type = None
+
         if score >= self.bullish_threshold:
-            return f"🚨 BOĞA SİNYALİ! Skor {score:.2f} (Eşik: {self.bullish_threshold:.2f})"
+            alert_type = "BOĞA SİNYALİ"
         elif score <= self.bearish_threshold:
-            return f"🚨 AYI SİNYALİ! Skor {score:.2f} (Eşik: {self.bearish_threshold:.2f})"
+            alert_type = "AYI SİNYALİ"
+
+        if alert_type:
+            subject = f"OptiTrade Uyarısı: {symbol} için {alert_type}"
+            body = (
+                f"Otomatik uyarı sistemi tarafından bir sinyal tespit edildi.\n\n"
+                f"Sembol: {symbol}\n"
+                f"Sinyal Türü: {alert_type}\n"
+                f"Nihai Skor: {score:.4f}\n\n"
+                f"--- Detaylar ---\n"
+                f"Anlık Fiyat: {analysis_result.get('current_market_price', 'N/A')}\n"
+                f"Tahmini Hedef Fiyat: {analysis_result.get('estimated_target_price', 'N/A')}\n"
+                f"Önerilen Pozisyon Büyüklüğü: {analysis_result.get('position_sizing', {}).get('details', 'N/A')}\n\n"
+                f"Bu otomatik bir bildirimdir. Lütfen kendi araştırmanızı yapınız."
+            )
+            logger.info(f"{symbol} için uyarı durumu: {alert_type}. E-posta gönderiliyor...")
+            self.send_email_alert(subject, body)
         else:
-            return f"Nötr. Skor {score:.2f} (Boğa Eşiği: {self.bullish_threshold:.2f}, Ayı Eşiği: {self.bearish_threshold:.2f})"
+            logger.info(f"{symbol} için önemli bir sinyal bulunamadı (Skor: {score:.4f}).")
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Tahmin skoruna göre uyarı sinyali üretir.')

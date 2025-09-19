@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import React, { useState, useEffect } from 'react';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import './App.css';
 
 // Model sınıf adlarını, grafikte gösterilecek daha okunaklı isimlerle eşleştir
@@ -12,13 +12,25 @@ const modelDisplayNameMap = {
   'DivergenceDetectionModel': 'Uyumsuzluk',
   'FormationDetectionModel': 'Formasyon Analizi',
   'MachineLearningModel': 'Makine Öğrenmesi',
-  // Gelecekte eklenecek diğer modeller buraya...
+  'MacroEconomicModel': 'Makroekonomi',
+  'OnChainModel': 'On-Chain Veri',
+  'CorrelationModel': 'Korelasyon',
+};
+
+// Modelleri kategorilere ayır
+const modelCategories = {
+  'Trend': ['PriceTrendModel', 'MachineLearningModel'],
+  'Momentum': ['VolumeSurgeModel', 'DivergenceDetectionModel'],
+  'Yapı': ['SupportResistanceModel', 'FormationDetectionModel'],
+  'Duyarlılık': ['NewsSentimentModel', 'SocialSentimentModel'],
+  'Bağlam': ['MacroEconomicModel', 'OnChainModel', 'CorrelationModel'],
 };
 
 function App() {
   const [symbol, setSymbol] = useState('BTC-USD');
-  const [interval, setInterval] = useState('1d'); // Yeni state: analiz aralığı
+  const [interval, setInterval] = useState('1d');
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [chartData, setChartData] = useState([]); // Fiyat grafiği için state
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -28,21 +40,33 @@ function App() {
     return 'Nötr';
   };
 
-  const handleAnalyze = async () => {
+  // Analiz sonuçlarını ve grafik verisini çeken ana fonksiyon
+  const fetchData = async () => {
     setIsLoading(true);
     setError(null);
     setAnalysisResult(null);
+    setChartData([]);
 
     try {
-      // API endpoint'ine interval parametresini de ekle
-      const response = await fetch(`http://127.0.0.1:8000/api/v1/signals?symbol=${symbol}&interval=${interval}`);
-      const data = await response.json();
+      // Eş zamanlı olarak iki API isteğini de yap
+      const [signalsResponse, chartResponse] = await Promise.all([
+        fetch(`http://127.0.0.1:8000/api/v1/signals?symbol=${symbol}&interval=${interval}`),
+        fetch(`http://127.0.0.1:8000/api/v1/market_data?symbol=${symbol}&interval=${interval}`)
+      ]);
 
-      if (!response.ok) {
-        throw new Error(data.detail || "API'den veri alınırken bir hata oluştu.");
+      const signalsData = await signalsResponse.json();
+      const chartData = await chartResponse.json();
+
+      if (!signalsResponse.ok) {
+        throw new Error(signalsData.detail || "Sinyal API'sinden veri alınamadı.");
+      }
+      if (!chartResponse.ok) {
+        throw new Error(chartData.detail || "Grafik verisi API'sinden veri alınamadı.");
       }
 
-      setAnalysisResult(data);
+      setAnalysisResult(signalsData);
+      setChartData(chartData);
+
     } catch (err) {
       setError(err.message);
     } finally {
@@ -50,13 +74,36 @@ function App() {
     }
   };
 
+  // Bileşen ilk yüklendiğinde verileri çek
+  useEffect(() => {
+    fetchData();
+  }, []); // Sadece başlangıçta çalışır
+
+
   // Model çıktılarını grafik ve liste için uygun formata dönüştür
   const modelOutputsData = analysisResult ? 
-    Object.entries(analysisResult.model_outputs).map(([key, value]) => ({
+    Object.entries(analysisResult.model_outputs).filter(([key]) => key !== 'MarketConditionClassifier').map(([key, value]) => ({
       name: modelDisplayNameMap[key] || key, // Eşleşme bulunamazsa sınıf adını kullan
       score: value.score,
       details: value.details,
     })) : [];
+
+  // Kategori skorlarını hesapla
+  const categoryScores = Object.keys(modelCategories).map(categoryName => {
+    const modelsInCat = modelCategories[categoryName];
+    let totalScore = 0;
+    let count = 0;
+    modelsInCat.forEach(modelKey => {
+      if (analysisResult && analysisResult.model_outputs[modelKey] && modelKey !== 'MarketConditionClassifier') { // MarketConditionClassifier skor üretmez
+        totalScore += analysisResult.model_outputs[modelKey].score;
+        count++;
+      }
+    });
+    return {
+      category: categoryName,
+      score: count > 0 ? totalScore / count : 0,
+    };
+  });
 
   return (
     <div className="App">
@@ -75,7 +122,7 @@ function App() {
             <option value="4h">4 Saat</option>
             <option value="1d">1 Gün</option>
           </select>
-          <button onClick={handleAnalyze} disabled={isLoading}>
+          <button onClick={fetchData} disabled={isLoading}>
             {isLoading ? 'Analiz Ediliyor...' : 'Analiz Et'}
           </button>
         </div>
@@ -84,28 +131,89 @@ function App() {
 
         {analysisResult && (
           <div className="results-container">
-            <h2>Analiz Sonuçları ({symbol})</h2>
-            {analysisResult.current_market_price && (
-              <div className="current-price">
-                <p>{symbol} Anlık Piyasa Fiyatı:</p>
-                <span>{analysisResult.current_market_price.toFixed(2)}</span>
+            <h2>Analiz Sonuçları ({symbol} - {interval})</h2>
+            
+            {/* Fiyat Grafiği */}
+            {chartData.length > 0 && (
+              <div className="chart-container">
+                <h3>Fiyat Geçmişi</h3>
+                <ResponsiveContainer width="100%" height={400}>
+                  <LineChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#4a4f57" />
+                    <XAxis dataKey="Date" stroke="#ccc" />
+                    <YAxis stroke="#ccc" domain={['dataMin', 'dataMax']} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#2a2f37', border: '1px solid #4a4f57' }} 
+                      labelStyle={{ color: '#eee' }}
+                    />
+                    <Legend />
+                    <Line type="monotone" dataKey="Close" name="Kapanış Fiyatı" stroke="#8884d8" dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             )}
-            <div className="final-score">
-              <p>Nihai Sinyal Skoru</p>
-              <span className={analysisResult.final_score > 0 ? 'score-positive' : 'score-negative'}>
-                {analysisResult.final_score.toFixed(4)}
-              </span>
+
+            <div className="summary-grid">
+              {analysisResult.current_market_price && (
+                <div className="summary-item">
+                  <p>Anlık Fiyat</p>
+                  <span>{analysisResult.current_market_price.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="summary-item">
+                <p>Nihai Skor</p>
+                <span className={analysisResult.final_score > 0 ? 'score-positive' : 'score-negative'}>
+                  {analysisResult.final_score.toFixed(4)}
+                </span>
+              </div>
+              <div className="summary-item">
+                <p>Tahmin Yönü</p>
+                <span>{getPredictionDirection(analysisResult.final_score)}</span>
+              </div>
+              {analysisResult.estimated_target_price && (
+                <div className="summary-item">
+                  <p>Tahmini Hedef Fiyat</p>
+                  <span>{analysisResult.estimated_target_price.toFixed(2)}</span>
+                </div>
+              )}
+              {analysisResult.position_sizing && analysisResult.position_sizing.percentage > 0 && (
+                <div className="summary-item">
+                  <p>Önerilen Pozisyon Büyüklüğü</p>
+                  <span>{(analysisResult.position_sizing.percentage * 100).toFixed(2)}%</span>
+                </div>
+              )}
+              {analysisResult.market_regime && (
+                <div className="summary-item">
+                  <p>Piyasa Rejimi</p>
+                  <span>{analysisResult.market_regime}</span>
+                </div>
+              )}
             </div>
-            <div className="prediction-direction">
-              <p>Tahmin Yönü:</p>
-              <span>{getPredictionDirection(analysisResult.final_score)}</span>
-            </div>
+
+            {/* Model Skorları Radar Grafiği */}
+            {categoryScores.length > 0 && (
+              <div className="chart-container">
+                <h3>Model Kategori Skorları (Radar)</h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <RadarChart outerRadius={90} width={730} height={250} data={categoryScores}>
+                    <PolarGrid stroke="#4a4f57" />
+                    <PolarAngleAxis dataKey="category" stroke="#ccc" />
+                    <PolarRadiusAxis angle={30} domain={[-1, 1]} stroke="#ccc" />
+                    <Radar name="Kategori Skoru" dataKey="score" stroke="#8884d8" fill="#8884d8" fillOpacity={0.6} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#2a2f37', border: '1px solid #4a4f57' }} 
+                      labelStyle={{ color: '#eee' }}
+                    />
+                    <Legend />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
 
             {/* Model Skorları Çubuk Grafiği */}
             {modelOutputsData.length > 0 && (
               <div className="chart-container">
-                <h3>Model Skorları Dağılımı</h3>
+                <h3>Detaylı Model Skorları (Çubuk)</h3>
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={modelOutputsData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#4a4f57" />
@@ -114,20 +222,16 @@ function App() {
                     <Tooltip 
                       contentStyle={{ backgroundColor: '#2a2f37', border: '1px solid #4a4f57' }} 
                       labelStyle={{ color: '#eee' }}
-                      formatter={(value, name, props) => [
-                        `${value.toFixed(4)}`, 
-                        `${props.payload.details || 'Detay yok'}`
-                      ]} // Tooltip'te detayları göster
                     />
-                    <Legend wrapperStyle={{ color: '#ccc' }}/>
-                    <Bar dataKey="score" name="Model Skoru" fill="#8884d8" />
+                    <Legend />
+                    <Bar dataKey="score" name="Model Skoru" fill="#82ca9d" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             )}
 
             <div className="model-scores">
-              <h3>Detaylı Model Skorları</h3>
+              <h3>Tüm Model Çıktıları</h3>
               <ul>
                 {modelOutputsData.map(({ name, score, details }) => (
                   <li key={name}>

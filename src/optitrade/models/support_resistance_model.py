@@ -42,12 +42,12 @@ class SupportResistanceModel(BaseModel):
             return {"score": 0.0, "details": "Yetersiz veri"}
 
         try:
-            score, details = self._calculate_score(data['Close'], order)
-            logger.info(f"'{self.name}' modeli sonucu: Skor={score:.4f}, Detay: {details}")
-            return {"score": score, "details": details}
+            result = self._calculate_score_and_levels(data['Close'], order)
+            logger.info(f"'{self.name}' modeli sonucu: Skor={result['score']:.4f}, Detay: {result['details']}")
+            return result
         except Exception as e:
             logger.error(f"'{self.name}' skoru hesaplanırken hata oluştu: {e}", exc_info=True)
-            return {"score": 0.0, "details": "Model çalışırken hata oluştu."}
+            return {"score": 0.0, "details": "Model çalışırken hata oluştu.", "closest_support": None, "closest_resistance": None}
 
     def _get_scaling_factor(self, interval: str) -> float:
         """
@@ -67,12 +67,17 @@ class SupportResistanceModel(BaseModel):
         resistances = price_series.iloc[local_max_indices].tolist()
         return supports, resistances
 
-    def _calculate_score(self, price_series: pd.Series, order: int) -> Tuple[float, str]:
+    def _calculate_score_and_levels(self, price_series: pd.Series, order: int) -> Dict[str, Any]:
         current_price = price_series.iloc[-1]
         supports, resistances = self._find_levels(price_series, order)
 
         if not supports and not resistances:
-            return 0.0, "Destek/Direnç seviyesi bulunamadı."
+            return {
+                "score": 0.0, 
+                "details": "Destek/Direnç seviyesi bulunamadı.",
+                "closest_support": None,
+                "closest_resistance": None
+            }
 
         closest_support = min(supports, key=lambda x: abs(x - current_price)) if supports else None
         closest_resistance = min(resistances, key=lambda x: abs(x - current_price)) if resistances else None
@@ -96,7 +101,12 @@ class SupportResistanceModel(BaseModel):
         final_score = support_score + resistance_score
         final_details = ", ".join(details) if details else "Nötr destek/direnç sinyali."
         
-        return final_score, final_details
+        return {
+            "score": final_score,
+            "details": final_details,
+            "closest_support": closest_support,
+            "closest_resistance": closest_resistance
+        }
 
 # Örnek Kullanım
 if __name__ == '__main__':

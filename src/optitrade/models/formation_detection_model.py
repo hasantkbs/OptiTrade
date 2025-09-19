@@ -65,13 +65,21 @@ class FormationDetectionModel(BaseModel):
             resistance_level = highs.mean()
             if current_price > resistance_level:
                 return 0.8, f"Yükselen Üçgen kırılımı ({resistance_level:.2f}) teyit edildi."
+            else:
+                return 0.0, f"Yükselen Üçgen formasyonu içinde ({resistance_level:.2f} altında) konsolidasyon."
 
         if highs_slope < -0.05 and abs(lows_slope) < 0.05:
             support_level = lows.mean()
             if current_price < support_level:
                 return -0.8, f"Alçalan Üçgen kırılımı ({support_level:.2f}) teyit edildi."
+            else:
+                return 0.0, f"Alçalan Üçgen formasyonu içinde ({support_level:.2f} üstünde) konsolidasyon."
 
-        return 0.0, "Formasyon bulunamadı"
+        # Simetrik Üçgen Tespiti
+        if highs_slope < -0.05 and lows_slope > 0.05:
+            return 0.0, "Simetrik Üçgen formasyonu içinde sıkışma. Kırılım bekleniyor."
+
+        return 0.0, "Üçgen formasyonu bulunamadı"
 
     def _detect_head_and_shoulders(self, prices: pd.Series) -> Tuple[float, str]:
         highs, lows = self._get_extrema(prices)

@@ -118,6 +118,59 @@ class SocialMediaDataHandler:
             logger.error(f"Reddit arama hatası: {e}")
         return results
 
+class MacroDataHandler:
+    """Alpha Vantage gibi kaynaklardan makroekonomik verileri çeker."""
+    def __init__(self, api_key: str = config.ALPHA_VANTAGE_API_KEY):
+        self.api_key = api_key
+        self.base_url = "https://www.alphavantage.co/query"
+
+    def fetch_federal_fund_rate(self) -> Union[Dict, None]:
+        """Alpha Vantage'dan aylık Federal Fon Oranı verilerini çeker."""
+        if not self.api_key:
+            logger.error("Alpha Vantage için API anahtarı gerekli.")
+            return None
+
+        params = {
+            "function": "FEDERAL_FUNDS_RATE",
+            "interval": "monthly",
+            "apikey": self.api_key
+        }
+        try:
+            response = requests.get(self.base_url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            if "data" in data:
+                logger.info("Federal Fon Oranı verisi başarıyla çekildi.")
+                return data
+            else:
+                logger.warning(f"Alpha Vantage'dan veri alınamadı. Yanıt: {data}")
+                return None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Alpha Vantage API Hatası: {e}")
+            return None
+
+class OnChainDataHandler:
+    """Blockchain.com gibi kaynaklardan zincir üstü verileri çeker."""
+    def __init__(self):
+        self.base_url = "https://api.blockchain.info/charts"
+
+    def fetch_btc_transaction_data(self, timespan: str = "1year") -> Union[Dict, None]:
+        """Blockchain.com'dan günlük BTC işlem sayısı verisini çeker."""
+        url = f"{self.base_url}/n-transactions"
+        params = {"timespan": timespan, "format": "json"}
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            logger.info("BTC işlem sayısı verisi başarıyla çekildi.")
+            return data
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Blockchain.com API Hatası: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Zincir üstü veri işlenirken hata: {e}")
+            return None
+
 class DataFetcher:
     """
     Tüm veri kaynakları için merkezi bir arayüz.
@@ -128,6 +181,8 @@ class DataFetcher:
         self.market_handler = MarketDataHandler()
         self.news_handler = NewsDataHandler()
         self.social_media_handler = SocialMediaDataHandler()
+        self.macro_handler = MacroDataHandler()
+        self.onchain_handler = OnChainDataHandler()
         logger.info("DataFetcher servisi başlatıldı.")
 
     def get_market_data(self, symbol: str, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
@@ -168,6 +223,27 @@ class DataFetcher:
             List[str]: Gönderi içeriklerini içeren bir liste.
         """
         return self.social_media_handler.fetch_reddit_posts(query, limit)
+
+    def get_federal_fund_rate(self) -> Union[Dict, None]:
+        """
+        Aylık Federal Fon Oranı verilerini çeker.
+
+        Returns:
+            dict: Faiz oranı verilerini içeren bir sözlük.
+        """
+        return self.macro_handler.fetch_federal_fund_rate()
+
+    def get_btc_transaction_data(self, timespan: str = "1year") -> Union[Dict, None]:
+        """
+        Günlük BTC işlem sayısı verisini çeker.
+
+        Args:
+            timespan (str): Veri çekme periyodu (örn: "1year", "30days").
+
+        Returns:
+            dict: İşlem sayısı verilerini içeren bir sözlük.
+        """
+        return self.onchain_handler.fetch_btc_transaction_data(timespan)
 
 # Örnek Kullanım (Geliştirme ve test için)
 if __name__ == '__main__':

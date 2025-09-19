@@ -5,6 +5,7 @@ import logging
 sys.path.insert(0, '/Users/hasantekbas/Downloads/Algorix Project Doc/OptiTrade/OptiTradeCode/src')
 
 from optitrade.models.news_sentiment_model import NewsSentimentModel
+from optitrade.utils.data_fetcher import DataFetcher
 from optitrade import config
 
 # Ensure logging is configured for this script
@@ -19,7 +20,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def test_news_sentiment_model():
-    model = NewsSentimentModel()
+    fetcher = DataFetcher()
+    model = NewsSentimentModel(data_fetcher=fetcher)
 
     test_sentences = [
         "Bitcoin price surged by 10% today, indicating strong bullish momentum.", # Clearly positive
@@ -34,7 +36,7 @@ def test_news_sentiment_model():
     logger.info("\n--- Direct NewsSentimentModel Test ---")
     for i, sentence in enumerate(test_sentences):
         try:
-            score = model._analyze_single_text_sentiment(sentence)
+            score = model._calculate_sentiment_score(sentence)
             logger.info(f"Sentence {i+1}: '{sentence[:50]}...\n  Score: {score:.4f}")
         except Exception as e:
             logger.error(f"Error analyzing sentence '{sentence[:50]}...': {e}")

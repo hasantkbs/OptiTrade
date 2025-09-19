@@ -1,126 +1,85 @@
-import pandas as pd
-import numpy as np
-import yfinance as yf
-import argparse
 import logging
-from .. import config
+import pandas as pd
+import ta
+from typing import Dict, Any
 
-# Loglama yapılandırması
-logging.basicConfig(
-    level=config.LOG_LEVEL,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(config.LOG_FILE),
-        logging.StreamHandler()
-    ]
-)
+from .base_model import BaseModel
+from ..utils.data_fetcher import DataFetcher
 
 logger = logging.getLogger(__name__)
 
-class MarketConditionClassifier:
+class MarketConditionClassifier(BaseModel):
     """
-    Genel piyasa yapısını tanımlayan model: Boğa / Ayı / Yatay.
-    Kullanır: VIX, Bitcoin Dominance, Total Market Cap (basitleştirilmiş).
-    Girdi: Küresel ve sektörel veriler.
-    Çıktı: Market regime (bull/bear/sideways).
+    ADX ve +/-DI göstergelerini kullanarak mevcut piyasa rejimini sınıflandırır.
+    Bu model bir al/sat 'skoru' üretmez, bunun yerine bir 'rejim' tanımı döndürür.
     """
-    def __init__(self):
+    def __init__(self, data_fetcher: DataFetcher, adx_window: int = 14, adx_threshold: int = 25):
+        super().__init__(data_fetcher)
+        self.adx_window = adx_window
+        self.adx_threshold = adx_threshold
+        # Modelin çalışması için gereken minimum veri noktası sayısı
+        self.required_data_points = self.adx_window * 2
+
+    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
         """
-        Modeli başlatır.
+        Piyasa koşulunu analiz eder ve bir rejim sınıflandırması döndürür.
         """
-        pass
-
-    def classify_market_condition(self, vix_value: float, btc_dominance: float, total_market_cap_usd: float) -> str:
-        """
-        Piyasa koşullarını sınıflandırır.
-
-        Args:
-            vix_value (float): VIX endeksi değeri.
-            btc_dominance (float): Bitcoin Dominance değeri (örneğin, 0.45 = %45).
-            total_market_cap_usd (float): Toplam piyasa değeri (USD).
-
-        Returns:
-            str: Piyasa rejimi ('bull', 'bear', 'sideways').
-        """
-        # VIX endeksi: 30'un üzeri yüksek volatilite (genellikle düşüş), 20'nin altı düşük volatilite (genellikle yükseliş)
-        vix_score = 0
-        if vix_value is not None:
-            if vix_value > 30:
-                vix_score = -1  # Yüksek Risk
-            elif vix_value < 20:
-                vix_score = 1  # Düşük Risk
-
-        # BTC Dominance eşikleri (kripto piyasası için)
-        # Yüksek dominans (örn. >%50) genellikle altcoinler için ayı, BTC için boğa
-        # Düşük dominans (örn. <%40) genellikle altcoin sezonu
-
-        # Toplam Piyasa Değeri eşikleri (kripto piyasası için, örnek değerler)
-        # 1 Trilyon USD üstü: Genellikle boğa
-        # 500 Milyar - 1 Trilyon USD: Yatay/Belirsiz
-        # 500 Milyar USD altı: Genellikle ayı
-
-        market_regime = "sideways"
-
-        # VIX'e göre ilk değerlendirme
-        if vix_value < 20:
-            market_regime = "bull"
-        elif vix_value > 30:
-            market_regime = "bear"
-        else:
-            market_regime = "sideways"
-
-        # Bitcoin Dominance ve Total Market Cap ile ince ayar (kripto özelinde)
-        if total_market_cap_usd > 1_000_000_000_000: # 1 Trilyon USD
-            if market_regime == "sideways": # Eğer VIX nötrse, piyasa değerine bak
-                market_regime = "bull"
-            if btc_dominance < 0.45: # Altcoin sezonu
-                market_regime = "bull" # Altcoinler için boğa
-
-        elif total_market_cap_usd < 500_000_000_000: # 500 Milyar USD
-            if market_regime == "sideways": # Eğer VIX nötrse, piyasa değerine bak
-                market_regime = "bear"
-            if btc_dominance > 0.55: # BTC dominansı yüksek, altcoinler için ayı
-                market_regime = "bear" # Altcoinler için ayı
-
-        return market_regime
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Genel piyasa koşullarını sınıflandırır.')
-    parser.add_argument('--vix', type=float, help='VIX endeksi değeri.')
-    parser.add_argument('--btc_dom', type=float, help='Bitcoin Dominance değeri (örn: 0.45 = %45).')
-    parser.add_argument('--mcap', type=float, help='Toplam piyasa değeri (USD).')
-
-    args = parser.parse_args()
-
-    model = MarketConditionClassifier()
-
-    # Varsayılan değerler veya yfinance ile çekilen VIX
-    vix_val = args.vix
-    if vix_val is None:
+        logger.info(f"'{self.name}' modeli '{symbol}' için çalıştırılıyor...")
+        
         try:
-            vix_data = yf.download('^VIX', period='5d', interval='1d', auto_adjust=True) # auto_adjust eklendi
-            if not vix_data.empty:
-                vix_val = float(vix_data['Close'].iloc[-1]) # float dönüşümü eklendi
-                logger.info(f"Güncel VIX değeri: {vix_val:.2f}")
+            # Gerekli veriyi çek
+            period_map = {"15m": "60d", "4h": "730d", "1d": "5y"}
+            fetch_period = period_map.get(interval, "5y")
+            data = self.data_fetcher.get_market_data(symbol, period=fetch_period, interval=interval)
+
+            if data.empty or len(data) < self.required_data_points:
+                logger.warning(f"'{self.name}': Yeterli veri yok.")
+                return {"regime": "Unknown", "details": "Yetersiz veri"}
+
+            # ADX ve +/-DI göstergelerini hesapla
+            adx_indicator = ta.trend.ADXIndicator(
+                high=data['High'],
+                low=data['Low'],
+                close=data['Close'],
+                window=self.adx_window
+            )
+            data['adx'] = adx_indicator.adx()
+            data['di_pos'] = adx_indicator.adx_pos()
+            data['di_neg'] = adx_indicator.adx_neg()
+
+            # En son değerleri al
+            latest_adx = data['adx'].iloc[-1]
+            latest_di_pos = data['di_pos'].iloc[-1]
+            latest_di_neg = data['di_neg'].iloc[-1]
+
+            # Rejimi sınıflandır
+            regime = ""
+            if latest_adx > self.adx_threshold:
+                # Güçlü Trend
+                if latest_di_pos > latest_di_neg:
+                    regime = "Strong Bull Trend"
+                    details = f"Güçlü yükseliş trendi tespit edildi (ADX: {latest_adx:.2f})"
+                else:
+                    regime = "Strong Bear Trend"
+                    details = f"Güçlü düşüş trendi tespit edildi (ADX: {latest_adx:.2f})"
             else:
-                logger.warning("VIX verisi çekilemedi, varsayılan 20.0 kullanılıyor.")
-                vix_val = 20.0
+                # Zayıf Trend veya Yatay Piyasa
+                if latest_di_pos > latest_di_neg:
+                    regime = "Weak Bull Trend"
+                    details = f"Zayıf yükseliş trendi veya yatay piyasa (ADX: {latest_adx:.2f})"
+                else:
+                    regime = "Weak Bear Trend"
+                    details = f"Zayıf düşüş trendi veya yatay piyasa (ADX: {latest_adx:.2f})"
+
+            logger.info(f"'{self.name}' sonucu: Rejim={regime}, Detay: {details}")
+            
+            # Bu modelin çıktısı, standart bir skor yerine rejim bilgisidir
+            return {
+                "score": 0.0, # Bu model skor üretmez
+                "details": details,
+                "regime": regime
+            }
+
         except Exception as e:
-            logger.error(f"VIX verisi çekilirken hata oluştu: {e}. Varsayılan 20.0 kullanılıyor.")
-            vix_val = 20.0
-
-    # BTC Dominance ve Total Market Cap için varsayılan değerler (gerçek uygulamada API'den çekilmeli)
-    btc_dom_val = args.btc_dom if args.btc_dom is not None else 0.50 # %50
-    mcap_val = args.mcap if args.mcap is not None else 1_500_000_000_000 # 1.5 Trilyon USD
-
-    logger.info(f"--- Piyasa Koşulu Sınıflandırması ---")
-    logger.info(f"Girdiler: VIX={vix_val:.2f}, BTC Dominance={btc_dom_val:.2f}, Toplam Piyasa Değeri={mcap_val / 1_000_000_000_000:.2f} Trilyon USD")
-
-    market_condition = model.classify_market_condition(vix_val, btc_dom_val, mcap_val)
-    logger.info(f"Piyasa Koşulu: {market_condition.upper()}")
-
-    # Örnek senaryolar
-    logger.info("--- Örnek Senaryolar ---")
-    logger.info(f"Senaryo 1 (Boğa): VIX=15, BTC_DOM=0.40, MCAP=2T -> {model.classify_market_condition(15, 0.40, 2_000_000_000_000).upper()}")
-    logger.info(f"Senaryo 2 (Ayı): VIX=35, BTC_DOM=0.60, MCAP=400B -> {model.classify_market_condition(35, 0.60, 400_000_000_000).upper()}")
-    logger.info(f"Senaryo 3 (Yatay): VIX=25, BTC_DOM=0.50, MCAP=800B -> {model.classify_market_condition(25, 0.50, 800_000_000_000).upper()}")
+            logger.error(f"'{self.name}' çalışırken hata oluştu: {e}", exc_info=True)
+            return {"regime": "Unknown", "details": "Model çalışırken hata oluştu."}
