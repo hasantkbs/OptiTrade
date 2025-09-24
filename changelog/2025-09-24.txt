@@ -1,0 +1,1 @@
+8bdc040 - feat: Implement DDM, parameter optimization, enhanced backtesting, ML stock features, portfolio optimization, and real-time analysis (HasanTekbas)
