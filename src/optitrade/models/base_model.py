@@ -1,50 +1,46 @@
 
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Dict, Optional
 import pandas as pd
 
 from ..utils.data_fetcher import DataFetcher
 
 class BaseModel(ABC):
     """
-    Tüm alım-satım sinyali modelleri için temel arayüz (soyut sınıf).
+    Base interface (abstract class) for all trading signal models.
 
-    Bu sınıf, her modelin uyması gereken standart yapıyı tanımlar. Her model,
-    bir `DataFetcher` örneği ile başlatılmalı ve bir `predict` metodu içermelidir.
+    This class defines the standard structure that every model must adhere to. Each model
+    can be initialized with an optional DataFetcher instance and must include a `generate_score` method.
     """
-    def __init__(self, data_fetcher: DataFetcher):
+    def __init__(self, data_fetcher: Optional[DataFetcher] = None):
         """
-        Modeli başlatır.
+        Initializes the model.
 
         Args:
-            data_fetcher (DataFetcher): Veri çekmek için kullanılacak merkezi veri servis.
+            data_fetcher (DataFetcher, optional): The centralized data service to be used for fetching data. Defaults to None.
         """
-        if not isinstance(data_fetcher, DataFetcher):
-            raise TypeError("data_fetcher, DataFetcher sınıfının bir örneği olmalıdır.")
+        if data_fetcher and not isinstance(data_fetcher, DataFetcher):
+            raise TypeError("data_fetcher must be an instance of the DataFetcher class.")
         self.data_fetcher = data_fetcher
 
     @abstractmethod
-    def predict(self, symbol: str, **kwargs) -> Dict[str, float]:
+    def generate_score(self, data: pd.DataFrame) -> float:
         """
-        Belirtilen sembol için bir alım-satım sinyali tahmini yapar.
+        Generates a trading signal score for the given data.
 
-        Bu metot, her alt model tarafından kendi mantığına göre uygulanmalıdır.
+        This method must be implemented by each subclass according to its own logic.
 
         Args:
-            symbol (str): Tahmin yapılacak olan finansal varlığın sembolü (örn: "BTC-USD").
-            **kwargs: Modele özgü ek parametreler.
+            data (pd.DataFrame): The input data for the model.
 
         Returns:
-            Dict[str, float]: Modelin tahminini içeren bir sözlük.
-                - 'score' (float): -1.0 (Güçlü Sat) ile +1.0 (Güçlü Al) arasında bir puan.
-                - 'confidence' (float, optional): Tahminin güvenilirliği (0.0 ile 1.0 arası).
-                - Diğer modele özgü metrikler...
+            float: A score between -1.0 (Strong Sell) and +1.0 (Strong Buy).
         """
         pass
 
     @property
     def name(self) -> str:
         """
-        Modelin adını döndürür (sınıf adından türetilir).
+        Returns the name of the model (derived from the class name).
         """
         return self.__class__.__name__

@@ -6,7 +6,6 @@ import logging
 from typing import Dict, List, Any, Tuple
 
 from .base_model import BaseModel
-from ..utils.data_fetcher import DataFetcher
 from .. import config
 
 # Loglama yapılandırması
@@ -14,50 +13,28 @@ logger = logging.getLogger(__name__)
 
 class SupportResistanceModel(BaseModel):
     """
-    Fiyat verilerindeki destek ve direnç seviyelerini analiz ederek bir skor üretir ve detaylı bilgi döndürür.
+    Analyzes support and resistance levels in price data to generate a score.
     """
-    def __init__(self, data_fetcher: DataFetcher):
-        super().__init__(data_fetcher)
-        self.base_order = config.SUPPORT_RESISTANCE_FRACTAL_WINDOW
-        self.tolerance = 0.01 # %1
-        self.base_required_data_points = self.base_order * 2 + 5
+    def __init__(self):
+        super().__init__()
+        self.order = config.SUPPORT_RESISTANCE_FRACTAL_WINDOW
+        self.tolerance = 0.01 # 1%
+        self.required_data_points = self.order * 2 + 5
 
-    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
-        logger.info(f"'{self.name}' modeli '{symbol}' için '{interval}' aralığında çalıştırılıyor...")
-        
-        # Interval'e göre pencere boyutlarını ölçeklendir
-        scaling_factor = self._get_scaling_factor(interval)
-        order = int(self.base_order * scaling_factor)
+    def generate_score(self, data: pd.DataFrame) -> float:
+        logger.info(f"Running '{self.name}' model...")
 
-        # Ölçeklendirilmiş pencere boyutlarına göre gerekli veri noktasını hesapla
-        required_data_points = order * 2 + 5
-
-        period_map = {"15m": "60d", "4h": "730d", "1d": "5y"}
-        fetch_period = period_map.get(interval, "5y")
-
-        data = self.data_fetcher.get_market_data(symbol, period=fetch_period, interval=interval)
-
-        if data.empty or len(data) < required_data_points:
-            logger.warning(f"'{self.name}': Yeterli veri yok.")
-            return {"score": 0.0, "details": "Yetersiz veri"}
+        if data.empty or len(data) < self.required_data_points:
+            logger.warning(f"'{self.name}': Not enough data. Returning neutral score (0.0).")
+            return 0.0
 
         try:
-            result = self._calculate_score_and_levels(data['Close'], order)
-            logger.info(f"'{self.name}' modeli sonucu: Skor={result['score']:.4f}, Detay: {result['details']}")
-            return result
+            result = self._calculate_score_and_levels(data['Close'], self.order)
+            logger.info(f"'{self.name}' model result: Score={result['score']:.4f}")
+            return result['score']
         except Exception as e:
-            logger.error(f"'{self.name}' skoru hesaplanırken hata oluştu: {e}", exc_info=True)
-            return {"score": 0.0, "details": "Model çalışırken hata oluştu.", "closest_support": None, "closest_resistance": None}
-
-    def _get_scaling_factor(self, interval: str) -> float:
-        """
-        Farklı zaman aralıkları için ölçeklendirme faktörünü döndürür.
-        Varsayım: Temel aralık 1d (günlük) veridir.
-        """
-        if interval == "1d": return 1.0
-        if interval == "4h": return 6.0  # 1 gün = 6 * 4 saat
-        if interval == "15m": return 96.0 # 1 gün = 96 * 15 dakika
-        return 1.0 # Bilinmeyen aralıklar için varsayılan
+            logger.error(f"An error occurred while running the '{self.name}' model: {e}", exc_info=True)
+            return 0.0
 
     def _find_levels(self, price_series: pd.Series, order: int) -> Tuple[List[float], List[float]]:
         local_min_indices = argrelextrema(price_series.values, np.less_equal, order=order)[0]
@@ -74,7 +51,7 @@ class SupportResistanceModel(BaseModel):
         if not supports and not resistances:
             return {
                 "score": 0.0, 
-                "details": "Destek/Direnç seviyesi bulunamadı.",
+                "details": "Support/Resistance levels not found.",
                 "closest_support": None,
                 "closest_resistance": None
             }
@@ -90,16 +67,16 @@ class SupportResistanceModel(BaseModel):
             distance_to_support = abs(current_price - closest_support) / current_price
             if distance_to_support < self.tolerance:
                 support_score = (1 - (distance_to_support / self.tolerance)) * 0.9
-                details.append(f"Destek seviyesine yakın ({closest_support:.2f})")
+                details.append(f"Near support level ({closest_support:.2f})")
 
         if closest_resistance:
             distance_to_resistance = abs(current_price - closest_resistance) / current_price
             if distance_to_resistance < self.tolerance:
                 resistance_score = -(1 - (distance_to_resistance / self.tolerance)) * 0.9
-                details.append(f"Direnç seviyesine yakın ({closest_resistance:.2f})")
+                details.append(f"Near resistance level ({closest_resistance:.2f})")
 
         final_score = support_score + resistance_score
-        final_details = ", ".join(details) if details else "Nötr destek/direnç sinyali."
+        final_details = ", ".join(details) if details else "Neutral support/resistance signal."
         
         return {
             "score": final_score,
@@ -107,18 +84,3 @@ class SupportResistanceModel(BaseModel):
             "closest_support": closest_support,
             "closest_resistance": closest_resistance
         }
-
-# Örnek Kullanım
-if __name__ == '__main__':
-    logger.info("--- SupportResistanceModel Test Başlatıldı ---")
-    try:
-        fetcher = DataFetcher()
-        model = SupportResistanceModel(data_fetcher=fetcher)
-        prediction = model.predict(symbol="BTC-USD", interval="1d")
-        
-        print("--- Test Sonucu ---")
-        print(f"Model Adı: {model.name}")
-        print(f"Tahmin: {prediction}")
-    except Exception as e:
-        logger.error(f"Test sırasında bir hata oluştu: {e}", exc_info=True)
-    logger.info("--- SupportResistanceModel Test Tamamlandı ---")

@@ -1,3 +1,4 @@
+
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -27,84 +28,85 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-class BacktestSimulator:
+class Backtester:
     """
-    Tahmin motorunun geçmiş verilerle doğruluğunu ölçen simülatör.
+    Encapsulates the backtesting logic.
     """
     def __init__(self, entry_threshold: float = 0.5, exit_threshold: float = -0.5, commission_rate: float = 0.001, slippage: float = 0.0005):
-        """
-        Simülatörü başlatır ve strateji eşiklerini, komisyon ve kayma oranlarını ayarlar.
-        """
         self.entry_threshold = entry_threshold
         self.exit_threshold = exit_threshold
         self.commission_rate = commission_rate
         self.slippage = slippage
         self.models = initialize_models()
-        self.min_data_points_for_models = 60 # Geçici olarak sabit bir değer
+        self.min_data_points_for_models = 60
 
-    def _run_single_backtest(self, prices: pd.Series, prediction_scores: pd.Series) -> dict:
-        """
-        Basit bir alım/satım stratejisi uygulayarak tek bir backtest yapar.
-        """
-        # ... (içerik aynı kalır)
+    def run_backtest(self, prices: pd.Series, prediction_scores: pd.Series) -> dict:
         if prices.empty or prediction_scores.empty:
-            return {'total_return': 0.0, 'num_trades': 0, 'winning_trades': 0, 'losing_trades': 0, 'win_rate': 0.0}
+            return {}
 
         common_index = prices.index.intersection(prediction_scores.index)
         prices = prices.loc[common_index]
         prediction_scores = prediction_scores.loc[common_index]
 
         if prices.empty:
-            return {'total_return': 0.0, 'num_trades': 0, 'winning_trades': 0, 'losing_trades': 0, 'win_rate': 0.0}
+            return {}
 
         initial_capital = 1000.0
         capital = initial_capital
         position = 0
-        trade_returns = []
+        trades = []
         entry_price = 0.0
+        entry_date = None
 
         for i in range(1, len(prices)):
             current_price = prices.iloc[i]
             current_score = prediction_scores.iloc[i]
-            logger.debug(f"BacktestSimulator: current_price={current_price}, current_score={current_score}, position={position}")
 
             if pd.isna(current_score):
-                logger.warning(f"BacktestSimulator: current_score is NaN at index {i}. Skipping this data point.")
                 continue
 
-            # Pozisyona giriş (Long)
             if position == 0 and current_score >= self.entry_threshold:
                 position = 1
-                entry_price = current_price * (1 + self.slippage) # Fiyat kayması ekle
-                capital *= (1 - self.commission_rate) # Komisyonu düş
-                logger.info(f"Giriş: {entry_price:.2f} | Skor: {current_score:.2f}")
+                entry_price = current_price * (1 + self.slippage)
+                capital *= (1 - self.commission_rate)
+                entry_date = prices.index[i]
 
-            # Pozisyondan çıkış (Long)
             elif position == 1 and current_score <= self.exit_threshold:
                 position = 0
-                exit_price = current_price * (1 - self.slippage) # Fiyat kayması ekle
-                capital *= (1 - self.commission_rate) # Komisyonu düş
+                exit_price = current_price * (1 - self.slippage)
+                capital *= (1 - self.commission_rate)
                 trade_return = (exit_price - entry_price) / entry_price
-                trade_returns.append(trade_return)
+                trades.append({
+                    'entry_date': entry_date,
+                    'exit_date': prices.index[i],
+                    'entry_price': entry_price,
+                    'exit_price': exit_price,
+                    'return': trade_return
+                })
                 capital *= (1 + trade_return)
-                logger.info(f"Çıkış: {exit_price:.2f} | Skor: {current_score:.2f} | Getiri: {trade_return:.2%}")
 
-        # Backtest sonunda hala pozisyon açıksa, son fiyattan kapat
         if position == 1:
             exit_price = prices.iloc[-1] * (1 - self.slippage)
             capital *= (1 - self.commission_rate)
             trade_return = (exit_price - entry_price) / entry_price
-            trade_returns.append(trade_return)
+            trades.append({
+                'entry_date': entry_date,
+                'exit_date': prices.index[-1],
+                'entry_price': entry_price,
+                'exit_price': exit_price,
+                'return': trade_return
+            })
             capital *= (1 + trade_return)
-            logger.info(f"Son Kapanış: {exit_price:.2f} | Getiri: {trade_return:.2%}")
 
-        total_return = (capital - initial_capital) / initial_capital
-        num_trades = len(trade_returns)
-        winning_trades = sum(1 for r in trade_returns if r > 0)
-        losing_trades = sum(1 for r in trade_returns if r <= 0)
+        return self.calculate_metrics(trades, prices, initial_capital, capital)
+
+    def calculate_metrics(self, trades: list, prices: pd.Series, initial_capital: float, final_capital: float) -> dict:
+        total_return = (final_capital - initial_capital) / initial_capital
+        num_trades = len(trades)
+        winning_trades = sum(1 for t in trades if t['return'] > 0)
+        losing_trades = num_trades - winning_trades
         win_rate = winning_trades / num_trades if num_trades > 0 else 0.0
 
-        # Maksimum Düşüş (Max Drawdown) Hesaplaması
         if not prices.empty:
             cumulative_returns = (prices / prices.iloc[0]).cumprod()
             peak = cumulative_returns.expanding(min_periods=1).max()
@@ -113,15 +115,23 @@ class BacktestSimulator:
         else:
             max_drawdown = 0.0
 
-        # Sharpe Oranı Hesaplaması (Basitleştirilmiş - Risksiz oran = 0)
+        trade_returns = [t['return'] for t in trades]
         sharpe_ratio = 0.0
+        sortino_ratio = 0.0
         if trade_returns:
             returns_series = pd.Series(trade_returns)
             daily_returns_std = returns_series.std()
             if daily_returns_std != 0:
                 sharpe_ratio = returns_series.mean() / daily_returns_std
-                # Yıllıklandırma (örneğin, günlük veriler için sqrt(252))
-                # Ancak burada trade bazında olduğu için yıllıklandırma yapmıyorum.
+            
+            negative_returns = returns_series[returns_series < 0]
+            downside_std = negative_returns.std()
+            if downside_std != 0:
+                sortino_ratio = returns_series.mean() / downside_std
+
+        calmar_ratio = total_return / abs(max_drawdown) if max_drawdown != 0 else 0.0
+
+        avg_trade_duration = pd.Series([(t['exit_date'] - t['entry_date']).days for t in trades]).mean()
 
         return {
             'total_return': float(total_return),
@@ -130,168 +140,72 @@ class BacktestSimulator:
             'losing_trades': losing_trades,
             'win_rate': float(win_rate),
             'max_drawdown': float(max_drawdown),
-            'sharpe_ratio': float(sharpe_ratio)
+            'sharpe_ratio': float(sharpe_ratio),
+            'sortino_ratio': float(sortino_ratio),
+            'calmar_ratio': float(calmar_ratio),
+            'avg_trade_duration': float(avg_trade_duration),
+            'trades': trades
         }
 
-    def optimize_scoring_engine_weights(self, data: pd.DataFrame, num_iterations: int = 100) -> tuple[dict, dict]:
-        """
-        ScoringEngine ağırlıklarını optimize etmek için rastgele arama yapar.
-        """
-        logger.info(f"--- ScoringEngine Ağırlık Optimizasyonu Başlatılıyor ({num_iterations} iterasyon) ---")
-
-        best_weights = None
-        best_return = -np.inf
-        best_results = {}
-
-        dummy_engine = ScoringEngine()
-        score_names = list(dummy_engine.weights.keys())
-
-        for iteration in range(num_iterations):
-            random_weights_values = [random.random() for _ in score_names]
-            total_random_weight = sum(random_weights_values)
-            current_weights = {name: value / total_random_weight for name, value in zip(score_names, random_weights_values)}
-
-            current_scoring_engine = ScoringEngine(weights=current_weights)
-
-            all_prediction_scores = []
-            for i in range(len(data)):
-                if i < self.min_data_points_for_models:
-                    all_prediction_scores.append(0.0)
-                    continue
-                
-                historical_data_slice = data.iloc[:i+1]
-                # Merkezi fonksiyonu çağır (backtest için haber/sosyal medya verisi olmadan)
-                # Geçici olarak dummy haber başlıkları ve sosyal medya sorgusu ekleyelim
-                dummy_news_headlines = ["Bitcoin price surges as institutional adoption grows.", "Crypto market experiences a sharp decline.", "New regulations might impact digital assets."]
-                dummy_social_media_query = "bitcoin" # This will trigger the simulated social media data
-
-                model_scores = calculate_all_model_scores(
-                    historical_data=historical_data_slice,
-                    models=self.models,
-                    news_headlines=dummy_news_headlines,
-                    social_media_query=dummy_social_media_query
-                )
-                final_score = current_scoring_engine.generate_final_score(model_scores)
-                logger.debug(f"Iteration {iteration + 1}: Model Scores: {model_scores}, Final Score: {final_score}")
-                all_prediction_scores.append(final_score)
-            
-            prediction_scores_series = pd.Series(all_prediction_scores, index=data.index).fillna(0.0)
-
-            results = self._run_single_backtest(data['close'], prediction_scores_series)
-
-            if results['total_return'] > best_return:
-                best_return = results['total_return']
-                best_weights = current_weights
-                best_results = results
-            
-            if (iteration + 1) % (num_iterations // 10) == 0 or iteration == num_iterations - 1:
-                logger.info(f"  İterasyon {iteration + 1}/{num_iterations} - En İyi Getiri: {best_return:.2%}")
-
-        logger.info("--- Optimizasyon Tamamlandı ---")
-        return best_weights, best_results
+    def generate_report(self, results: dict):
+        print("--- Backtest Report ---")
+        for key, value in results.items():
+            if key != 'trades':
+                print(f"{key.replace('_', ' ').title()}: {value:.2%}" if isinstance(value, float) and 'ratio' not in key else f"{key.replace('_', ' ').title()}: {value}")
+        
+        print("\n--- Trade Log ---")
+        for trade in results['trades']:
+            print(f"Entry: {trade['entry_date']} @ {trade['entry_price']:.2f}, Exit: {trade['exit_date']} @ {trade['exit_price']:.2f}, Return: {trade['return']:.2%}")
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Tahmin motorunun geçmiş verilerle doğruluğunu ölçen backtest simülatörü.')
-    parser.add_argument('--symbol', type=str, default='AAPL', help='Hisse senedi/kripto para sembolü (örn: BTC-USD, AAPL). Varsayılan: AAPL')
-    parser.add_argument('--period', type=str, default='1y', help='Veri çekme periyodu (örn: 1y, 6mo, 1mo). Varsayılan: 1y')
-    parser.add_argument('--interval', type=str, default='1d', choices=['1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '1d', '5d', '1wk', '1mo', '3mo'], help='Veri çekme aralığı (yfinance için: 1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo). Varsayılan: 1d')
-    parser.add_argument('--entry_threshold', type=float, default=0.5, help='Pozisyona girmek için tahmin skoru eşiği. Varsayılan: 0.5')
-    parser.add_argument('--exit_threshold', type=float, default=-0.5, help='Pozisyondan çıkmak için tahmin skoru eşiği. Varsayılan: -0.5')
-    parser.add_argument('--commission_rate', type=float, default=0.001, help='İşlem başına komisyon oranı. Varsayılan: 0.001 (0.1%)')
-    parser.add_argument('--slippage', type=float, default=0.0005, help='İşlem başına fiyat kayması (slippage). Varsayılan: 0.0005 (0.05%)')
-    parser.add_argument('--optimize_weights', action='store_true', help='ScoringEngine ağırlıklarını optimize et.')
-    parser.add_argument('--num_iterations', type=int, default=100, help='Optimizasyon için iterasyon sayısı. Varsayılan: 100')
-    parser.add_argument('--datafile', type=str, default=None, help='Lokal veri dosyası (CSV formatında). Eğer belirtilirse, yfinance yerine bu dosya kullanılır.')
+    parser = argparse.ArgumentParser(description='Backtest simulator for the prediction engine.')
+    parser.add_argument('--symbol', type=str, default='AAPL', help='Stock/crypto symbol (e.g., BTC-USD, AAPL). Default: AAPL')
+    parser.add_argument('--period', type=str, default='1y', help='Data fetch period (e.g., 1y, 6mo, 1mo). Default: 1y')
+    parser.add_argument('--interval', type=str, default='1d', help='Data fetch interval. Default: 1d')
+    parser.add_argument('--entry_threshold', type=float, default=0.5, help='Prediction score threshold for entering a position. Default: 0.5')
+    parser.add_argument('--exit_threshold', type=float, default=-0.5, help='Prediction score threshold for exiting a position. Default: -0.5')
+    parser.add_argument('--commission_rate', type=float, default=0.001, help='Commission rate per trade. Default: 0.001 (0.1%)')
+    parser.add_argument('--slippage', type=float, default=0.0005, help='Slippage per trade. Default: 0.0005 (0.05%)')
+    parser.add_argument('--datafile', type=str, default=None, help='Local data file (CSV format). If specified, yfinance will not be used.')
 
     args = parser.parse_args()
 
-    logger.info(f"--- Backtest Simülasyonu ---")
+    logger.info(f"--- Backtest Simulation ---")
 
     data = None
-    try:
-        if args.datafile:
-            logger.info(f"Lokal veri dosyası kullanılıyor: {args.datafile}")
-            data = pd.read_csv(args.datafile)
-            # Tarih sütununu Datetime formatına çevirip index olarak ayarlama
-            if 'Date' in data.columns:
-                data['Date'] = pd.to_datetime(data['Date'])
-                data.set_index('Date', inplace=True)
-            elif 'Timestamp' in data.columns: # Farklı olası sütun adları
-                data['Timestamp'] = pd.to_datetime(data['Timestamp'])
-                data.set_index('Timestamp', inplace=True)
-            else:
-                # Eğer bilinen bir tarih sütunu yoksa, ilk sütunu kullanmayı dene
-                potential_date_col = data.columns[0]
-                logger.warning(f"Standart 'Date' veya 'Timestamp' sütunu bulunamadı. İlk sütun olan '{potential_date_col}' tarih olarak kullanılıyor.")
-                data[potential_date_col] = pd.to_datetime(data[potential_date_col])
-                data.set_index(potential_date_col, inplace=True)
+    if args.datafile:
+        data = pd.read_csv(args.datafile, index_col=0, parse_dates=True)
+    else:
+        ticker = yf.Ticker(args.symbol)
+        data = ticker.history(period=args.period, interval=args.interval)
+    
+    data.rename(columns={c: c.lower() for c in data.columns}, inplace=True)
 
-            # yfinance ile uyumlu olması için sütun adlarını düzenle
-            data.rename(columns={c: c.lower() for c in data.columns}, inplace=True)
-            if 'volume btc' in data.columns:
-                data.rename(columns={'volume btc': 'volume'}, inplace=True)
-            logger.debug(f"Sütunlar yüklendikten ve küçük harfe çevrildikten sonra: {data.columns.tolist()}")
-            # Sadece gerekli sütunları seç
-            data = data[['open', 'high', 'low', 'close', 'volume']]
+    if data.empty:
+        logger.error(f"Could not download or read data for {args.symbol}.")
+    else:
+        backtester = Backtester(
+            entry_threshold=args.entry_threshold, 
+            exit_threshold=args.exit_threshold,
+            commission_rate=args.commission_rate,
+            slippage=args.slippage
+        )
 
+        all_prediction_scores = []
+        scoring_engine = ScoringEngine(data_fetcher=None, db_handler=None)
 
-        else:
-            logger.info(f"yfinance üzerinden {args.symbol} için veri çekiliyor...")
-            ticker = yf.Ticker(args.symbol)
-            data = ticker.history(period=args.period, interval=args.interval)
-            data.rename(columns={c: c.lower() for c in data.columns}, inplace=True)
-            logger.debug(f"Sütunlar yfinance'ten çekildikten ve küçük harfe çevrildikten sonra: {data.columns.tolist()}")
-            # Sadece gerekli sütunları seç
-            data = data[['open', 'high', 'low', 'close', 'volume']]
+        for i in range(len(data)):
+            if i < backtester.min_data_points_for_models:
+                all_prediction_scores.append(0.0)
+                continue
+            
+            historical_data = data.iloc[:i+1]
+            model_scores = calculate_all_model_scores(historical_data, backtester.models)
+            final_score = scoring_engine.run_engine(asset_type='stock', symbol=args.symbol, interval=args.interval, model_params={})
+            all_prediction_scores.append(final_score['final_score'])
+        
+        prediction_scores_series = pd.Series(all_prediction_scores, index=data.index)
+        prediction_scores_series = prediction_scores_series.fillna(0.0)
 
-        if data.empty:
-            logger.error(f"Hata: Veri çekilemedi veya dosya boş. Lütfen girdi parametrelerini kontrol edin.")
-        else:
-            simulator = BacktestSimulator(
-                entry_threshold=args.entry_threshold, 
-                exit_threshold=args.exit_threshold,
-                commission_rate=args.commission_rate,
-                slippage=args.slippage
-            )
-
-            if args.optimize_weights:
-                best_weights, best_results = simulator.optimize_scoring_engine_weights(data, args.num_iterations)
-                logger.info(f"--- En İyi Optimizasyon Sonuçları ---")
-                logger.info(f"En İyi Ağırlıklar: {best_weights}")
-                logger.info(f"En İyi Toplam Getiri: {best_results['total_return']:.2%}")
-                logger.info(f"Toplam İşlem Sayısı: {best_results['num_trades']}")
-                logger.info(f"Kazanan İşlem Sayısı: {best_results['winning_trades']}")
-                logger.info(f"Kaybeden İşlem Sayısı: {best_results['losing_trades']}")
-                logger.info(f"Kazanma Oranı: {best_results['win_rate']:.2%}")
-                logger.info(f"Maksimum Düşüş (Max Drawdown): {best_results['max_drawdown']:.2%}")
-                logger.info(f"Sharpe Oranı: {best_results['sharpe_ratio']:.2f}")
-            else:
-                # Tekli backtest için skorları hesapla
-                all_prediction_scores = []
-                scoring_engine = ScoringEngine() # Varsayılan ağırlıklarla
-
-                for i in range(len(data)):
-                    if i < simulator.min_data_points_for_models:
-                        all_prediction_scores.append(0.0)
-                        continue
-                    
-                    historical_data = data.iloc[:i+1]
-                    model_scores = calculate_all_model_scores(historical_data, simulator.models)
-                    final_score = scoring_engine.generate_final_score(model_scores)
-                    all_prediction_scores.append(final_score)
-                
-                prediction_scores_series = pd.Series(all_prediction_scores, index=data.index)
-                prediction_scores_series = prediction_scores_series.fillna(0.0)
-
-                results = simulator._run_single_backtest(data['close'], prediction_scores_series)
-
-                logger.info(f"Toplam Getiri: {results['total_return']:.2%}")
-                logger.info(f"Toplam İşlem Sayısı: {results['num_trades']}")
-                logger.info(f"Kazanan İşlem Sayısı: {results['winning_trades']}")
-                logger.info(f"Kaybeden İşlem Sayısı: {results['losing_trades']}")
-                logger.info(f"Kazanma Oranı: {results['win_rate']:.2%}")
-                logger.info(f"Maksimum Düşüş (Max Drawdown): {results['max_drawdown']:.2%}")
-                logger.info(f"Sharpe Oranı: {results['sharpe_ratio']:.2f}")
-
-    except Exception as e:
-        logger.error(f"Veri çekme veya backtest sırasında bir hata oluştu: {e}")
+        results = backtester.run_backtest(data['close'], prediction_scores_series)
+        backtester.generate_report(results)

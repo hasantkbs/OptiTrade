@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ReferenceLine, ReferenceArea } from 'recharts';
 import './App.css';
 
 // Model sınıf adlarını, grafikte gösterilecek daha okunaklı isimlerle eşleştir
@@ -15,6 +15,7 @@ const modelDisplayNameMap = {
   'MacroEconomicModel': 'Makroekonomi',
   'OnChainModel': 'On-Chain Veri',
   'CorrelationModel': 'Korelasyon',
+  'DCFModel': 'Temettü İskonto Modeli',
 };
 
 // Modelleri kategorilere ayır
@@ -23,6 +24,7 @@ const modelCategories = {
   'Momentum': ['VolumeSurgeModel', 'DivergenceDetectionModel'],
   'Yapı': ['SupportResistanceModel', 'FormationDetectionModel'],
   'Duyarlılık': ['NewsSentimentModel', 'SocialSentimentModel'],
+  'Değerleme': ['DCFModel'],
   'Bağlam': ['MacroEconomicModel', 'OnChainModel', 'CorrelationModel'],
 };
 
@@ -35,6 +37,9 @@ function App() {
   const [chartData, setChartData] = useState([]); // Fiyat grafiği için state
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [support, setSupport] = useState(null);
+  const [resistance, setResistance] = useState(null);
+  const [formation, setFormation] = useState(null);
 
   const getPredictionDirection = (score) => {
     if (score > 0.2) return 'Yükselecek';
@@ -76,6 +81,36 @@ function App() {
     }
   };
 
+  // WebSocket connection
+  useEffect(() => {
+    const ws = new WebSocket(`ws://127.0.0.1:8000/ws/${assetType}/${symbol}`);
+
+    ws.onopen = () => {
+      console.log("WebSocket connected");
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      setChartData(prevData => [...prevData, { Date: new Date().toLocaleTimeString(), Close: data.latest_price }]);
+      setAnalysisResult(data);
+      if (data.support_resistance) {
+        setSupport(data.support_resistance.support);
+        setResistance(data.support_resistance.resistance);
+      }
+      if (data.formation) {
+        setFormation(data.formation);
+      }
+    };
+
+    ws.onclose = () => {
+      console.log("WebSocket disconnected");
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [symbol, assetType]);
+
   // Bileşen ilk yüklendiğinde verileri çek
   useEffect(() => {
     fetchData();
@@ -83,11 +118,10 @@ function App() {
 
 
   // Model çıktılarını grafik ve liste için uygun formata dönüştür
-  const modelOutputsData = analysisResult ? 
-    Object.entries(analysisResult.model_outputs).filter(([key]) => key !== 'MarketConditionClassifier').map(([key, value]) => ({
+  const modelOutputsData = analysisResult && analysisResult.scores ? 
+    Object.entries(analysisResult.scores).map(([key, value]) => ({
       name: modelDisplayNameMap[key] || key, // Eşleşme bulunamazsa sınıf adını kullan
-      score: value.score,
-      details: value.details,
+      score: value,
     })) : [];
 
   // Kategori skorlarını hesapla
@@ -96,8 +130,8 @@ function App() {
     let totalScore = 0;
     let count = 0;
     modelsInCat.forEach(modelKey => {
-      if (analysisResult && analysisResult.model_outputs[modelKey] && modelKey !== 'MarketConditionClassifier') { // MarketConditionClassifier skor üretmez
-        totalScore += analysisResult.model_outputs[modelKey].score;
+      if (analysisResult && analysisResult.scores && analysisResult.scores[modelKey]) {
+        totalScore += analysisResult.scores[modelKey];
         count++;
       }
     });
@@ -161,16 +195,20 @@ function App() {
                     />
                     <Legend />
                     <Line type="monotone" dataKey="Close" name="Kapanış Fiyatı" stroke="#8884d8" dot={false} />
+                    {support && <ReferenceLine y={support} label="Support" stroke="green" />}
+                    {resistance && <ReferenceLine y={resistance} label="Resistance" stroke="red" />}
+                    {/* Placeholder for drawing formations */}
+                    {formation && formation.points && <ReferenceArea x1={formation.points.x1} x2={formation.points.x2} y1={formation.points.y1} y2={formation.points.y2} stroke="orange" strokeOpacity={0.3} />}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             )}
 
             <div className="summary-grid">
-              {analysisResult.current_market_price && (
+              {analysisResult.latest_price && (
                 <div className="summary-item">
                   <p>Anlık Fiyat</p>
-                  <span>{analysisResult.current_market_price.toFixed(2)}</span>
+                  <span>{analysisResult.latest_price.toFixed(2)}</span>
                 </div>
               )}
               <div className="summary-item">
@@ -183,22 +221,10 @@ function App() {
                 <p>Tahmin Yönü</p>
                 <span>{getPredictionDirection(analysisResult.final_score)}</span>
               </div>
-              {analysisResult.estimated_target_price && (
+              {formation && (
                 <div className="summary-item">
-                  <p>Tahmini Hedef Fiyat</p>
-                  <span>{analysisResult.estimated_target_price.toFixed(2)}</span>
-                </div>
-              )}
-              {analysisResult.position_sizing && analysisResult.position_sizing.percentage > 0 && (
-                <div className="summary-item">
-                  <p>Önerilen Pozisyon Büyüklüğü</p>
-                  <span>{(analysisResult.position_sizing.percentage * 100).toFixed(2)}%</span>
-                </div>
-              )}
-              {analysisResult.market_regime && (
-                <div className="summary-item">
-                  <p>Piyasa Rejimi</p>
-                  <span>{analysisResult.market_regime}</span>
+                  <p>Tespit Edilen Formasyon</p>
+                  <span>{formation.name}: {formation.details}</span>
                 </div>
               )}
             </div>

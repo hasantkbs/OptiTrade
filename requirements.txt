@@ -14,3 +14,4 @@ ta
 websockets
 pytest
 xgboost
+alpha-vantage

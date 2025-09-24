@@ -2,6 +2,8 @@
 import logging
 import pkgutil
 import inspect
+import json
+import os
 from typing import Dict, Any
 
 import numpy as np
@@ -42,6 +44,27 @@ class ScoringEngine:
         }
         self.models = self._load_models()
         self.alert_system = AlertSystem()
+        self.optimized_parameters = self._load_optimized_parameters()
+
+    def _load_optimized_parameters(self) -> Dict[str, Any]:
+        """Loads optimized parameters from JSON files."""
+        optimized_params = {}
+        for filename in os.listdir("."):
+            if filename.startswith("optimized_parameters_") and filename.endswith(".json"):
+                try:
+                    with open(filename, "r") as f:
+                        parts = filename.replace("optimized_parameters_", "").replace(".json", "").split("_")
+                        model_name = parts[0]
+                        symbol = parts[1]
+                        interval = parts[2]
+                        if model_name not in optimized_params:
+                            optimized_params[model_name] = {}
+                        if symbol not in optimized_params[model_name]:
+                            optimized_params[model_name][symbol] = {}
+                        optimized_params[model_name][symbol][interval] = json.load(f)
+                except Exception as e:
+                    logger.error(f"Error loading optimized parameters from {filename}: {e}")
+        return optimized_params
 
     def _normalize_weights(self, weights: Dict[str, float]) -> Dict[str, float]:
         """Verilen ağırlık setinin toplamını 1'e normalize eder."""
@@ -94,6 +117,16 @@ class ScoringEngine:
         """
         if model_params is None:
             model_params = {}
+
+        # Apply optimized parameters
+        if self.optimized_parameters:
+            for model_name, optimized_model_params in self.optimized_parameters.items():
+                if model_name in self.models and symbol in optimized_model_params and interval in optimized_model_params[symbol]:
+                    params_to_apply = optimized_model_params[symbol][interval]
+                    logger.info(f"Applying optimized parameters for {model_name}: {params_to_apply}")
+                    model_instance = self.models[model_name]
+                    for param_name, param_value in params_to_apply.items():
+                        setattr(model_instance, param_name, param_value)
 
         # 1. Piyasa Rejimini Belirle
         regime_model = self.models.get("MarketConditionClassifier")

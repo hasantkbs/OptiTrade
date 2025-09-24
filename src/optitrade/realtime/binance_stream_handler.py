@@ -5,48 +5,50 @@ import logging
 import websockets
 from typing import Callable, Awaitable
 
+from src.optitrade.realtime.stream_handler_base import StreamHandlerBase
+
 logger = logging.getLogger(__name__)
 
-class BinanceStreamHandler:
+class BinanceStreamHandler(StreamHandlerBase):
     """
-    Binance Futures WebSocket API'sine bağlanır ve canlı veri akışını yönetir.
-    Otomatik ping/pong ve yeniden bağlanma özelliklerine sahiptir.
+    Connects to the Binance Futures WebSocket API and manages the live data stream.
+    Features automatic ping/pong and reconnection.
     """
     def __init__(self, on_message_callback: Callable[[dict], Awaitable[None]]):
         """
-        Handler'ı başlatır.
+        Initializes the handler.
 
         Args:
-            on_message_callback (Callable): Gelen her veri mesajı için çağrılacak asenkron fonksiyon.
+            on_message_callback (Callable): Asynchronous function to be called for each incoming data message.
         """
+        super().__init__(on_message_callback)
         self.base_url = "wss://fstream.binance.com/ws"
-        self.on_message_callback = on_message_callback
         self.ws_connection = None
         self.is_running = False
 
     async def _listen_forever(self):
         """
-        WebSocket üzerinden gelen mesajları sürekli dinler.
+        Continuously listens for messages from the WebSocket.
         """
-        logger.info("Mesajlar dinleniyor...")
+        logger.info("Listening for messages...")
         while self.is_running:
             try:
                 message = await self.ws_connection.recv()
                 data = json.loads(message)
                 
-                # Gelen veriyi doğrudan callback fonksiyonuna ilet
+                # Pass the data directly to the callback function
                 await self.on_message_callback(data)
 
             except websockets.exceptions.ConnectionClosed as e:
-                logger.warning(f"WebSocket bağlantısı kapandı: {e}. Yeniden bağlanılıyor...")
-                break # Döngüden çıkıp yeniden bağlanmayı tetikle
+                logger.warning(f"WebSocket connection closed: {e}. Reconnecting...")
+                break # Exit the loop to trigger reconnection
             except Exception as e:
-                logger.error(f"Mesaj işlenirken bir hata oluştu: {e}", exc_info=True)
+                logger.error(f"An error occurred while processing a message: {e}", exc_info=True)
 
     async def start(self, stream_name: str):
         """
-        WebSocket bağlantısını başlatır ve belirtilen akışa bağlanır.
-        Bağlantı koparsa otomatik olarak yeniden bağlanır.
+        Starts the WebSocket connection and subscribes to the specified stream.
+        Automatically reconnects if the connection is lost.
         """
         self.is_running = True
         url = f"{self.base_url}/{stream_name.lower()}"
@@ -55,15 +57,15 @@ class BinanceStreamHandler:
             try:
                 async with websockets.connect(url) as ws:
                     self.ws_connection = ws
-                    logger.info(f"'{url}' adresine başarıyla bağlanıldı.")
+                    logger.info(f"Successfully connected to '{url}'.")
                     await self._listen_forever()
             except Exception as e:
-                logger.error(f"WebSocket bağlantı hatası: {e}. 5 saniye içinde yeniden denenecek.")
+                logger.error(f"WebSocket connection error: {e}. Retrying in 5 seconds.")
                 await asyncio.sleep(5)
 
     def stop(self):
         """
-        WebSocket bağlantısını ve dinleme döngüsünü durdurur.
+        Stops the WebSocket connection and the listening loop.
         """
         self.is_running = False
-        logger.info("WebSocket stream durduruluyor...")
+        logger.info("Stopping WebSocket stream...")

@@ -1,3 +1,4 @@
+
 import pandas as pd
 import numpy as np
 from scipy.signal import argrelextrema
@@ -5,7 +6,6 @@ import logging
 from typing import Dict, List, Tuple, Any
 
 from .base_model import BaseModel
-from ..utils.data_fetcher import DataFetcher
 from .. import config
 
 # Loglama yapılandırması
@@ -13,81 +13,78 @@ logger = logging.getLogger(__name__)
 
 class FormationDetectionModel(BaseModel):
     """
-    Fiyat verilerindeki grafik formasyonlarını tespit eder ve detaylı bilgi döndürür.
+    Detects chart patterns in price data and returns a score.
     """
-    def __init__(self, data_fetcher: DataFetcher):
-        super().__init__(data_fetcher)
+    def __init__(self):
+        super().__init__()
         self.extrema_order = 10
         self.tolerance = 0.03
         self.required_data_points = 150
 
-    def predict(self, symbol: str, **kwargs) -> Dict[str, Any]:
-        logger.info(f"'{self.name}' modeli '{symbol}' için çalıştırılıyor...")
-        period = f"{self.required_data_points + 20}d"
-        data = self.data_fetcher.get_market_data(symbol, period=period, interval="1d")
+    def generate_score(self, data: pd.DataFrame) -> float:
+        logger.info(f"Running '{self.name}' model...")
 
         if data.empty or len(data) < self.required_data_points:
-            logger.warning(f"'{self.name}': Yeterli veri yok.")
-            return {"score": 0.0, "details": "Yetersiz veri"}
+            logger.warning(f"'{self.name}': Not enough data. Returning neutral score (0.0).")
+            return 0.0
 
         try:
             prices = data['Close']
-            # Formasyonları öncelik sırasına göre tespit et
-            score, details = self._detect_head_and_shoulders(prices)
+            # Detect formations in order of priority
+            score, _, _ = self._detect_head_and_shoulders(prices)
             if score == 0.0:
-                score, details = self._detect_triangles(prices)
+                score, _, _ = self._detect_triangles(prices)
             if score == 0.0:
-                score, details = self._detect_double_top_bottom(prices)
+                score, _, _ = self._detect_double_top_bottom(prices)
             if score == 0.0:
-                score, details = self._detect_flags(prices)
+                score, _, _ = self._detect_flags(prices)
             if score == 0.0:
-                score, details = self._detect_wedges(prices)
+                score, _, _ = self._detect_wedges(prices)
             if score == 0.0:
-                score, details = self._detect_rectangles(prices)
+                score, _, _ = self._detect_rectangles(prices)
             
-            logger.info(f"'{self.name}' modeli sonucu: Skor={score:.2f}, Detay: {details}")
-            return {"score": score, "details": details}
+            logger.info(f"'{self.name}' model result: Score={score:.2f}")
+            return score
         except Exception as e:
-            logger.error(f"'{self.name}' skoru hesaplanırken hata oluştu: {e}", exc_info=True)
-            return {"score": 0.0, "details": "Model çalışırken hata oluştu."}
+            logger.error(f"An error occurred while running the '{self.name}' model: {e}", exc_info=True)
+            return 0.0
 
     def _get_extrema(self, prices: pd.Series) -> Tuple[pd.Series, pd.Series]:
         highs = prices.iloc[argrelextrema(prices.values, np.greater_equal, order=self.extrema_order)[0]]
         lows = prices.iloc[argrelextrema(prices.values, np.less_equal, order=self.extrema_order)[0]]
         return highs, lows
 
-    def _detect_triangles(self, prices: pd.Series) -> Tuple[float, str]:
+    def _detect_triangles(self, prices: pd.Series) -> Tuple[float, str, Dict]:
         highs, lows = self._get_extrema(prices.tail(90))
         if len(lows) < 2 or len(highs) < 2:
-            return 0.0, "Formasyon bulunamadı"
+            return 0.0, "Formation not found", {}
 
         lows_x = np.arange(len(lows))
-        lows_slope, _ = np.polyfit(lows_x, lows.values, 1)
+        lows_slope, lows_intercept = np.polyfit(lows_x, lows.values, 1)
         highs_x = np.arange(len(highs))
-        highs_slope, _ = np.polyfit(highs_x, highs.values, 1)
+        highs_slope, highs_intercept = np.polyfit(highs_x, highs.values, 1)
         current_price = prices.iloc[-1]
 
         if lows_slope > 0.05 and abs(highs_slope) < 0.05:
             resistance_level = highs.mean()
             if current_price > resistance_level:
-                return 0.8, f"Yükselen Üçgen kırılımı ({resistance_level:.2f}) teyit edildi."
+                return 0.8, f"Ascending Triangle breakout confirmed ({resistance_level:.2f}).", {'type': 'ascending_triangle', 'resistance': resistance_level}
             else:
-                return 0.0, f"Yükselen Üçgen formasyonu içinde ({resistance_level:.2f} altında) konsolidasyon."
+                return 0.0, f"Consolidation within Ascending Triangle formation (below {resistance_level:.2f}).", {}
 
         if highs_slope < -0.05 and abs(lows_slope) < 0.05:
             support_level = lows.mean()
             if current_price < support_level:
-                return -0.8, f"Alçalan Üçgen kırılımı ({support_level:.2f}) teyit edildi."
+                return -0.8, f"Descending Triangle breakdown confirmed ({support_level:.2f}).", {'type': 'descending_triangle', 'support': support_level}
             else:
-                return 0.0, f"Alçalan Üçgen formasyonu içinde ({support_level:.2f} üstünde) konsolidasyon."
+                return 0.0, f"Consolidation within Descending Triangle formation (above {support_level:.2f}).", {}
 
-        # Simetrik Üçgen Tespiti
         if highs_slope < -0.05 and lows_slope > 0.05:
-            return 0.0, "Simetrik Üçgen formasyonu içinde sıkışma. Kırılım bekleniyor."
+            return 0.0, "Symmetrical Triangle formation. Waiting for breakout.", {'type': 'symmetrical_triangle', 'upper_trendline': [highs_slope, highs_intercept], 'lower_trendline': [lows_slope, lows_intercept]}
 
-        return 0.0, "Üçgen formasyonu bulunamadı"
+        return 0.0, "Triangle formation not found", {}
 
-    def _detect_head_and_shoulders(self, prices: pd.Series) -> Tuple[float, str]:
+    def _detect_head_and_shoulders(self, prices: pd.Series) -> Tuple[float, str, Dict]:
         highs, lows = self._get_extrema(prices)
         if len(highs) >= 3 and len(lows) >= 2:
             last_highs = highs.tail(3)
@@ -98,7 +95,7 @@ class FormationDetectionModel(BaseModel):
                 if (head > left_shoulder and head > right_shoulder and abs(left_shoulder - right_shoulder) / left_shoulder < 0.05):
                     neckline_break = min(relevant_lows.iloc[0], relevant_lows.iloc[1])
                     if prices.iloc[-1] < neckline_break:
-                        return -0.9, f"Omuz-Baş-Omuz (OBO) formasyonu ({neckline_break:.2f} altında) teyit edildi."
+                        return -0.9, f"Head and Shoulders (H&S) pattern confirmed (below {neckline_break:.2f}).", {'type': 'head_and_shoulders', 'neckline': neckline_break}
         if len(lows) >= 3 and len(highs) >= 2:
             last_lows = lows.tail(3)
             shoulders_and_head_indices = last_lows.index
@@ -108,10 +105,10 @@ class FormationDetectionModel(BaseModel):
                 if (head < left_shoulder and head < right_shoulder and abs(left_shoulder - right_shoulder) / left_shoulder < 0.05):
                     neckline_break = max(relevant_highs.iloc[0], relevant_highs.iloc[1])
                     if prices.iloc[-1] > neckline_break:
-                        return 0.9, f"Ters Omuz-Baş-Omuz (TOBO) formasyonu ({neckline_break:.2f} üstünde) teyit edildi."
-        return 0.0, "Formasyon bulunamadı"
+                        return 0.9, f"Inverse Head and Shoulders (iH&S) pattern confirmed (above {neckline_break:.2f}).", {'type': 'inverse_head_and_shoulders', 'neckline': neckline_break}
+        return 0.0, "Formation not found", {}
 
-    def _detect_double_top_bottom(self, prices: pd.Series) -> Tuple[float, str]:
+    def _detect_double_top_bottom(self, prices: pd.Series) -> Tuple[float, str, Dict]:
         highs, lows = self._get_extrema(prices)
         if len(highs) >= 2:
             last_two_highs = highs.tail(2)
@@ -119,53 +116,40 @@ class FormationDetectionModel(BaseModel):
             if abs(price1 - price2) / price1 <= self.tolerance:
                 trough = prices[last_two_highs.index[0]:last_two_highs.index[1]].min()
                 if prices.iloc[-1] < trough:
-                    return -0.75, f"İkili Tepe formasyonu ({trough:.2f} altında) teyit edildi."
+                    return -0.75, f"Double Top pattern confirmed (below {trough:.2f}).", {'type': 'double_top', 'neckline': trough}
         if len(lows) >= 2:
             last_two_lows = lows.tail(2)
             price1, price2 = last_two_lows.iloc[0], last_two_lows.iloc[1]
             if abs(price1 - price2) / price1 <= self.tolerance:
                 peak = prices[last_two_lows.index[0]:last_two_lows.index[1]].max()
                 if prices.iloc[-1] > peak:
-                    return 0.75, f"İkili Dip formasyonu ({peak:.2f} üstünde) teyit edildi."
-        return 0.0, "Formasyon bulunamadı"
+                    return 0.75, f"Double Bottom pattern confirmed (above {peak:.2f}).", {'type': 'double_bottom', 'neckline': peak}
+        return 0.0, "Formation not found", {}
 
-    def _detect_flags(self, prices: pd.Series) -> Tuple[float, str]:
-        # Bayrak formasyonları için daha fazla veri noktası gerekebilir
-        if len(prices) < 50: # Örnek olarak 50 bar
-            return 0.0, "Bayrak formasyonu tespiti için yetersiz veri."
+    def _detect_flags(self, prices: pd.Series) -> Tuple[float, str, Dict]:
+        if len(prices) < 50:
+            return 0.0, "Not enough data for Flag pattern detection.", {}
 
-        # Son keskin hareketi (bayrak direği) bul
-        # Boğa Bayrağı: Keskin yükseliş, ardından hafif düşüş konsolidasyonu
-        # Ayı Bayrağı: Keskin düşüş, ardından hafif yükseliş konsolidasyonu
-
-        # Basit bir yaklaşım: Son 10 barın değişimine bak
         recent_change = (prices.iloc[-1] - prices.iloc[-10]) / prices.iloc[-10]
 
-        # Daha sofistike bir bayrak tespiti için trend çizgileri ve kanal analizi gerekir.
-        # Bu sadece bir başlangıç noktasıdır.
-
-        if recent_change > 0.05: # %5'ten fazla yükseliş (potansiyel boğa direği)
-            # Sonraki 10 barda hafif düşüş veya yatay hareket var mı?
+        if recent_change > 0.05:
             consolidation_prices = prices.iloc[-10:]
             if (consolidation_prices.iloc[-1] - consolidation_prices.iloc[0]) / consolidation_prices.iloc[0] < 0.02 and \
                (consolidation_prices.iloc[-1] - consolidation_prices.iloc[0]) / consolidation_prices.iloc[0] > -0.02:
-                return 0.6, "Potansiyel Boğa Bayrağı formasyonu."
-        elif recent_change < -0.05: # %5'ten fazla düşüş (potansiyel ayı direği)
-            # Sonraki 10 barda hafif yükseliş veya yatay hareket var mı?
+                return 0.6, "Potential Bull Flag pattern.", {'type': 'bull_flag'}
+        elif recent_change < -0.05:
             consolidation_prices = prices.iloc[-10:]
             if (consolidation_prices.iloc[-1] - consolidation_prices.iloc[0]) / consolidation_prices.iloc[0] > -0.02 and \
                (consolidation_prices.iloc[-1] - consolidation_prices.iloc[0]) / consolidation_prices.iloc[0] < 0.02:
-                return -0.6, "Potansiyel Ayı Bayrağı formasyonu."
+                return -0.6, "Potential Bear Flag pattern.", {'type': 'bear_flag'}
 
-        return 0.0, "Bayrak formasyonu bulunamadı"
+        return 0.0, "Flag pattern not found", {}
 
-    def _detect_wedges(self, prices: pd.Series) -> Tuple[float, str]:
+    def _detect_wedges(self, prices: pd.Series) -> Tuple[float, str, Dict]:
         highs, lows = self._get_extrema(prices.tail(90))
         if len(lows) < 2 or len(highs) < 2:
-            return 0.0, "Formasyon bulunamadı"
+            return 0.0, "Formation not found", {}
 
-        # Yükselen Takoz (Rising Wedge): Yükselen destek ve direnç çizgileri sıkışır, direnç daha diktir.
-        # Genellikle düşüşle sonuçlanır.
         lows_x = np.arange(len(lows))
         highs_x = np.arange(len(highs))
 
@@ -173,49 +157,25 @@ class FormationDetectionModel(BaseModel):
         highs_slope, _ = np.polyfit(highs_x, highs.values, 1)
 
         if lows_slope > 0 and highs_slope > 0 and highs_slope > lows_slope:
-            # Fiyatlar sıkışıyor mu?
-            if (highs.iloc[-1] - lows.iloc[-1]) / prices.iloc[-1] < self.tolerance * 2: # Toleransın iki katı kadar daralma
-                return -0.7, "Potansiyel Yükselen Takoz formasyonu (düşüş beklenir)."
-
-        # Alçalan Takoz (Falling Wedge): Alçalan destek ve direnç çizgileri sıkışır, destek daha diktir.
-        # Genellikle yükselişle sonuçlanır.
-        if lows_slope < 0 and highs_slope < 0 and lows_slope < highs_slope:
-            # Fiyatlar sıkışıyor mu?
             if (highs.iloc[-1] - lows.iloc[-1]) / prices.iloc[-1] < self.tolerance * 2:
-                return 0.7, "Potansiyel Alçalan Takoz formasyonu (yükseliş beklenir)."
+                return -0.7, "Potential Rising Wedge pattern (bearish).", {'type': 'rising_wedge'}
 
-        return 0.0, "Takoz formasyonu bulunamadı"
+        if lows_slope < 0 and highs_slope < 0 and lows_slope < highs_slope:
+            if (highs.iloc[-1] - lows.iloc[-1]) / prices.iloc[-1] < self.tolerance * 2:
+                return 0.7, "Potential Falling Wedge pattern (bullish).", {'type': 'falling_wedge'}
 
-    def _detect_rectangles(self, prices: pd.Series) -> Tuple[float, str]:
+        return 0.0, "Wedge pattern not found", {}
+
+    def _detect_rectangles(self, prices: pd.Series) -> Tuple[float, str, Dict]:
         highs, lows = self._get_extrema(prices.tail(90))
         if len(lows) < 2 or len(highs) < 2:
-            return 0.0, "Formasyon bulunamadı"
-
-        # Dikdörtgen Formasyonu: Fiyatların yatay destek ve direnç arasında hareket etmesi
-        # Destek ve direnç çizgilerinin yaklaşık olarak yatay ve paralel olması gerekir.
+            return 0.0, "Formation not found", {}
         
-        # Son birkaç yüksek ve düşük noktanın ortalamasını alarak yataylık kontrolü
         avg_high = highs.mean()
         avg_low = lows.mean()
 
-        # Yüksek noktaların ve düşük noktaların standart sapması düşük olmalı
         if highs.std() / avg_high < self.tolerance and lows.std() / avg_low < self.tolerance:
-            # Fiyatlar bu aralıkta mı?
             if prices.iloc[-1] < avg_high and prices.iloc[-1] > avg_low:
-                return 0.0, "Dikdörtgen Formasyonu içinde konsolidasyon. Kırılım bekleniyor."
+                return 0.0, "Consolidation within Rectangle Pattern. Waiting for breakout.", {'type': 'rectangle', 'support': avg_low, 'resistance': avg_high}
 
-        return 0.0, "Dikdörtgen formasyonu bulunamadı"
-
-# Örnek Kullanım
-if __name__ == '__main__':
-    logger.info("--- FormationDetectionModel Test Başlatıldı ---")
-    try:
-        fetcher = DataFetcher()
-        model = FormationDetectionModel(data_fetcher=fetcher)
-        prediction = model.predict(symbol="BTC-USD")
-        print("--- Test Sonucu ---")
-        print(f"Model Adı: {model.name}")
-        print(f"Tahmin: {prediction}")
-    except Exception as e:
-        logger.error(f"Test sırasında bir hata oluştu: {e}", exc_info=True)
-    logger.info("--- FormationDetectionModel Test Tamamlandı ---")
+        return 0.0, "Rectangle pattern not found", {}
