@@ -16,27 +16,33 @@ class VolumeSurgeModel(BaseModel):
     """
     Analyzes volume anomalies and their price impact to generate a score.
     """
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__()
-        self.volume_ma_window = config.VOLUME_SURGE_MA_WINDOW
-        self.deviation_scale = config.VOLUME_SURGE_DEVIATION_SCALE
-        self.obv_influence = config.VOLUME_SURGE_OBV_INFLUENCE
+        self.volume_ma_window = kwargs.get('volume_ma_window', config.VOLUME_SURGE_MA_WINDOW)
+        self.deviation_scale = kwargs.get('deviation_scale', config.VOLUME_SURGE_DEVIATION_SCALE)
+        self.obv_influence = kwargs.get('obv_influence', config.VOLUME_SURGE_OBV_INFLUENCE)
         self.required_data_points = self.volume_ma_window + 5
 
-    def generate_score(self, data: pd.DataFrame) -> float:
+    def generate_score(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
         logger.info(f"Running '{self.name}' model...")
 
+        # Update parameters if provided in kwargs
+        self.volume_ma_window = kwargs.get('volume_ma_window', self.volume_ma_window)
+        self.deviation_scale = kwargs.get('deviation_scale', self.deviation_scale)
+        self.obv_influence = kwargs.get('obv_influence', self.obv_influence)
+        self.required_data_points = self.volume_ma_window + 5
+
         if data.empty or len(data) < self.required_data_points:
-            logger.warning(f"'{self.name}': Not enough data. Returning neutral score (0.0).")
-            return 0.0
+            logger.warning(f"'{self.name}': Not enough data. Returning neutral score.")
+            return {'score': 0.0, 'details': f"Not enough data. Need {self.required_data_points} data points, but got {len(data)}."}
 
         try:
-            score, _ = self._calculate_score(data, self.volume_ma_window)
+            score, details = self._calculate_score(data, self.volume_ma_window)
             logger.info(f"'{self.name}' model result: Score={score:.4f}")
-            return score
+            return {'score': score, 'details': details}
         except Exception as e:
             logger.error(f"An error occurred while running the '{self.name}' model: {e}", exc_info=True)
-            return 0.0
+            return {'score': 0.0, 'details': f"Error during model execution: {e}"}
 
     def _calculate_score(self, data: pd.DataFrame, volume_ma_window: int) -> Tuple[float, str]:
         data = data.copy()

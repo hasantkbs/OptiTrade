@@ -13,73 +13,68 @@ class MarketConditionClassifier(BaseModel):
     ADX ve +/-DI göstergelerini kullanarak mevcut piyasa rejimini sınıflandırır.
     Bu model bir al/sat 'skoru' üretmez, bunun yerine bir 'rejim' tanımı döndürür.
     """
-    def __init__(self, data_fetcher: DataFetcher, adx_window: int = 14, adx_threshold: int = 25):
-        super().__init__(data_fetcher)
-        self.adx_window = adx_window
-        self.adx_threshold = adx_threshold
-        # Modelin çalışması için gereken minimum veri noktası sayısı
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.adx_window = kwargs.get('adx_window', 14)
+        self.adx_threshold = kwargs.get('adx_threshold', 25)
         self.required_data_points = self.adx_window * 2
 
-    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
+    def generate_score(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
         """
-        Piyasa koşulunu analiz eder ve bir rejim sınıflandırması döndürür.
+        Analyzes the market condition and returns a regime classification.
+        This model does not produce a trading score, so the score is always 0.
         """
-        logger.info(f"'{self.name}' modeli '{symbol}' için çalıştırılıyor...")
+        logger.info(f"Running '{self.name}' model...")
         
+        # Update parameters if provided in kwargs
+        self.adx_window = kwargs.get('adx_window', self.adx_window)
+        self.adx_threshold = kwargs.get('adx_threshold', self.adx_threshold)
+
+        if data.empty or len(data) < self.required_data_points:
+            logger.warning(f"'{self.name}': Not enough data.")
+            return {"score": 0.0, "details": "Not enough data", "regime": "Unknown"}
+
         try:
-            # Gerekli veriyi çek
-            period_map = {"15m": "60d", "4h": "730d", "1d": "5y"}
-            fetch_period = period_map.get(interval, "5y")
-            data = self.data_fetcher.get_market_data(symbol, period=fetch_period, interval=interval)
-
-            if data.empty or len(data) < self.required_data_points:
-                logger.warning(f"'{self.name}': Yeterli veri yok.")
-                return {"regime": "Unknown", "details": "Yetersiz veri"}
-
-            # ADX ve +/-DI göstergelerini hesapla
+            # ADX and +/-DI indicators
             adx_indicator = ta.trend.ADXIndicator(
                 high=data['High'],
                 low=data['Low'],
                 close=data['Close'],
                 window=self.adx_window
             )
-            data['adx'] = adx_indicator.adx()
-            data['di_pos'] = adx_indicator.adx_pos()
-            data['di_neg'] = adx_indicator.adx_neg()
+            adx = adx_indicator.adx()
+            di_pos = adx_indicator.adx_pos()
+            di_neg = adx_indicator.adx_neg()
 
-            # En son değerleri al
-            latest_adx = data['adx'].iloc[-1]
-            latest_di_pos = data['di_pos'].iloc[-1]
-            latest_di_neg = data['di_neg'].iloc[-1]
+            latest_adx = adx.iloc[-1]
+            latest_di_pos = di_pos.iloc[-1]
+            latest_di_neg = di_neg.iloc[-1]
 
-            # Rejimi sınıflandır
+            # Classify the regime
             regime = ""
             if latest_adx > self.adx_threshold:
-                # Güçlü Trend
                 if latest_di_pos > latest_di_neg:
                     regime = "Strong Bull Trend"
-                    details = f"Güçlü yükseliş trendi tespit edildi (ADX: {latest_adx:.2f})"
+                    details = f"Strong uptrend detected (ADX: {latest_adx:.2f})"
                 else:
                     regime = "Strong Bear Trend"
-                    details = f"Güçlü düşüş trendi tespit edildi (ADX: {latest_adx:.2f})"
+                    details = f"Strong downtrend detected (ADX: {latest_adx:.2f})"
             else:
-                # Zayıf Trend veya Yatay Piyasa
                 if latest_di_pos > latest_di_neg:
                     regime = "Weak Bull Trend"
-                    details = f"Zayıf yükseliş trendi veya yatay piyasa (ADX: {latest_adx:.2f})"
+                    details = f"Weak uptrend or ranging market (ADX: {latest_adx:.2f})"
                 else:
                     regime = "Weak Bear Trend"
-                    details = f"Zayıf düşüş trendi veya yatay piyasa (ADX: {latest_adx:.2f})"
+                    details = f"Weak downtrend or ranging market (ADX: {latest_adx:.2f})"
 
-            logger.info(f"'{self.name}' sonucu: Rejim={regime}, Detay: {details}")
+            logger.info(f"'{self.name}' result: Regime={regime}, Details: {details}")
             
-            # Bu modelin çıktısı, standart bir skor yerine rejim bilgisidir
             return {
-                "score": 0.0, # Bu model skor üretmez
+                "score": 0.0, # This model does not produce a trading score
                 "details": details,
                 "regime": regime
             }
 
         except Exception as e:
-            logger.error(f"'{self.name}' çalışırken hata oluştu: {e}", exc_info=True)
-            return {"regime": "Unknown", "details": "Model çalışırken hata oluştu."}
+            logger.error(f"An error occurred while running '{self.name}': {e}", exc_info=True)
+            return {"score": 0.0, "details": f"Error during model execution: {e}", "regime": "Unknown"}

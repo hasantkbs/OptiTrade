@@ -1,6 +1,6 @@
 
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 import pandas as pd
 
 from ..utils.data_fetcher import DataFetcher
@@ -24,17 +24,19 @@ class BaseModel(ABC):
         self.data_fetcher = data_fetcher
 
     @abstractmethod
-    def generate_score(self, data: pd.DataFrame) -> float:
+    def generate_score(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
         """
-        Generates a trading signal score for the given data.
+        Generates a trading signal score and related details for the given data.
 
         This method must be implemented by each subclass according to its own logic.
 
         Args:
             data (pd.DataFrame): The input data for the model.
+            **kwargs: Additional parameters that can be passed to the model.
 
         Returns:
-            float: A score between -1.0 (Strong Sell) and +1.0 (Strong Buy).
+            Dict[str, Any]: A dictionary containing at least the 'score' key.
+                            Example: {'score': 0.75, 'details': 'Strong bullish signal'}
         """
         pass
 

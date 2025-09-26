@@ -15,39 +15,42 @@ class FormationDetectionModel(BaseModel):
     """
     Detects chart patterns in price data and returns a score.
     """
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__()
-        self.extrema_order = 10
-        self.tolerance = 0.03
+        self.extrema_order = kwargs.get('extrema_order', 10)
+        self.tolerance = kwargs.get('tolerance', 0.03)
         self.required_data_points = 150
 
-    def generate_score(self, data: pd.DataFrame) -> float:
+    def generate_score(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
         logger.info(f"Running '{self.name}' model...")
 
+        # Update parameters if provided in kwargs
+        self.extrema_order = kwargs.get('extrema_order', self.extrema_order)
+        self.tolerance = kwargs.get('tolerance', self.tolerance)
+
         if data.empty or len(data) < self.required_data_points:
-            logger.warning(f"'{self.name}': Not enough data. Returning neutral score (0.0).")
-            return 0.0
+            logger.warning(f"'{self.name}': Not enough data. Returning neutral score.")
+            return {'score': 0.0, 'details': f"Not enough data. Need {self.required_data_points} data points, but got {len(data)}."}
 
         try:
             prices = data['Close']
-            # Detect formations in order of priority
-            score, _, _ = self._detect_head_and_shoulders(prices)
+            score, details, formation_info = self._detect_head_and_shoulders(prices)
             if score == 0.0:
-                score, _, _ = self._detect_triangles(prices)
+                score, details, formation_info = self._detect_triangles(prices)
             if score == 0.0:
-                score, _, _ = self._detect_double_top_bottom(prices)
+                score, details, formation_info = self._detect_double_top_bottom(prices)
             if score == 0.0:
-                score, _, _ = self._detect_flags(prices)
+                score, details, formation_info = self._detect_flags(prices)
             if score == 0.0:
-                score, _, _ = self._detect_wedges(prices)
+                score, details, formation_info = self._detect_wedges(prices)
             if score == 0.0:
-                score, _, _ = self._detect_rectangles(prices)
+                score, details, formation_info = self._detect_rectangles(prices)
             
-            logger.info(f"'{self.name}' model result: Score={score:.2f}")
-            return score
+            logger.info(f"'{self.name}' model result: Score={score:.2f}, Details: {details}")
+            return {'score': score, 'details': details, 'formation': formation_info}
         except Exception as e:
             logger.error(f"An error occurred while running the '{self.name}' model: {e}", exc_info=True)
-            return 0.0
+            return {'score': 0.0, 'details': f"Error during model execution: {e}"}
 
     def _get_extrema(self, prices: pd.Series) -> Tuple[pd.Series, pd.Series]:
         highs = prices.iloc[argrelextrema(prices.values, np.greater_equal, order=self.extrema_order)[0]]

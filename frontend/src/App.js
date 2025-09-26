@@ -1,64 +1,44 @@
-import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ReferenceLine, ReferenceArea } from 'recharts';
+import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
-
-// Model sınıf adlarını, grafikte gösterilecek daha okunaklı isimlerle eşleştir
-const modelDisplayNameMap = {
-  'PriceTrendModel': 'Fiyat Trendi',
-  'VolumeSurgeModel': 'Hacim Artışı',
-  'NewsSentimentModel': 'Haber Duyarlılığı',
-  'SocialSentimentModel': 'Sosyal Medya',
-  'SupportResistanceModel': 'Destek/Direnç',
-  'DivergenceDetectionModel': 'Uyumsuzluk',
-  'FormationDetectionModel': 'Formasyon Analizi',
-  'MachineLearningModel': 'Makine Öğrenmesi',
-  'MacroEconomicModel': 'Makroekonomi',
-  'OnChainModel': 'On-Chain Veri',
-  'CorrelationModel': 'Korelasyon',
-  'DCFModel': 'Temettü İskonto Modeli',
-};
-
-// Modelleri kategorilere ayır
-const modelCategories = {
-  'Trend': ['PriceTrendModel', 'MachineLearningModel'],
-  'Momentum': ['VolumeSurgeModel', 'DivergenceDetectionModel'],
-  'Yapı': ['SupportResistanceModel', 'FormationDetectionModel'],
-  'Duyarlılık': ['NewsSentimentModel', 'SocialSentimentModel'],
-  'Değerleme': ['DCFModel'],
-  'Bağlam': ['MacroEconomicModel', 'OnChainModel', 'CorrelationModel'],
-};
+import CryptoView from './components/CryptoView';
+import StockView from './components/StockView';
 
 function App() {
   const [symbol, setSymbol] = useState('BTC-USD');
   const [interval, setInterval] = useState('1d');
-  const [rsiPeriod, setRsiPeriod] = useState(14); // Yeni RSI periyodu state'i
-  const [assetType, setAssetType] = useState('crypto'); // Yeni varlık tipi state'i
+  const [rsiPeriod, setRsiPeriod] = useState(21); // Varsayılan olarak uzun vade RSI
+  const [view, setView] = useState('crypto'); // 'crypto' or 'stock'
   const [analysisResult, setAnalysisResult] = useState(null);
-  const [chartData, setChartData] = useState([]); // Fiyat grafiği için state
+  const [chartData, setChartData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [support, setSupport] = useState(null);
   const [resistance, setResistance] = useState(null);
   const [formation, setFormation] = useState(null);
+  const [priceFlash, setPriceFlash] = useState(false); // Fiyat güncellemesi için flash efekti
 
-  const getPredictionDirection = (score) => {
-    if (score > 0.2) return 'Yükselecek';
-    if (score < -0.2) return 'Düşecek';
-    return 'Nötr';
-  };
+  // Interval değiştikçe RSI periyodunu otomatik ayarla
+  useEffect(() => {
+    const shortTermIntervals = ['15m', '4h'];
+    if (shortTermIntervals.includes(interval)) {
+      setRsiPeriod(14);
+    } else {
+      setRsiPeriod(21);
+    }
+  }, [interval]);
 
-  // Analiz sonuçlarını ve grafik verisini çeken ana fonksiyon
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     setAnalysisResult(null);
     setChartData([]);
 
+    const assetType = view;
+
     try {
-      // Eş zamanlı olarak iki API isteğini de yap
       const [signalsResponse, chartResponse] = await Promise.all([
-        fetch(`http://127.0.0.1:8000/api/v1/signals?symbol=${symbol}&interval=${interval}&rsi_period=${rsiPeriod}&asset_type=${assetType}`),
-        fetch(`http://127.0.0.1:8000/api/v1/market_data?symbol=${symbol}&interval=${interval}&asset_type=${assetType}`)
+        fetch(`/api/v1/signals?symbol=${symbol}&interval=${interval}&rsi_period=${rsiPeriod}&asset_type=${assetType}`),
+        fetch(`/api/v1/market_data?symbol=${symbol}&interval=${interval}&asset_type=${assetType}`)
       ]);
 
       const signalsData = await signalsResponse.json();
@@ -79,19 +59,21 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [symbol, interval, rsiPeriod, view]);
 
   // WebSocket connection
   useEffect(() => {
-    const ws = new WebSocket(`ws://127.0.0.1:8000/ws/${assetType}/${symbol}`);
+    const ws = new WebSocket(`ws://${window.location.host}/ws/${view}/${symbol}`);
+    let titleInterval = null;
 
     ws.onopen = () => {
       console.log("WebSocket connected");
+      document.title = "OptiTrade"; // Sayfa yüklendiğinde başlığı sıfırla
     };
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      setChartData(prevData => [...prevData, { Date: new Date().toLocaleTimeString(), Close: data.latest_price }]);
+      setChartData(prevData => [...prevData, { Date: new Date().toLocaleDateString(), Close: data.latest_price }]);
       setAnalysisResult(data);
       if (data.support_resistance) {
         setSupport(data.support_resistance.support);
@@ -100,75 +82,75 @@ function App() {
       if (data.formation) {
         setFormation(data.formation);
       }
+
+      // Fiyat güncellemesi flash efekti
+      setPriceFlash(true);
+      setTimeout(() => setPriceFlash(false), 500);
+
+      // Sayfa gizliyse başlığı güncelle
+      if (document.hidden && data.latest_price) {
+        document.title = `${symbol}: ${data.latest_price.toFixed(2)}`;
+      }
     };
 
     ws.onclose = () => {
       console.log("WebSocket disconnected");
+      clearInterval(titleInterval);
+      document.title = "OptiTrade";
     };
+
+    // Sayfa görünürlüğü değiştiğinde başlığı güncelle
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Sayfa gizlendiğinde, fiyat güncellemelerini başlığa yansıt
+        if (analysisResult && analysisResult.latest_price) {
+          document.title = `${symbol}: ${analysisResult.latest_price.toFixed(2)}`;
+        }
+      } else {
+        // Sayfa görünür olduğunda başlığı sıfırla
+        document.title = "OptiTrade";
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       ws.close();
+      clearInterval(titleInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.title = "OptiTrade";
     };
-  }, [symbol, assetType]);
+  }, [symbol, view, analysisResult]); // analysisResult bağımlılığı eklendi
 
-  // Bileşen ilk yüklendiğinde verileri çek
   useEffect(() => {
     fetchData();
-  }, []); // Sadece başlangıçta çalışır
-
-
-  // Model çıktılarını grafik ve liste için uygun formata dönüştür
-  const modelOutputsData = analysisResult && analysisResult.scores ? 
-    Object.entries(analysisResult.scores).map(([key, value]) => ({
-      name: modelDisplayNameMap[key] || key, // Eşleşme bulunamazsa sınıf adını kullan
-      score: value,
-    })) : [];
-
-  // Kategori skorlarını hesapla
-  const categoryScores = Object.keys(modelCategories).map(categoryName => {
-    const modelsInCat = modelCategories[categoryName];
-    let totalScore = 0;
-    let count = 0;
-    modelsInCat.forEach(modelKey => {
-      if (analysisResult && analysisResult.scores && analysisResult.scores[modelKey]) {
-        totalScore += analysisResult.scores[modelKey];
-        count++;
-      }
-    });
-    return {
-      category: categoryName,
-      score: count > 0 ? totalScore / count : 0,
-    };
-  });
+  }, [fetchData]);
 
   return (
     <div className="App">
       <header className="App-header">
         <h1>OptiTrade v2.0</h1>
         <p className="subtitle">Dinamik Sinyal Analiz Platformu</p>
+        
+        <div className="view-selector">
+          <button onClick={() => setView('crypto')} className={view === 'crypto' ? 'active' : ''}>Kripto Analizi</button>
+          <button onClick={() => setView('stock')} className={view === 'stock' ? 'active' : ''}>Hisse Senedi Analizi</button>
+        </div>
+
         <div className="input-container">
           <input
             type="text"
             value={symbol}
             onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-            placeholder="Sembol girin (örn: BTC-USD, AAPL)"
+            placeholder={view === 'crypto' ? "Sembol girin (örn: BTC-USD)" : "Sembol girin (örn: AAPL)"}
           />
-          <select value={assetType} onChange={(e) => setAssetType(e.target.value)}>
-            <option value="crypto">Kripto</option>
-            <option value="stock">Hisse Senedi</option>
-          </select>
           <select value={interval} onChange={(e) => setInterval(e.target.value)}>
             <option value="15m">15 Dakika</option>
             <option value="4h">4 Saat</option>
             <option value="1d">1 Gün</option>
+            <option value="1w">1 Hafta</option>
+            <option value="1mo">1 Ay</option>
           </select>
-          <input
-            type="number"
-            value={rsiPeriod}
-            onChange={(e) => setRsiPeriod(e.target.value)}
-            placeholder="RSI Periyodu"
-            min="1"
-          />
           <button onClick={fetchData} disabled={isLoading}>
             {isLoading ? 'Analiz Ediliyor...' : 'Analiz Et'}
           </button>
@@ -176,113 +158,25 @@ function App() {
 
         {error && <div className="error-message">Hata: {error}</div>}
 
-        {analysisResult && (
-          <div className="results-container">
-            <h2>Analiz Sonuçları ({symbol} - {interval})</h2>
-            
-            {/* Fiyat Grafiği */}
-            {chartData.length > 0 && (
-              <div className="chart-container">
-                <h3>Fiyat Geçmişi</h3>
-                <ResponsiveContainer width="100%" height={400}>
-                  <LineChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#4a4f57" />
-                    <XAxis dataKey="Date" stroke="#ccc" />
-                    <YAxis stroke="#ccc" domain={['dataMin', 'dataMax']} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#2a2f37', border: '1px solid #4a4f57' }} 
-                      labelStyle={{ color: '#eee' }}
-                    />
-                    <Legend />
-                    <Line type="monotone" dataKey="Close" name="Kapanış Fiyatı" stroke="#8884d8" dot={false} />
-                    {support && <ReferenceLine y={support} label="Support" stroke="green" />}
-                    {resistance && <ReferenceLine y={resistance} label="Resistance" stroke="red" />}
-                    {/* Placeholder for drawing formations */}
-                    {formation && formation.points && <ReferenceArea x1={formation.points.x1} x2={formation.points.x2} y1={formation.points.y1} y2={formation.points.y2} stroke="orange" strokeOpacity={0.3} />}
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-
-            <div className="summary-grid">
-              {analysisResult.latest_price && (
-                <div className="summary-item">
-                  <p>Anlık Fiyat</p>
-                  <span>{analysisResult.latest_price.toFixed(2)}</span>
-                </div>
-              )}
-              <div className="summary-item">
-                <p>Nihai Skor</p>
-                <span className={analysisResult.final_score > 0 ? 'score-positive' : 'score-negative'}>
-                  {analysisResult.final_score.toFixed(4)}
-                </span>
-              </div>
-              <div className="summary-item">
-                <p>Tahmin Yönü</p>
-                <span>{getPredictionDirection(analysisResult.final_score)}</span>
-              </div>
-              {formation && (
-                <div className="summary-item">
-                  <p>Tespit Edilen Formasyon</p>
-                  <span>{formation.name}: {formation.details}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Model Skorları Radar Grafiği */}
-            {categoryScores.length > 0 && (
-              <div className="chart-container">
-                <h3>Model Kategori Skorları (Radar)</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <RadarChart outerRadius={90} width={730} height={250} data={categoryScores}>
-                    <PolarGrid stroke="#4a4f57" />
-                    <PolarAngleAxis dataKey="category" stroke="#ccc" />
-                    <PolarRadiusAxis angle={30} domain={[-1, 1]} stroke="#ccc" />
-                    <Radar name="Kategori Skoru" dataKey="score" stroke="#8884d8" fill="#8884d8" fillOpacity={0.6} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#2a2f37', border: '1px solid #4a4f57' }} 
-                      labelStyle={{ color: '#eee' }}
-                    />
-                    <Legend />
-                  </RadarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-
-            {/* Model Skorları Çubuk Grafiği */}
-            {modelOutputsData.length > 0 && (
-              <div className="chart-container">
-                <h3>Detaylı Model Skorları (Çubuk)</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={modelOutputsData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#4a4f57" />
-                    <XAxis dataKey="name" stroke="#ccc" />
-                    <YAxis domain={[-1, 1]} stroke="#ccc" />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#2a2f37', border: '1px solid #4a4f57' }} 
-                      labelStyle={{ color: '#eee' }}
-                    />
-                    <Legend />
-                    <Bar dataKey="score" name="Model Skoru" fill="#82ca9d" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-
-            <div className="model-scores">
-              <h3>Tüm Model Çıktıları</h3>
-              <ul>
-                {modelOutputsData.map(({ name, score, details }) => (
-                  <li key={name}>
-                    <span>{name}:</span> 
-                    <span className={score > 0 ? 'score-positive' : 'score-negative'}>{score.toFixed(4)}</span>
-                    {details && <span className="model-details"> ({details})</span>}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
+        {analysisResult && view === 'crypto' && (
+          <CryptoView 
+            symbol={symbol}
+            interval={interval}
+            analysisResult={analysisResult}
+            chartData={chartData}
+            support={support}
+            resistance={resistance}
+            formation={formation}
+          />
         )}
+
+        {analysisResult && view === 'stock' && (
+          <StockView 
+            symbol={symbol}
+            interval={interval}
+          />
+        )}
+
       </header>
     </div>
   );

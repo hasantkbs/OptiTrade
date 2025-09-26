@@ -7,6 +7,7 @@ import pandas as pd
 
 from .base_model import BaseModel
 from .. import config
+from ..utils.data_fetcher import DataFetcher
 
 # Loglama yapılandırması
 logger = logging.getLogger(__name__)
@@ -15,8 +16,8 @@ class NewsSentimentModel(BaseModel):
     """
     Generates a trading signal score by performing sentiment analysis on news headlines.
     """
-    def __init__(self):
-        super().__init__()
+    def __init__(self, data_fetcher: Optional[DataFetcher] = None):
+        super().__init__(data_fetcher)
         try:
             logger.info("Loading sentiment analysis model (ProsusAI/finbert)...")
             self.sentiment_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
@@ -45,34 +46,39 @@ class NewsSentimentModel(BaseModel):
             logger.warning(f"An error occurred during text analysis: '{text[:50]}...'. Error: {e}")
             return 0.0
 
-    def generate_score(self, data: pd.DataFrame, headlines: Optional[List[str]] = None) -> float:
+    def generate_score(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
         """
         Generates a sentiment score based on a list of news headlines.
-
-        Args:
-            data (pd.DataFrame): Price data (not directly used by this model, but required by the base class).
-            headlines (Optional[List[str]], optional): A list of news headlines. Defaults to None.
-
-        Returns:
-            float: The average sentiment score.
         """
         if not self.sentiment_pipeline:
             logger.error("Sentiment analysis model not loaded, cannot generate score.")
-            return 0.0
+            return {'score': 0.0, 'details': "Sentiment model not loaded."}
 
-        if not headlines:
-            logger.warning("No headlines provided to analyze.")
-            return 0.0
+        if not self.data_fetcher:
+            logger.error("Data fetcher is not available, cannot fetch news headlines.")
+            return {'score': 0.0, 'details': "Data fetcher not available."}
 
+        query = kwargs.get('symbol', 'bitcoin')
+        limit = kwargs.get('limit', 20)
+
+        logger.info(f"Fetching last {limit} news headlines for query: '{query}'...")
+        headlines_df = self.data_fetcher.get_news_sentiment(query, limit=limit)
+        
+        if headlines_df.empty:
+            logger.warning("No headlines found to analyze.")
+            return {'score': 0.0, 'details': "No headlines found."}
+
+        headlines = headlines_df['title'].tolist()
         logger.info(f"Analyzing sentiment for {len(headlines)} headlines...")
 
         try:
             scores = [self._calculate_sentiment_score(h) for h in headlines]
             average_score = np.mean(scores) if scores else 0.0
+            details = f"Analyzed {len(headlines)} headlines. Avg Score: {average_score:.4f}"
             
-            logger.info(f"News Sentiment Analysis Result: Average Score={average_score:.4f}")
-            return float(average_score)
+            logger.info(f"News Sentiment Analysis Result: {details}")
+            return {'score': float(average_score), 'details': details}
 
         except Exception as e:
             logger.error(f"An error occurred during news sentiment prediction: {e}", exc_info=True)
-            return 0.0
+            return {'score': 0.0, 'details': f"Error during prediction: {e}"}

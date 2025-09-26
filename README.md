@@ -23,12 +23,16 @@ OptiTrade is an AI-powered trading signal generation and analysis platform. It a
 -   **Enhanced Backtesting Module:** Provides advanced backtesting capabilities, measuring strategy performance with metrics like total return, Sharpe ratio, Sortino ratio, Calmar ratio, max drawdown, and detailed trade logs.
 -   **Portfolio Optimization:** Suggests optimized portfolios based on the user's risk profile using Modern Portfolio Theory.
 -   **Interactive Web Interface (Frontend):**
+    -   **Kripto/Hisse Senedi Analiz Ayrımı:** Kullanıcıların kripto para ve hisse senedi analizleri arasında kolayca geçiş yapmasını sağlayan ayrı görünümler.
     -   User-friendly interface for selecting symbols and analysis intervals.
     -   Displays the final signal score, current market price, and a clear prediction direction (Rise/Fall/Neutral).
     -   Provides detailed explanations for each model's individual score, offering transparency into the signal generation process.
     -   Visualizes model score distribution using interactive charts.
     -   Real-time visualization of support/resistance levels and detected chart formations.
--   **Configurable Analysis Intervals:** Users can select analysis intervals (15m, 4h, 1d). **Important Note:** While the system can fetch data and run models at different intervals, the internal parameters of rule-based models are heuristically scaled, and the Machine Learning model requires separate training for each interval. For optimal performance, each model's parameters should be specifically optimized (e.g., via backtesting) for each desired interval.
+    -   **Dinamik Sekme Başlığı:** Tarayıcı sekmesi başlığında anlık fiyat güncellemeleri.
+    -   **Gerçek Zamanlı Fiyat Flaşı:** Anlık fiyat göstergesinde görsel güncelleme efekti.
+-   **Configurable Analysis Intervals:** Users can select analysis intervals (15m, 4h, 1d, **1w, 1mo**). **Important Note:** While the system can fetch data and run models at different intervals, the internal parameters of rule-based models are heuristically scaled, and the Machine Learning model requires separate training for each interval. For optimal performance, each model's parameters should be specifically optimized (e.g., via backtesting) for each desired interval.
+-   **Otomatik RSI Periyodu:** Seçilen analiz periyoduna göre (kısa vade için 14, uzun vade için 21) RSI periyodu otomatik olarak atanmaktadır.
 
 ## Setup
 
@@ -56,7 +60,7 @@ Follow these steps to set up and run the OptiTrade project on your local machine
     ```
 
 3.  **Install Required Python Packages:**
-    Install additional packages specified in `requirements.txt`:
+    Install additional packages specified in `requirements.txt`. Note that `tweepy` was recently added as a dependency for social media sentiment analysis:
     ```bash
     pip install -r requirements.txt
     ```
@@ -171,7 +175,7 @@ To optimize model parameters for a specific model, symbol, and interval:
     ```bash
     conda activate optitrade_env
     ```
-4.  Run the optimization script (e.g., for PriceTrendModel on AAPL with 1d interval):
+4.  Run the optimization script (e.g., for PriceTrendModel on AAPL with 1d interval). Note that the `rsi_period` is now automatically determined by the selected interval, so it is no longer a direct parameter for optimization:
     ```bash
     python scripts/optimize_parameters.py --model PriceTrendModel --symbol AAPL --interval 1d
     ```
@@ -195,7 +199,7 @@ OptiTrade/
 ├── data/                 # Raw, processed, and external data files
 ├── notebooks/            # Jupyter notebooks (data exploration, model development)
 ├── scripts/              # Utility scripts (data fetching, scoring engine execution, model training, real-time stream, parameter optimization)
-├── docs/                 # Project documentation (e.g., formasyon.txt, yapilacaklar.txt)
+├── docs/                 # Project documentation (e.g., formasyon.txt, yapilacaklar.txt, ANALYSIS_MODELS.md, ANALYSIS_MODELS_EN.md)
 └── src/                  # Main source code
     └── optitrade/        # OptiTrade package
         ├── alerting/     # Alerting systems

@@ -167,6 +167,12 @@ def get_trading_signals(
         # Analiz ve tüm hesaplamalar artık ScoringEngine içinde yapılıyor
         analysis_result = scoring_engine.run_engine(asset_type=asset_type, symbol=symbol, interval=interval, model_params=parsed_model_params)
         return analysis_result
+    except Exception as e:
+        logger.error(f"Sinyal analizi sırasında hata oluştu: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Sinyal analizi sırasında beklenmedik bir sunucu hatası oluştu: {e}"
+        )
 
 @app.get("/api/v1/market_data", response_model=list[Dict[str, Any]])
 def get_market_data_for_chart(
@@ -178,7 +184,7 @@ def get_market_data_for_chart(
     """Frontend'de grafik çizimi için geçmiş piyasa verilerini sağlar."""
     logger.info(f"Grafik verisi isteği alındı: Varlık Tipi='{asset_type}', Sembol='{symbol}', Aralık='{interval}'")
     try:
-        period_map = {"15m": "60d", "4h": "730d", "1d": "5y"}
+        period_map = {"15m": "60d", "4h": "730d", "1d": "5y", "1w": "10y", "1mo": "20y"}
         fetch_period = period_map.get(interval, "5y")
         
         market_data = data_fetcher.get_market_data(asset_type=asset_type, symbol=symbol, period=fetch_period, interval=interval)
@@ -189,7 +195,7 @@ def get_market_data_for_chart(
         # Recharts'ın beklediği formata dönüştür (JSON array)
         market_data.reset_index(inplace=True)
         # Tarih formatını daha okunabilir yapalım
-        market_data['Date'] = market_data['Date'].dt.strftime('%Y-%m-%d %H:%M')
+        market_data['Date'] = market_data['Date'].dt.strftime('%Y-%m-%d')
         return market_data.to_dict(orient='records')
 
     except Exception as e:

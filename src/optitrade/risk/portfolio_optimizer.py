@@ -1,10 +1,11 @@
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import yfinance as yf
 import logging
-from typing import List, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
+# Logger yapılandırması
 logger = logging.getLogger(__name__)
 
 class PortfolioOptimizer:

@@ -7,6 +7,7 @@ from typing import Dict, Any, Tuple
 
 from .base_model import BaseModel
 from .. import config
+from ..utils.data_fetcher import DataFetcher
 
 # Loglama yapılandırması
 logger = logging.getLogger(__name__)
@@ -18,33 +19,33 @@ class PriceTrendModel(BaseModel):
     def __init__(self):
         super().__init__()
 
-    def generate_score(self, data: pd.DataFrame) -> float:
+    def generate_score(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
         logger.info(f"Running '{self.name}' model...")
         
-        # Get parameters from config
-        rsi_window = config.PRICE_TREND_RSI_WINDOW
-        macd_fast = config.PRICE_TREND_MACD_FAST_WINDOW
-        macd_slow = config.PRICE_TREND_MACD_SLOW_WINDOW
-        macd_sign = config.PRICE_TREND_MACD_SIGNAL_WINDOW
-        sma_short = config.PRICE_TREND_SMA_SHORT_WINDOW
-        sma_long = config.PRICE_TREND_SMA_LONG_WINDOW
-        bollinger_window = config.PRICE_TREND_BOLLINGER_WINDOW
-        bollinger_std = config.PRICE_TREND_BOLLINGER_STD
-        adx_window = config.PRICE_TREND_ADX_WINDOW
+        # Parametreleri kwargs'tan veya config'den al
+        rsi_window = kwargs.get('rsi_window', config.PRICE_TREND_RSI_WINDOW)
+        macd_fast = kwargs.get('macd_fast', config.PRICE_TREND_MACD_FAST_WINDOW)
+        macd_slow = kwargs.get('macd_slow', config.PRICE_TREND_MACD_SLOW_WINDOW)
+        macd_sign = kwargs.get('macd_sign', config.PRICE_TREND_MACD_SIGNAL_WINDOW)
+        sma_short = kwargs.get('sma_short', config.PRICE_TREND_SMA_SHORT_WINDOW)
+        sma_long = kwargs.get('sma_long', config.PRICE_TREND_SMA_LONG_WINDOW)
+        bollinger_window = kwargs.get('bollinger_window', config.PRICE_TREND_BOLLINGER_WINDOW)
+        bollinger_std = kwargs.get('bollinger_std', config.PRICE_TREND_BOLLINGER_STD)
+        adx_window = kwargs.get('adx_window', config.PRICE_TREND_ADX_WINDOW)
 
         required_data_points = max(rsi_window, macd_slow, sma_long, bollinger_window, adx_window) + 5
 
         if data.empty or len(data) < required_data_points:
-            logger.warning(f"'{self.name}': Not enough data ({len(data)}/{required_data_points}). Returning neutral score (0.0).")
-            return 0.0
+            logger.warning(f"'{self.name}': Not enough data ({len(data)}/{required_data_points}). Returning neutral score.")
+            return {'score': 0.0, 'details': f"Not enough data. Need {required_data_points} data points, but got {len(data)}."}
 
         try:
-            score, _ = self._calculate_score(data, rsi_window, macd_fast, macd_slow, macd_sign, sma_short, sma_long, bollinger_window, bollinger_std, adx_window)
+            score, details = self._calculate_score(data, rsi_window, macd_fast, macd_slow, macd_sign, sma_short, sma_long, bollinger_window, bollinger_std, adx_window)
             logger.info(f"'{self.name}' model result: Score={score:.4f}")
-            return score
+            return {'score': score, 'details': details}
         except Exception as e:
             logger.error(f"An error occurred while running the '{self.name}' model: {e}", exc_info=True)
-            return 0.0
+            return {'score': 0.0, 'details': f"Error during model execution: {e}"}
 
     def _calculate_score(self, data: pd.DataFrame, rsi_window: int, macd_fast: int, macd_slow: int, macd_sign: int, sma_short: int, sma_long: int, bollinger_window: int, bollinger_std: float, adx_window: int) -> Tuple[float, str]:
         data = data.copy()

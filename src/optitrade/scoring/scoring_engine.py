@@ -86,10 +86,18 @@ class ScoringEngine:
             try:
                 module = __import__(f"{models.__name__}.{name}", fromlist=["*"])
                 for member_name, member_obj in inspect.getmembers(module, inspect.isclass):
-                    if issubclass(member_obj, BaseModel) and member_obj is not BaseModel:
+                    if issubclass(member_obj, BaseModel) and member_obj is not BaseModel and not inspect.isabstract(member_obj):
                         if member_name in all_model_names:
                             logger.info(f"'{member_name}' modeli başlatılıyor...")
-                            loaded_models[member_name] = member_obj(self.data_fetcher)
+                            try:
+                                # Modelin __init__ metodunun 'data_fetcher' argümanı alıp almadığını kontrol et
+                                init_signature = inspect.signature(member_obj.__init__)
+                                if 'data_fetcher' in init_signature.parameters:
+                                    loaded_models[member_name] = member_obj(self.data_fetcher)
+                                else:
+                                    loaded_models[member_name] = member_obj()
+                            except Exception as e:
+                                logger.error(f"'{member_name}' modeli başlatılırken bir hata oluştu: {e}")
             except Exception as e:
                 logger.error(f"'{name}' modülü yüklenirken hata oluştu: {e}")
         logger.info(f"{len(loaded_models)} adet model başarıyla yüklendi: {list(loaded_models.keys())}")
@@ -99,15 +107,23 @@ class ScoringEngine:
         """Piyasa rejimine ve varlık tipine göre uygun ağırlık profilini seçer."""
         asset_profiles = self.weight_profiles.get(asset_type, self.weight_profiles["crypto"]) # Varlık tipi yoksa kripto varsay
         
+        selected_weights = {}
         if "Strong" in regime:
             logger.info(f"Varlık Tipi '{asset_type}', Rejim '{regime}' -> GÜÇLÜ TREND ağırlıkları seçildi.")
-            return asset_profiles["STRONG_TREND"]
+            selected_weights = asset_profiles["STRONG_TREND"]
         elif "Weak" in regime:
             logger.info(f"Varlık Tipi '{asset_type}', Rejim '{regime}' -> YATAY PİYASA ağırlıkları seçildi.")
-            return asset_profiles["RANGING"]
+            selected_weights = asset_profiles["RANGING"]
         else: # Unknown veya diğer durumlar için
             logger.info(f"Varlık Tipi '{asset_type}', Rejim '{regime}' -> VARSAYILAN ağırlıklar seçildi.")
-            return asset_profiles["DEFAULT"]
+            selected_weights = asset_profiles["DEFAULT"]
+
+        # Kripto varlıklar için FinancialRatioModel ağırlığını 0 yap
+        if asset_type == "crypto" and "FinancialRatioModel" in selected_weights:
+            selected_weights["FinancialRatioModel"] = 0.0
+            logger.info("Kripto varlıklar için 'FinancialRatioModel' ağırlığı 0 olarak ayarlandı.")
+
+        return selected_weights
 
     def run_engine(self, asset_type: str, symbol: str, interval: str = "1d", model_params: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -128,18 +144,8 @@ class ScoringEngine:
                     for param_name, param_value in params_to_apply.items():
                         setattr(model_instance, param_name, param_value)
 
-        # 1. Piyasa Rejimini Belirle
-        regime_model = self.models.get("MarketConditionClassifier")
-        regime_model_specific_params = model_params.get("MarketConditionClassifier", {})
-        regime_result = regime_model.predict(symbol=symbol, interval=interval, **regime_model_specific_params) if regime_model else {"regime": "Unknown", "details": "Rejim modeli yüklenemedi."}
-        market_regime = regime_result.get("regime", "Unknown")
-
-        # 2. Rejime ve Varlık Tipine Göre Ağırlıkları Seç ve Normalize Et
-        active_weights = self._select_weights(market_regime, asset_type)
-        normalized_weights = self._normalize_weights(active_weights)
-
-        # 3. Anlık piyasa fiyatını ve ATR'yi çek/hesapla
-        period_map = {"15m": "60d", "4h": "730d", "1d": "5y"}
+        # 1. Anlık piyasa fiyatını ve ATR'yi çek/hesapla
+        period_map = {"15m": "60d", "4h": "730d", "1d": "5y", "1w": "10y", "1mo": "20y"}
         fetch_period = period_map.get(interval, "5y")
         latest_data = self.data_fetcher.get_market_data(asset_type=asset_type, symbol=symbol, period=fetch_period, interval=interval)
         current_price = None
@@ -157,16 +163,41 @@ class ScoringEngine:
             except Exception as e:
                 logger.warning(f"ATR hesaplanırken hata oluştu: {e}")
 
-        # 4. Diğer tüm modelleri çalıştır ve skorları topla
+        # 2. Tüm modelleri çalıştır ve skorları topla
         final_score = 0.0
-        model_outputs = {"MarketConditionClassifier": regime_result} # Rejim bilgisini de çıktılara ekle
+        model_outputs = {}
         support_resistance_levels = {}
+
+        # Önce MarketConditionClassifier'ı çalıştırarak rejimi belirle
+        market_regime = "Unknown"
+        if "MarketConditionClassifier" in self.models:
+            try:
+                mcc_instance = self.models["MarketConditionClassifier"]
+                mcc_params = model_params.get("MarketConditionClassifier", {})
+                regime_result = mcc_instance.generate_score(data=latest_data, **mcc_params)
+                market_regime = regime_result.get("regime", "Unknown")
+                model_outputs["MarketConditionClassifier"] = regime_result
+            except Exception as e:
+                logger.error(f"'MarketConditionClassifier' modeli çalıştırılırken hata oluştu: {e}")
+                model_outputs["MarketConditionClassifier"] = {'score': 0.0, 'details': 'Model çalışırken hata oluştu.', 'regime': 'Unknown'}
+        
+        logger.info(f"Piyasa Rejimi Belirlendi: {market_regime}")
+
+        # 3. Rejime ve Varlık Tipine Göre Ağırlıkları Seç ve Normalize Et
+        active_weights = self._select_weights(market_regime, asset_type)
+        normalized_weights = self._normalize_weights(active_weights)
+        logger.info(f"Aktif Ağırlıklar ({market_regime}): {json.dumps(normalized_weights, indent=2)}")
 
         logger.info(f"Scoring Engine, '{symbol}' ('{asset_type}') için '{market_regime}' rejiminde çalıştırılıyor...")
         for model_name, model_instance in self.models.items():
             if model_name == "MarketConditionClassifier":
                 continue # Zaten çalıştırdık
             
+            # FinancialRatioModel'i sadece hisse senetleri için çalıştır
+            if model_name == "FinancialRatioModel" and asset_type == "crypto":
+                logger.debug(f"Model '{model_name}' kripto varlıklar için atlanıyor.")
+                continue
+
             weight = normalized_weights.get(model_name, 0.0)
             if weight == 0:
                 logger.debug(f"Model '{model_name}' atlanıyor (ağırlık: 0).")
@@ -174,11 +205,16 @@ class ScoringEngine:
 
             try:
                 model_specific_params = model_params.get(model_name, {})
-                # Her modele asset_type bilgisini de gönder
-                prediction = model_instance.predict(symbol=symbol, interval=interval, asset_type=asset_type, **model_specific_params)
+                # ATR'yi SupportResistanceModel'e gönder
+                if model_name == "SupportResistanceModel":
+                    model_specific_params['atr'] = atr
+                prediction = model_instance.generate_score(data=latest_data, symbol=symbol, asset_type=asset_type, **model_specific_params)
                 score = prediction.get('score', 0.0)
-                final_score += score * weight
+                weighted_score = score * weight
+                final_score += weighted_score
                 model_outputs[model_name] = prediction
+
+                logger.info(f"  - Model: {model_name}, Ham Skor: {score:.4f}, Ağırlık: {weight:.4f}, Ağırlıklı Skor: {weighted_score:.4f}")
 
                 if model_name == 'SupportResistanceModel':
                     support_resistance_levels['support'] = prediction.get('closest_support')
@@ -188,6 +224,7 @@ class ScoringEngine:
                 logger.error(f"'{model_name}' modeli çalıştırılırken hata oluştu: {e}")
                 model_outputs[model_name] = {'score': 0.0, 'details': 'Model çalışırken hata oluştu.'}
         
+        logger.info(f"Tüm modellerin ağırlıklı toplam skoru (tanh öncesi): {final_score:.4f}")
         final_score = np.tanh(final_score)
 
         # 5. Hedef fiyat ve dinamik zarar durdurma seviyelerini belirle

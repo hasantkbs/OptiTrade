@@ -167,6 +167,7 @@ SIGNAL_THRESHOLD = 0.5
 
 # Varsayılan (bilinmeyen veya karmaşık rejimler için)
 MODEL_WEIGHTS_DEFAULT = {
+    "MarketConditionClassifier": 0,
     "PriceTrendModel": 0.25,
     "VolumeSurgeModel": 0.15,
     "NewsSentimentModel": 0.1,
@@ -181,6 +182,7 @@ MODEL_WEIGHTS_DEFAULT = {
 
 # Güçlü Trend (yükselen veya düşen)
 MODEL_WEIGHTS_STRONG_TREND = {
+    "MarketConditionClassifier": 0,
     "PriceTrendModel": 0.4,
     "VolumeSurgeModel": 0.2,
     "NewsSentimentModel": 0.05,
@@ -195,6 +197,7 @@ MODEL_WEIGHTS_STRONG_TREND = {
 
 # Yatay Piyasa (menkul kıymet belirli bir aralıkta işlem gördüğünde)
 MODEL_WEIGHTS_RANGING = {
+    "MarketConditionClassifier": 0,
     "PriceTrendModel": 0.1,
     "VolumeSurgeModel": 0.1,
     "NewsSentimentModel": 0.1,
@@ -213,6 +216,7 @@ MODEL_WEIGHTS_RANGING = {
 
 # Varsayılan (bilinmeyen veya karmaşık rejimler için) - Hisse Senedi
 MODEL_WEIGHTS_STOCK_DEFAULT = {
+    "MarketConditionClassifier": 0,
     "PriceTrendModel": 0.20,
     "VolumeSurgeModel": 0.10,
     "NewsSentimentModel": 0.15,
@@ -227,6 +231,7 @@ MODEL_WEIGHTS_STOCK_DEFAULT = {
 
 # Güçlü Trend (yükselen veya düşen) - Hisse Senedi
 MODEL_WEIGHTS_STOCK_STRONG_TREND = {
+    "MarketConditionClassifier": 0,
     "PriceTrendModel": 0.35,
     "VolumeSurgeModel": 0.15,
     "NewsSentimentModel": 0.1,
@@ -241,6 +246,7 @@ MODEL_WEIGHTS_STOCK_STRONG_TREND = {
 
 # Yatay Piyasa (menkul kıymet belirli bir aralıkta işlem gördüğünde) - Hisse Senedi
 MODEL_WEIGHTS_STOCK_RANGING = {
+    "MarketConditionClassifier": 0,
     "PriceTrendModel": 0.1,
     "VolumeSurgeModel": 0.1,
     "NewsSentimentModel": 0.15,

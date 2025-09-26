@@ -8,6 +8,7 @@ from typing import Dict, List, Any, Tuple
 
 from .base_model import BaseModel
 from .. import config
+from ..utils.data_fetcher import DataFetcher
 
 # Loglama yapılandırması
 logger = logging.getLogger(__name__)
@@ -16,27 +17,33 @@ class DivergenceDetectionModel(BaseModel):
     """
     Finds divergences between price and RSI indicator to generate a score.
     """
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__()
-        self.rsi_window = config.DIVERGENCE_INDICATOR_WINDOW
-        self.extrema_order = config.DIVERGENCE_EXTREMA_ORDER
-        self.lookback_period = config.DIVERGENCE_LOOKBACK_PERIOD
+        self.rsi_window = kwargs.get('rsi_window', config.DIVERGENCE_INDICATOR_WINDOW)
+        self.extrema_order = kwargs.get('extrema_order', config.DIVERGENCE_EXTREMA_ORDER)
+        self.lookback_period = kwargs.get('lookback_period', config.DIVERGENCE_LOOKBACK_PERIOD)
         self.required_data_points = self.lookback_period + 5
 
-    def generate_score(self, data: pd.DataFrame) -> float:
+    def generate_score(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
         logger.info(f"Running '{self.name}' model...")
 
+        # Update parameters if provided in kwargs
+        self.rsi_window = kwargs.get('rsi_window', self.rsi_window)
+        self.extrema_order = kwargs.get('extrema_order', self.extrema_order)
+        self.lookback_period = kwargs.get('lookback_period', self.lookback_period)
+        self.required_data_points = self.lookback_period + 5
+
         if data.empty or len(data) < self.required_data_points:
-            logger.warning(f"'{self.name}': Not enough data. Returning neutral score (0.0).")
-            return 0.0
+            logger.warning(f"'{self.name}': Not enough data. Returning neutral score.")
+            return {'score': 0.0, 'details': f"Not enough data. Need {self.required_data_points} data points, but got {len(data)}."}
 
         try:
-            score, _ = self._detect_rsi_divergence(data['Close'], self.rsi_window, self.extrema_order, self.lookback_period)
+            score, details = self._detect_rsi_divergence(data['Close'], self.rsi_window, self.extrema_order, self.lookback_period)
             logger.info(f"'{self.name}' model result: Score={score:.4f}")
-            return score
+            return {'score': score, 'details': details}
         except Exception as e:
             logger.error(f"An error occurred while running the '{self.name}' model: {e}", exc_info=True)
-            return 0.0
+            return {'score': 0.0, 'details': f"Error during model execution: {e}"}
 
     def _find_extrema(self, series: pd.Series, is_max: bool, order: int) -> pd.Series:
         comparator = np.greater if is_max else np.less
