@@ -273,8 +273,9 @@ class ScoringEngine:
         # 8. Uyarıları kontrol et ve gönder
         self.alert_system.check_and_dispatch_alert(symbol, result)
 
-        # 9. Sinyali veritabanına kaydet
-        self.db_handler.save_signal(result, symbol, interval)
+        # 9. Sinyali veritabanına kaydet (eğer db_handler varsa)
+        if self.db_handler:
+            self.db_handler.save_signal(result, symbol, interval)
 
         logger.info(f"Scoring Engine tamamlandı. Nihai Skor: {final_score:.4f}")
         return result
