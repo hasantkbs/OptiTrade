@@ -14,6 +14,7 @@ from optitrade import config
 from optitrade.models.registry import initialize_models
 from optitrade.models.main import calculate_all_model_scores # Merkezi fonksiyon
 from optitrade.scoring.scoring_engine import ScoringEngine
+from optitrade.utils.data_fetcher import DataFetcher
 
 # Loglama yapılandırması
 logging.basicConfig(
@@ -191,7 +192,8 @@ if __name__ == '__main__':
         )
 
         all_prediction_scores = []
-        scoring_engine = ScoringEngine(data_fetcher=None, db_handler=None)
+        data_fetcher = DataFetcher()
+        scoring_engine = ScoringEngine(data_fetcher=data_fetcher, db_handler=None)
 
         for i in range(len(data)):
             if i < backtester.min_data_points_for_models:
