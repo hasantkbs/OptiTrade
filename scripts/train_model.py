@@ -39,7 +39,8 @@ def main():
 
     current_interval = args.interval
     current_symbol = args.symbol
-    logging.info(f"Makine öğrenmesi modeli eğitim süreci başlatıldı ({current_interval} aralığı için, sembol: {current_symbol}).")
+    asset_type = 'crypto' if current_symbol in ["BTC-USD", "ETH-USD"] else 'stock'
+    logging.info(f"Makine öğrenmesi modeli eğitim süreci başlatıldı ({current_interval} aralığı için, sembol: {current_symbol}, varlık tipi: {asset_type}).")
 
     # 1. Veri Çekme
     logging.info(f"Geçmiş veriler çekiliyor ({current_interval} aralığı için)...")
@@ -49,7 +50,7 @@ def main():
     period_map = {"15m": "60d", "4h": "730d", "1d": "5y"}
     fetch_period = period_map.get(current_interval, "5y")
 
-    data = fetcher.get_market_data(symbol=current_symbol, period=fetch_period, interval=current_interval)
+    data = fetcher.get_market_data(asset_type=asset_type, symbol=current_symbol, period=fetch_period, interval=current_interval)
     if data.empty:
         logging.error("Veri çekilemedi. Eğitim durduruldu.")
         return
