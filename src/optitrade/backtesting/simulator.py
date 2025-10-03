@@ -14,7 +14,6 @@ from optitrade import config
 from optitrade.models.registry import initialize_models
 from optitrade.models.main import calculate_all_model_scores # Merkezi fonksiyon
 from optitrade.scoring.scoring_engine import ScoringEngine
-from optitrade.utils.data_fetcher import MarketDataFetcher
 
 # Loglama yapılandırması
 logging.basicConfig(
