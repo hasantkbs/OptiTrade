@@ -33,16 +33,16 @@ logger = logging.getLogger(__name__)
 # Modelleri bir sözlükte (dictionary) kaydedelim.
 # Anahtar: modelin adı (küçük harf), Değer: modelin sınıfı.
 MODEL_REGISTRY = {
-    "price_trend": PriceTrendModel,
-    # "volume_surge": VolumeSurgeModel, # Temporarily disabled
-    "news_sentiment": NewsSentimentModel,
-    "social_sentiment": SocialSentimentModel,
-    "support_resistance": SupportResistanceModel,
-    "divergence_detection": DivergenceDetectionModel,
-    "event_impact": EventImpactModel,
-    "market_condition": MarketConditionClassifier,
-    "recommendation": RecommendationModel,
-    "scalping": ScalpingModel, # Yeni model eklendi
+    "PriceTrendModel": PriceTrendModel,
+    # "VolumeSurgeModel": VolumeSurgeModel, # Temporarily disabled
+    "NewsSentimentModel": NewsSentimentModel,
+    "SocialSentimentModel": SocialSentimentModel,
+    "SupportResistanceModel": SupportResistanceModel,
+    "DivergenceDetectionModel": DivergenceDetectionModel,
+    "EventImpactModel": EventImpactModel,
+    "MarketConditionClassifier": MarketConditionClassifier,
+    "RecommendationModel": RecommendationModel,
+    "ScalpingModel": ScalpingModel, # Yeni model eklendi
 }
 
 def initialize_models() -> dict:
