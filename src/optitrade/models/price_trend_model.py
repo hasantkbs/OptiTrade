@@ -53,13 +53,13 @@ class PriceTrendModel(BaseModel):
         score = 0.0
 
         # Calculate indicators
-        rsi = ta.momentum.rsi(data['Close'], window=rsi_window)
-        macd_diff = ta.trend.macd_diff(data['Close'], window_fast=macd_fast, window_slow=macd_slow, window_sign=macd_sign)
-        sma_short_val = ta.trend.sma_indicator(data['Close'], window=sma_short)
-        sma_long_val = ta.trend.sma_indicator(data['Close'], window=sma_long)
-        adx = ta.trend.adx(data['High'], data['Low'], data['Close'], window=adx_window)
-        adx_pos = ta.trend.adx_pos(data['High'], data['Low'], data['Close'], window=adx_window)
-        adx_neg = ta.trend.adx_neg(data['High'], data['Low'], data['Close'], window=adx_window)
+        rsi = ta.momentum.rsi(data['close'], window=rsi_window)
+        macd_diff = ta.trend.macd_diff(data['close'], window_fast=macd_fast, window_slow=macd_slow, window_sign=macd_sign)
+        sma_short_val = ta.trend.sma_indicator(data['close'], window=sma_short)
+        sma_long_val = ta.trend.sma_indicator(data['close'], window=sma_long)
+        adx = ta.trend.adx(data['high'], data['low'], data['close'], window=adx_window)
+        adx_pos = ta.trend.adx_pos(data['high'], data['low'], data['close'], window=adx_window)
+        adx_neg = ta.trend.adx_neg(data['high'], data['low'], data['close'], window=adx_window)
 
         # --- Scoring Logic ---
         last_rsi = rsi.iloc[-1]
@@ -73,7 +73,7 @@ class PriceTrendModel(BaseModel):
 
         last_macd_diff = macd_diff.iloc[-1]
         if not pd.isna(last_macd_diff):
-            score += (last_macd_diff / data['Close'].iloc[-1]) * 5
+            score += (last_macd_diff / data['close'].iloc[-1]) * 5
             if last_macd_diff > 0: details.append("MACD Positive Momentum")
             else: details.append("MACD Negative Momentum")
 
