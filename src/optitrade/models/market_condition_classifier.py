@@ -19,10 +19,9 @@ class MarketConditionClassifier(BaseModel):
         self.adx_threshold = kwargs.get('adx_threshold', 25)
         self.required_data_points = self.adx_window * 2
 
-    def generate_score(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
+    def generate_score(self, data: pd.DataFrame, **kwargs) -> pd.Series: # Changed return type
         """
-        Analyzes the market condition and returns a regime classification.
-        This model does not produce a trading score, so the score is always 0.
+        Analyzes the market condition and returns a Series of regime classifications.
         """
         logger.info(f"Running '{self.name}' model...")
         
@@ -31,8 +30,8 @@ class MarketConditionClassifier(BaseModel):
         self.adx_threshold = kwargs.get('adx_threshold', self.adx_threshold)
 
         if data.empty or len(data) < self.required_data_points:
-            logger.warning(f"'{self.name}': Not enough data.")
-            return {"score": 0.0, "details": "Not enough data", "regime": "Unknown"}
+            logger.warning(f"'{self.name}': Not enough data. Returning 'Unknown' regimes.")
+            return pd.Series("Unknown", index=data.index) # Return a Series of "Unknown"
 
         try:
             # ADX and +/-DI indicators
@@ -46,35 +45,25 @@ class MarketConditionClassifier(BaseModel):
             di_pos = adx_indicator.adx_pos()
             di_neg = adx_indicator.adx_neg()
 
-            latest_adx = adx.iloc[-1]
-            latest_di_pos = di_pos.iloc[-1]
-            latest_di_neg = di_neg.iloc[-1]
+            # Initialize a Series for regimes
+            regimes = pd.Series("Unknown", index=data.index)
 
-            # Classify the regime
-            regime = ""
-            if latest_adx > self.adx_threshold:
-                if latest_di_pos > latest_di_neg:
-                    regime = "Strong Bull Trend"
-                    details = f"Strong uptrend detected (ADX: {latest_adx:.2f})"
-                else:
-                    regime = "Strong Bear Trend"
-                    details = f"Strong downtrend detected (ADX: {latest_adx:.2f})"
-            else:
-                if latest_di_pos > latest_di_neg:
-                    regime = "Weak Bull Trend"
-                    details = f"Weak uptrend or ranging market (ADX: {latest_adx:.2f})"
-                else:
-                    regime = "Weak Bear Trend"
-                    details = f"Weak downtrend or ranging market (ADX: {latest_adx:.2f})"
+            # Vectorized classification
+            strong_trend_condition = adx > self.adx_threshold
+            bull_trend_condition = di_pos > di_neg
 
-            logger.info(f"'{self.name}' result: Regime={regime}, Details: {details}")
+            regimes[strong_trend_condition & bull_trend_condition] = "Strong Bull Trend"
+            regimes[strong_trend_condition & ~bull_trend_condition] = "Strong Bear Trend"
+            regimes[~strong_trend_condition & bull_trend_condition] = "Weak Bull Trend"
+            regimes[~strong_trend_condition & ~bull_trend_condition] = "Weak Bear Trend"
+
+            # Handle NaN values that might result from indicator calculations
+            regimes = regimes.fillna("Unknown")
+
+            logger.info(f"'{self.name}' result: Regimes generated for {len(regimes)} data points.")
             
-            return {
-                "score": 0.0, # This model does not produce a trading score
-                "details": details,
-                "regime": regime
-            }
+            return regimes
 
         except Exception as e:
             logger.error(f"An error occurred while running '{self.name}': {e}", exc_info=True)
-            return {"score": 0.0, "details": f"Error during model execution: {e}", "regime": "Unknown"}
+            return pd.Series("Unknown", index=data.index) # Return a Series of "Unknown" on error

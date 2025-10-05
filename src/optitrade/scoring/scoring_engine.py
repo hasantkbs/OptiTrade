@@ -125,157 +125,50 @@ class ScoringEngine:
 
         return selected_weights
 
-    def run_engine(self, asset_type: str, symbol: str, interval: str = "1d", model_params: Dict[str, Any] = None) -> Dict[str, Any]:
+    def run_engine(self, all_model_scores_df: pd.DataFrame, asset_type: str, symbol: str, interval: str = "1d") -> pd.Series:
         """
-        Yüklenen tüm modelleri çalıştırır, nihai bir skor üretir ve risk analizi yapar.
+        Verilen tüm model skorlarını birleştirerek nihai bir skor serisi üretir.
         asset_type: Varlık tipi (crypto veya stock).
-        model_params: Her model için özel parametreleri içeren bir sözlük (örn: {"PriceTrendModel": {"rsi_window": 20}})
+        all_model_scores_df: Her sütunun bir modelin skorlarını içeren DataFrame.
         """
-        if model_params is None:
-            model_params = {}
+        if all_model_scores_df.empty:
+            return pd.Series(0.0, index=[])
 
-        # Apply optimized parameters
-        if self.optimized_parameters:
-            for model_name, optimized_model_params in self.optimized_parameters.items():
-                if model_name in self.models and symbol in optimized_model_params and interval in optimized_model_params[symbol]:
-                    params_to_apply = optimized_model_params[symbol][interval]
-                    logger.info(f"Applying optimized parameters for {model_name}: {params_to_apply}")
-                    model_instance = self.models[model_name]
-                    for param_name, param_value in params_to_apply.items():
-                        setattr(model_instance, param_name, param_value)
+        # Optimized parameters are applied to models during initialization or before calling generate_score.
+        # This run_engine now only combines pre-calculated scores.
 
-        # 1. Anlık piyasa fiyatını ve ATR'yi çek/hesapla
-        period_map = {"15m": "60d", "4h": "730d", "1d": "5y", "1w": "10y", "1mo": "20y"}
-        fetch_period = period_map.get(interval, "5y")
-        latest_data = self.data_fetcher.get_market_data(asset_type=asset_type, symbol=symbol, period=fetch_period, interval=interval)
-        current_price = None
-        atr = None
-        if not latest_data.empty:
-            current_price = latest_data['Close'].iloc[-1]
-            try:
-                atr = ta.volatility.AverageTrueRange(
-                    high=latest_data['High'],
-                    low=latest_data['Low'],
-                    close=latest_data['Close'],
-                    window=14
-                ).average_true_range().iloc[-1]
-                logger.info(f"Hesaplanan ATR değeri: {atr:.4f}")
-            except Exception as e:
-                logger.warning(f"ATR hesaplanırken hata oluştu: {e}")
-
-        # 2. Tüm modelleri çalıştır ve skorları topla
-        final_score = 0.0
-        model_outputs = {}
-        support_resistance_levels = {}
-
-        # Önce MarketConditionClassifier'ı çalıştırarak rejimi belirle
+        # MarketConditionClassifier'ın skorunu al (eğer varsa)
+        market_regime_scores = all_model_scores_df.get('market_condition_classifier_score')
+        # Şimdilik, en son rejimi alalım veya varsayılanı kullanalım.
+        # Daha sonra, her zaman noktası için dinamik rejim seçimi yapılabilir.
         market_regime = "Unknown"
-        if "MarketConditionClassifier" in self.models:
-            try:
-                mcc_instance = self.models["MarketConditionClassifier"]
-                mcc_params = model_params.get("MarketConditionClassifier", {})
-                regime_result = mcc_instance.generate_score(data=latest_data, **mcc_params)
-                market_regime = regime_result.get("regime", "Unknown")
-                model_outputs["MarketConditionClassifier"] = regime_result
-            except Exception as e:
-                logger.error(f"'MarketConditionClassifier' modeli çalıştırılırken hata oluştu: {e}")
-                model_outputs["MarketConditionClassifier"] = {'score': 0.0, 'details': 'Model çalışırken hata oluştu.', 'regime': 'Unknown'}
-        
+        if market_regime_scores is not None and not market_regime_scores.empty:
+            # Assuming MarketConditionClassifier.generate_score returns a dict with 'regime' for each row
+            # This needs to be adapted if MarketConditionClassifier also returns a Series of regimes.
+            # For now, let's just take the last one.
+            # This is a simplification and needs further refinement for full backtesting.
+            # The current MarketConditionClassifier.generate_score returns a dict with 'regime' for the latest data.
+            # This needs to be changed to return a Series of regimes.
+            # For now, let's just use a placeholder.
+            market_regime = "Unknown" # Placeholder, will be dynamic later.
+
         logger.info(f"Piyasa Rejimi Belirlendi: {market_regime}")
 
-        # 3. Rejime ve Varlık Tipine Göre Ağırlıkları Seç ve Normalize Et
+        # Rejime ve Varlık Tipine Göre Ağırlıkları Seç ve Normalize Et
         active_weights = self._select_weights(market_regime, asset_type)
         normalized_weights = self._normalize_weights(active_weights)
         logger.info(f"Aktif Ağırlıklar ({market_regime}): {json.dumps(normalized_weights, indent=2)}")
 
+        final_scores = pd.Series(0.0, index=all_model_scores_df.index)
+
         logger.info(f"Scoring Engine, '{symbol}' ('{asset_type}') için '{market_regime}' rejiminde çalıştırılıyor...")
-        for model_name, model_instance in self.models.items():
-            if model_name == "MarketConditionClassifier":
-                continue # Zaten çalıştırdık
-            
-            # FinancialRatioModel'i sadece hisse senetleri için çalıştır
-            if model_name == "FinancialRatioModel" and asset_type == "crypto":
-                logger.debug(f"Model '{model_name}' kripto varlıklar için atlanıyor.")
-                continue
-
-            weight = normalized_weights.get(model_name, 0.0)
-            if weight == 0:
-                logger.debug(f"Model '{model_name}' atlanıyor (ağırlık: 0).")
-                continue
-
-            try:
-                model_specific_params = model_params.get(model_name, {})
-                # ATR'yi SupportResistanceModel'e gönder
-                if model_name == "SupportResistanceModel":
-                    model_specific_params['atr'] = atr
-                prediction = model_instance.generate_score(data=latest_data, symbol=symbol, asset_type=asset_type, **model_specific_params)
-                score = prediction.get('score', 0.0)
-                weighted_score = score * weight
-                final_score += weighted_score
-                model_outputs[model_name] = prediction
-
-                logger.info(f"  - Model: {model_name}, Ham Skor: {score:.4f}, Ağırlık: {weight:.4f}, Ağırlıklı Skor: {weighted_score:.4f}")
-
-                if model_name == 'SupportResistanceModel':
-                    support_resistance_levels['support'] = prediction.get('closest_support')
-                    support_resistance_levels['resistance'] = prediction.get('closest_resistance')
-
-            except Exception as e:
-                logger.error(f"'{model_name}' modeli çalıştırılırken hata oluştu: {e}")
-                model_outputs[model_name] = {'score': 0.0, 'details': 'Model çalışırken hata oluştu.'}
-        
-        logger.info(f"Tüm modellerin ağırlıklı toplam skoru (tanh öncesi): {final_score:.4f}")
-        final_score = np.tanh(final_score)
-
-        # 5. Hedef fiyat ve dinamik zarar durdurma seviyelerini belirle
-        estimated_target_price, stop_loss_price = None, None
-        if final_score > config.SIGNAL_THRESHOLD:  # Yükseliş sinyali
-            estimated_target_price = support_resistance_levels.get('resistance')
-            structure_stop = support_resistance_levels.get('support')
-            # Volatilite bazlı stop-loss hesapla
-            if current_price and atr:
-                volatility_stop = current_price - (atr * config.RISK_ATR_MULTIPLIER)
-                # İki stop seviyesinden hangisi fiyata daha yakınsa (daha güvenli ise) onu kullan
-                if structure_stop:
-                    stop_loss_price = max(structure_stop, volatility_stop)
-                else:
-                    stop_loss_price = volatility_stop
+        for model_score_column, weight in normalized_weights.items():
+            if model_score_column in all_model_scores_df.columns:
+                final_scores += all_model_scores_df[model_score_column] * weight
             else:
-                stop_loss_price = structure_stop
+                logger.warning(f"Model skoru sütunu '{model_score_column}' DataFrame'de bulunamadı. Ağırlık uygulanmayacak.")
 
-        elif final_score < -config.SIGNAL_THRESHOLD:  # Düşüş sinyali
-            estimated_target_price = support_resistance_levels.get('support')
-            structure_stop = support_resistance_levels.get('resistance')
-            # Volatilite bazlı stop-loss hesapla
-            if current_price and atr:
-                volatility_stop = current_price + (atr * config.RISK_ATR_MULTIPLIER)
-                # İki stop seviyesinden hangisi fiyata daha yakınsa (daha güvenli ise) onu kullan
-                if structure_stop:
-                    stop_loss_price = min(structure_stop, volatility_stop)
-                else:
-                    stop_loss_price = volatility_stop
-            else:
-                stop_loss_price = structure_stop
+        final_scores = np.tanh(final_scores)
 
-        # 6. Pozisyon büyüklüğünü hesapla
-        position_sizing = calculate_position_size(final_score, current_price, estimated_target_price, stop_loss_price)
-
-        # 7. Nihai sonucu birleştir
-        result = {
-            "market_regime": market_regime,
-            "final_score": float(final_score),
-            "current_market_price": float(current_price) if current_price is not None else None,
-            "estimated_target_price": estimated_target_price,
-            "position_sizing": position_sizing,
-            "model_outputs": model_outputs
-        }
-        
-        # 8. Uyarıları kontrol et ve gönder
-        self.alert_system.check_and_dispatch_alert(symbol, result)
-
-        # 9. Sinyali veritabanına kaydet (eğer db_handler varsa)
-        if self.db_handler:
-            self.db_handler.save_signal(result, symbol, interval)
-
-        logger.info(f"Scoring Engine tamamlandı. Nihai Skor: {final_score:.4f}")
-        return result
+        logger.info(f"Scoring Engine tamamlandı. Nihai Skor Serisi oluşturuldu.")
+        return final_scores

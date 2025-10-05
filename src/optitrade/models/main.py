@@ -23,7 +23,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-def calculate_all_model_scores(historical_data: pd.DataFrame, models: dict, news_headlines: list = [], social_media_query: str = None, interval: str = '1d') -> dict:
+def calculate_all_model_scores(historical_data: pd.DataFrame, models: dict, news_headlines: list = [], social_media_query: str = None, interval: str = '1d') -> pd.DataFrame:
     """
     Verilen geçmiş veriler ve başlatılmış modelleri kullanarak tüm model skorlarını hesaplar.
 
@@ -34,21 +34,39 @@ def calculate_all_model_scores(historical_data: pd.DataFrame, models: dict, news
         social_media_query (str, optional): Sosyal medya verilerini filtrelemek için sorgu.
 
     Returns:
-        dict: Her model için hesaplanmış skorları içeren bir sözlük.
+        pd.DataFrame: Her model için hesaplanmış skorları içeren bir DataFrame.
     """
-    model_scores = {}
+    all_model_scores = pd.DataFrame(index=historical_data.index)
+
+    # MarketConditionClassifier
+    if 'market_condition_classifier' in models:
+        try:
+            market_regimes = models['market_condition_classifier'].generate_score(
+                data=historical_data
+            )
+            all_model_scores['market_condition_classifier_regime'] = market_regimes
+        except Exception as e:
+            logger.error(f"Piyasa Durumu Sınıflandırıcı rejimi hesaplanırken hata: {e}")
+            all_model_scores['market_condition_classifier_regime'] = "Unknown" # Assign a Series of "Unknown"
 
     # PriceTrendModel
     try:
-        price_trend_result = models['price_trend'].generate_score(
+        price_trend_scores = models['price_trend'].generate_score(
             data=historical_data  # Pass the full DataFrame
         )
-        model_scores['price_trend_score'] = price_trend_result.get('score', 0.0)
+        all_model_scores['price_trend_score'] = price_trend_scores
     except Exception as e:
         logger.error(f"Fiyat Trend Skoru hesaplanırken hata: {e}")
-        model_scores['price_trend_score'] = 0.0
+        all_model_scores['price_trend_score'] = 0.0 # Assign a Series of zeros
 
     logger.info(f"--- Model Skorları Hesaplanıyor ---")
-    logger.info(f"  - Price Trend Score: {model_scores.get('price_trend_score', 0.0):.2f}")
+    # Log the last score for brevity, or average/min/max
+    if 'price_trend_score' in all_model_scores and not all_model_scores['price_trend_score'].empty:
+        logger.info(f"  - Price Trend Score (latest): {all_model_scores['price_trend_score'].iloc[-1]:.2f}")
+    if 'market_condition_classifier_regime' in all_model_scores and not all_model_scores['market_condition_classifier_regime'].empty:
+        logger.info(f"  - Market Condition Regime (latest): {all_model_scores['market_condition_classifier_regime'].iloc[-1]}")
+    else:
+        logger.info(f"  - Price Trend Score: Not available")
 
-    return model_scores
+
+    return all_model_scores

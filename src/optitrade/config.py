@@ -78,6 +78,17 @@ PRICE_TREND_BOLLINGER_WINDOW = 20
 PRICE_TREND_BOLLINGER_STD = 2.0
 PRICE_TREND_ADX_WINDOW = 14
 
+# Fiyat Trend Modeli içindeki göstergelerin skorlama ağırlıkları.
+PRICE_TREND_INDICATOR_WEIGHTS = {
+    'rsi_overbought': 0.5,
+    'rsi_oversold': 0.5,
+    'macd_momentum': 5.0, # Bu değer, MACD farkının kapanış fiyatına oranına çarpıldığı için daha büyük olabilir.
+    'sma_golden_cross': 0.15,
+    'sma_death_cross': 0.15,
+    'adx_uptrend': 0.15,
+    'adx_downtrend': 0.15,
+}
+
 
 # -----------------------------------------------------------------------------
 # HACİM ARTIŞ MODELİ YAPILANDIRMASI (VolumeSurgeModel)

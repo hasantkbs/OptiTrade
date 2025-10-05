@@ -14,6 +14,11 @@ def create_features(df: pd.DataFrame, interval: str = "1d", financial_ratios: Di
     df_copy['feature_price_change_1d'] = df_copy['Close'].pct_change(1)
     df_copy['feature_price_change_3d'] = df_copy['Close'].pct_change(3)
     df_copy['feature_price_change_7d'] = df_copy['Close'].pct_change(7)
+
+    # Lagged price changes
+    df_copy['feature_price_change_1d_lag1'] = df_copy['feature_price_change_1d'].shift(1)
+    df_copy['feature_price_change_1d_lag2'] = df_copy['feature_price_change_1d'].shift(2)
+    df_copy['feature_price_change_1d_lag3'] = df_copy['feature_price_change_1d'].shift(3)
     
     # Volatility
     df_copy['feature_volatility_7d'] = df_copy['feature_price_change_1d'].rolling(window=7).std()
@@ -21,6 +26,11 @@ def create_features(df: pd.DataFrame, interval: str = "1d", financial_ratios: Di
 
     # RSI
     df_copy['feature_rsi_14d'] = ta.momentum.rsi(df_copy['Close'], window=14)
+
+    # Lagged RSI
+    df_copy['feature_rsi_14d_lag1'] = df_copy['feature_rsi_14d'].shift(1)
+    df_copy['feature_rsi_14d_lag2'] = df_copy['feature_rsi_14d'].shift(2)
+    df_copy['feature_rsi_14d_lag3'] = df_copy['feature_rsi_14d'].shift(3)
     
     # MACD
     macd = ta.trend.MACD(df_copy['Close'], window_slow=26, window_fast=12, window_sign=9)

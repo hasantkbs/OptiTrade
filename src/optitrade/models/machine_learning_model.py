@@ -21,7 +21,9 @@ class MachineLearningModel(BaseModel):
         self.model = self._load_model(self.interval)
         self.features = [
             'feature_price_change_1d', 'feature_price_change_3d', 'feature_price_change_7d',
+            'feature_price_change_1d_lag1', 'feature_price_change_1d_lag2', 'feature_price_change_1d_lag3',
             'feature_volatility_7d', 'feature_volatility_30d', 'feature_rsi_14d',
+            'feature_rsi_14d_lag1', 'feature_rsi_14d_lag2', 'feature_rsi_14d_lag3',
             'feature_macd', 'feature_macd_signal', 'feature_macd_diff',
             'feature_sma_50', 'feature_sma_200', 'feature_price_vs_sma50',
             'feature_pe_ratio', 'feature_pb_ratio', 'feature_de_ratio' # New financial ratio features

@@ -52,53 +52,76 @@ class Backtester:
             return {}
 
         initial_capital = 1000.0
-        capital = initial_capital
-        position = 0
+        
+        # Create a DataFrame to hold all relevant data
+        df = pd.DataFrame({
+            'price': prices,
+            'score': prediction_scores,
+            'entry_signal': (prediction_scores >= self.entry_threshold),
+            'exit_signal': (prediction_scores <= self.exit_threshold)
+        })
+
+        # Initialize columns for simulation
+        df['position'] = 0 # 0: no position, 1: long position
+        df['entry_price'] = np.nan
+        df['exit_price'] = np.nan
+        df['trade_return'] = np.nan
+        df['capital'] = initial_capital
+
+        current_position = 0
+        current_entry_price = np.nan
         trades = []
-        entry_price = 0.0
-        entry_date = None
 
-        for i in range(1, len(prices)):
-            current_price = prices.iloc[i]
-            current_score = prediction_scores.iloc[i]
-
-            if pd.isna(current_score):
-                continue
-
-            if position == 0 and current_score >= self.entry_threshold:
-                position = 1
-                entry_price = current_price * (1 + self.slippage)
-                capital *= (1 - self.commission_rate)
-                entry_date = prices.index[i]
-
-            elif position == 1 and current_score <= self.exit_threshold:
-                position = 0
-                exit_price = current_price * (1 - self.slippage)
-                capital *= (1 - self.commission_rate)
-                trade_return = (exit_price - entry_price) / entry_price
+        for i in range(1, len(df)):
+            # Carry forward capital from previous day
+            df.loc[df.index[i], 'capital'] = df.loc[df.index[i-1], 'capital']
+            
+            if current_position == 0 and df.loc[df.index[i], 'entry_signal']:
+                # Enter position
+                current_position = 1
+                current_entry_price = df.loc[df.index[i], 'price'] * (1 + self.slippage)
+                df.loc[df.index[i], 'capital'] *= (1 - self.commission_rate)
+                df.loc[df.index[i], 'position'] = 1
+                df.loc[df.index[i], 'entry_price'] = current_entry_price
+                
+            elif current_position == 1 and df.loc[df.index[i], 'exit_signal']:
+                # Exit position
+                current_position = 0
+                exit_price = df.loc[df.index[i], 'price'] * (1 - self.slippage)
+                df.loc[df.index[i], 'capital'] *= (1 - self.commission_rate)
+                trade_return = (exit_price - current_entry_price) / current_entry_price
+                df.loc[df.index[i], 'trade_return'] = trade_return
+                df.loc[df.index[i], 'exit_price'] = exit_price
+                df.loc[df.index[i], 'capital'] *= (1 + trade_return)
+                
                 trades.append({
-                    'entry_date': entry_date,
-                    'exit_date': prices.index[i],
-                    'entry_price': entry_price,
+                    'entry_date': df.index[i-1], # Assuming entry was on previous bar's close or current bar's open
+                    'exit_date': df.index[i],
+                    'entry_price': current_entry_price,
                     'exit_price': exit_price,
                     'return': trade_return
                 })
-                capital *= (1 + trade_return)
+                current_entry_price = np.nan # Reset entry price
 
-        if position == 1:
-            exit_price = prices.iloc[-1] * (1 - self.slippage)
-            capital *= (1 - self.commission_rate)
-            trade_return = (exit_price - entry_price) / entry_price
+        # Handle open position at the end of the backtest
+        if current_position == 1:
+            exit_price = df['price'].iloc[-1] * (1 - self.slippage)
+            df['capital'].iloc[-1] *= (1 - self.commission_rate)
+            trade_return = (exit_price - current_entry_price) / current_entry_price
+            df['trade_return'].iloc[-1] = trade_return
+            df['exit_price'].iloc[-1] = exit_price
+            df['capital'].iloc[-1] *= (1 + trade_return)
+
             trades.append({
-                'entry_date': entry_date,
-                'exit_date': prices.index[-1],
-                'entry_price': entry_price,
+                'entry_date': df.index[-1],
+                'exit_date': df.index[-1],
+                'entry_price': current_entry_price,
                 'exit_price': exit_price,
                 'return': trade_return
             })
-            capital *= (1 + trade_return)
 
-        return self.calculate_metrics(trades, prices, initial_capital, capital)
+        final_capital = df['capital'].iloc[-1]
+        return self.calculate_metrics(trades, prices, initial_capital, final_capital)
 
     def calculate_metrics(self, trades: list, prices: pd.Series, initial_capital: float, final_capital: float) -> dict:
         total_return = (final_capital - initial_capital) / initial_capital
@@ -191,21 +214,19 @@ if __name__ == '__main__':
             slippage=args.slippage
         )
 
-        all_prediction_scores = []
         data_fetcher = DataFetcher()
         scoring_engine = ScoringEngine(data_fetcher=data_fetcher, db_handler=None)
 
-        for i in range(len(data)):
-            if i < backtester.min_data_points_for_models:
-                all_prediction_scores.append(0.0)
-                continue
-            
-            historical_data = data.iloc[:i+1]
-            model_scores = calculate_all_model_scores(historical_data, backtester.models)
-            final_score = scoring_engine.run_engine(asset_type='stock', symbol=args.symbol, interval=args.interval, model_params={})
-            all_prediction_scores.append(final_score['final_score'])
-        
-        prediction_scores_series = pd.Series(all_prediction_scores, index=data.index)
+        logger.info("Pre-calculating all individual model scores...")
+        all_model_scores_df = calculate_all_model_scores(data, backtester.models, interval=args.interval)
+
+        logger.info("Combining individual model scores into final prediction scores...")
+        prediction_scores_series = scoring_engine.run_engine(
+            all_model_scores_df=all_model_scores_df,
+            asset_type='stock', # Assuming 'stock' for now, can be made dynamic from args
+            symbol=args.symbol,
+            interval=args.interval
+        )
         prediction_scores_series = prediction_scores_series.fillna(0.0)
 
         results = backtester.run_backtest(data['close'], prediction_scores_series)
