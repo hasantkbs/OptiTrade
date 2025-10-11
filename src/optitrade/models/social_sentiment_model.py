@@ -1,5 +1,6 @@
 
 import numpy as np
+import torch
 from transformers import pipeline
 import logging
 from typing import List, Dict, Any, Optional
@@ -18,9 +19,13 @@ class SocialSentimentModel(BaseModel):
     def __init__(self, data_fetcher: Optional[DataFetcher] = None):
         super().__init__(data_fetcher)
         try:
+            import torch
             logger.info("Loading sentiment analysis model (ProsusAI/finbert) for Social Media...")
             self.sentiment_pipeline = pipeline("sentiment-analysis", model="ProsusAI/finbert")
             logger.info("Sentiment analysis model loaded successfully.")
+        except ImportError:
+            logger.error("PyTorch (torch) kütüphanesi bulunamadı. SocialSentimentModel devre dışı bırakıldı.")
+            self.sentiment_pipeline = None
         except Exception as e:
             logger.error(f"Error loading Hugging Face pipeline: {e}")
             self.sentiment_pipeline = None
@@ -45,7 +50,7 @@ class SocialSentimentModel(BaseModel):
             logger.warning(f"An error occurred during text analysis: '{text[:50]}...'. Error: {e}")
             return 0.0
 
-    def generate_score(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
+    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
         """
         Generates a sentiment score based on a list of social media posts.
         """

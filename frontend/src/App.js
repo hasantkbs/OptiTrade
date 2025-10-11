@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
 import CryptoView from './components/CryptoView';
-import StockView from './components/StockView';
+
 
 function App() {
   const [symbol, setSymbol] = useState('BTC-USD');
   const [interval, setInterval] = useState('1d');
   const [rsiPeriod, setRsiPeriod] = useState(21); // Varsayılan olarak uzun vade RSI
-  const [view, setView] = useState('crypto'); // 'crypto' or 'stock'
+  
   const [analysisResult, setAnalysisResult] = useState(null);
   const [chartData, setChartData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -33,12 +33,10 @@ function App() {
     setAnalysisResult(null);
     setChartData([]);
 
-    const assetType = view;
-
     try {
       const [signalsResponse, chartResponse] = await Promise.all([
-        fetch(`/api/v1/signals?symbol=${symbol}&interval=${interval}&rsi_period=${rsiPeriod}&asset_type=${assetType}`),
-        fetch(`/api/v1/market_data?symbol=${symbol}&interval=${interval}&asset_type=${assetType}`)
+        fetch(`/api/v1/signals?symbol=${symbol}&interval=${interval}&rsi_period=${rsiPeriod}`),
+        fetch(`/api/v1/market_data?symbol=${symbol}&interval=${interval}`)
       ]);
 
       const signalsData = await signalsResponse.json();
@@ -59,11 +57,11 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [symbol, interval, rsiPeriod, view]);
+  }, [symbol, interval, rsiPeriod]);
 
   // WebSocket connection
   useEffect(() => {
-    const ws = new WebSocket(`ws://${window.location.host}/ws/${view}/${symbol}`);
+    const ws = new WebSocket(`ws://${window.location.host}/ws/crypto/${symbol}`);
     let titleInterval = null;
 
     ws.onopen = () => {
@@ -120,7 +118,7 @@ function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       document.title = "OptiTrade";
     };
-  }, [symbol, view, analysisResult]); // analysisResult bağımlılığı eklendi
+  }, [symbol, analysisResult]); // analysisResult bağımlılığı eklendi
 
   useEffect(() => {
     fetchData();
@@ -132,17 +130,14 @@ function App() {
         <h1>OptiTrade v2.0</h1>
         <p className="subtitle">Dinamik Sinyal Analiz Platformu</p>
         
-        <div className="view-selector">
-          <button onClick={() => setView('crypto')} className={view === 'crypto' ? 'active' : ''}>Kripto Analizi</button>
-          <button onClick={() => setView('stock')} className={view === 'stock' ? 'active' : ''}>Hisse Senedi Analizi</button>
-        </div>
+
 
         <div className="input-container">
           <input
             type="text"
             value={symbol}
             onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-            placeholder={view === 'crypto' ? "Sembol girin (örn: BTC-USD)" : "Sembol girin (örn: AAPL)"}
+            placeholder="Sembol girin (örn: BTC-USD)"
           />
           <select value={interval} onChange={(e) => setInterval(e.target.value)}>
             <option value="15m">15 Dakika</option>
@@ -158,7 +153,7 @@ function App() {
 
         {error && <div className="error-message">Hata: {error}</div>}
 
-        {analysisResult && view === 'crypto' && (
+        {analysisResult && (
           <CryptoView 
             symbol={symbol}
             interval={interval}
@@ -170,12 +165,7 @@ function App() {
           />
         )}
 
-        {analysisResult && view === 'stock' && (
-          <StockView 
-            symbol={symbol}
-            interval={interval}
-          />
-        )}
+
 
       </header>
     </div>

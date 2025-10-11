@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta
 import requests
 import pandas as pd
-import yfinance as yf
+
 from dotenv import load_dotenv
 from typing import Union, List, Dict
 import praw
@@ -39,20 +39,24 @@ class MarketDataHandler:
         self.cache_expiry_days = cache_expiry_days
         os.makedirs(self.cache_dir, exist_ok=True)
 
-    def _get_cache_filepath(self, asset_type: str, symbol: str, period: str, interval: str) -> str:
-        """Önbellek dosyasının yolunu oluşturur."""
-        return os.path.join(self.cache_dir, f"{asset_type}_{symbol.replace('-', '_')}_market_{period}_{interval}.csv")
+    def _get_cache_filepath(self, symbol: str, period: str, interval: str) -> str:
+        """
+        Önbellek dosyasının yolunu oluşturur.
+        """
+        return os.path.join(self.cache_dir, f"crypto_{symbol.replace('-', '_')}_market_{period}_{interval}.csv")
 
     def _is_cache_valid(self, filepath: str) -> bool:
-        """Önbellek dosyasının geçerli olup olmadığını kontrol eder."""
+        """
+        Önbellek dosyasının geçerli olup olmadığını kontrol eder.
+        """
         if not os.path.exists(filepath):
             return False
         file_mod_time = datetime.fromtimestamp(os.path.getmtime(filepath))
         return (datetime.now() - file_mod_time) <= timedelta(days=self.cache_expiry_days)
 
-    def fetch_data(self, asset_type: str, symbol: str, period: str, interval: str) -> pd.DataFrame:
+    def fetch_data(self, symbol: str, period: str, interval: str) -> pd.DataFrame:
         """Piyasa verilerini çeker, önbelleği kontrol eder ve gerekirse günceller."""
-        cache_filepath = self._get_cache_filepath(asset_type, symbol, period, interval)
+        cache_filepath = self._get_cache_filepath(symbol, period, interval)
 
         if self._is_cache_valid(cache_filepath):
             logger.info(f"Piyasa verisi önbellekten okunuyor: {cache_filepath}")
@@ -60,118 +64,88 @@ class MarketDataHandler:
 
         logger.info(f"Yeni piyasa verisi çekiliyor: {symbol} (Periyot: {period}, Aralık: {interval})")
         try:
-            ticker = yf.Ticker(symbol)
-            market_data = ticker.history(period=period, interval=interval)
+            # CoinGecko API'den veri çekme (basit bir örnek)
+            # Gerçek uygulamada interval ve period dönüşümleri daha karmaşık olabilir.
+            # 'symbol' genellikle 'bitcoin', 'ethereum' gibi coin ID'leri olmalı.
+            coin_id = symbol.lower().replace('-usd', '') # BTC-USD -> bitcoin
+            if not coin_id:
+                raise ValueError("Invalid symbol for CoinGecko API.")
+
+            # CoinGecko API için tarih aralığı hesaplama
+            end_date = datetime.now()
+            if period == "1d":
+                start_date = end_date - timedelta(days=1)
+            elif period == "7d":
+                start_date = end_date - timedelta(days=7)
+            elif period == "1mo":
+                start_date = end_date - timedelta(days=30)
+            elif period == "3mo":
+                start_date = end_date - timedelta(days=90)
+            elif period == "1y":
+                start_date = end_date - timedelta(days=365)
+            elif period == "max":
+                start_date = datetime(2010, 1, 1) # CoinGecko'nun başlangıcı
+            else:
+                start_date = end_date - timedelta(days=30) # Varsayılan
+
+            # CoinGecko API'si 'days' parametresi ile çalışır, 'interval' değil.
+            # Basitlik adına, 'interval'i 'days' parametresine dönüştürelim.
+            # Daha detaylı interval'ler için farklı endpoint'ler veya daha karmaşık mantık gerekebilir.
+            days_param = (end_date - start_date).days
+            if days_param == 0: days_param = 1 # En az 1 gün
+
+            coingecko_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
+            coingecko_params = {
+                "vs_currency": "usd",
+                "days": days_param
+            }
+            response = requests.get(coingecko_url, params=coingecko_params)
+            response.raise_for_status()
+            data = response.json()
+
+            prices = data.get('prices', [])
+            market_caps = data.get('market_caps', [])
+            total_volumes = data.get('total_volumes', [])
+
+            if not prices:
+                logger.warning(f"CoinGecko'dan {symbol} için veri bulunamadı.")
+                return pd.DataFrame()
+
+            df_prices = pd.DataFrame(prices, columns=['timestamp', 'Close'])
+            df_market_caps = pd.DataFrame(market_caps, columns=['timestamp', 'MarketCap'])
+            df_total_volumes = pd.DataFrame(total_volumes, columns=['timestamp', 'Volume'])
+
+            df = pd.merge(df_prices, df_market_caps, on='timestamp', how='left')
+            df = pd.merge(df, df_total_volumes, on='timestamp', how='left')
+
+            df['Date'] = pd.to_datetime(df['timestamp'], unit='ms')
+            df.set_index('Date', inplace=True)
+            df.drop('timestamp', axis=1, inplace=True)
+
+            # OHLC verisi oluşturmak için basit bir yaklaşım (CoinGecko sadece kapanış verir)
+            # Gerçek OHLC için başka bir API veya daha karmaşık hesaplama gerekebilir.
+            df['Open'] = df['Close'].shift(1) # Basitçe önceki kapanışı açılış yap
+            df['High'] = df['Close'].cummax() # Basitçe kümülatif max
+            df['Low'] = df['Close'].cummin() # Basitçe kümülatif min
+
+            # Sütunları yeniden sırala
+            market_data = df[['Open', 'High', 'Low', 'Close', 'Volume', 'MarketCap']]
+            market_data.index.name = 'Date'
+
             if not market_data.empty:
-                market_data.index.name = 'Date'
                 market_data.to_csv(cache_filepath)
                 logger.info(f"Piyasa verisi önbelleğe alındı: {cache_filepath}")
             return market_data
+        except requests.exceptions.RequestException as e:
+            logger.error(f"CoinGecko API ile veri çekilirken hata oluştu: {e}")
+            return pd.DataFrame()
         except Exception as e:
-            logger.error(f"yfinance ile veri çekilirken hata oluştu: {e}")
+            logger.error(f"Veri işlenirken hata oluştu: {e}")
             return pd.DataFrame()
 
-    def _get_financial_cache_filepath(self, symbol: str, statement_type: str) -> str:
-        """Finansal tablo için önbellek dosyasının yolunu oluşturur."""
-        return os.path.join(self.cache_dir, f"stock_{symbol.replace('-', '_')}_{statement_type}.json")
+    
 
-    def _get_info_cache_filepath(self, symbol: str) -> str:
-        """Ticker info için önbellek dosyasının yolunu oluşturur."""
-        return os.path.join(self.cache_dir, f"stock_{symbol.replace('-', '_')}_info.json")
 
-    def _get_risk_free_rate_cache_filepath(self) -> str:
-        """Risksiz faiz oranı için önbellek dosyasının yolunu oluşturur."""
-        return os.path.join(self.cache_dir, "risk_free_rate.json")
-
-    def fetch_financial_statement(self, symbol: str, statement_type: str) -> Union[Dict, None]:
-        """
-        Hisse senedi için finansal tablo verilerini (gelir tablosu, bilanço, nakit akışı) çeker.
-        Veriyi JSON olarak önbelleğe alır.
-        """
-        cache_filepath = self._get_financial_cache_filepath(symbol, statement_type)
-
-        if self._is_cache_valid(cache_filepath):
-            logger.info(f"Finansal tablo verisi önbellekten okunuyor: {cache_filepath}")
-            with open(cache_filepath, 'r') as f:
-                return json.load(f)
-
-        logger.info(f"Yeni finansal tablo verisi çekiliyor: {symbol} (Tablo: {statement_type})""")
-        try:
-            ticker = yf.Ticker(symbol)
-            data = None
-            if statement_type == "financials":
-                data = ticker.financials
-            elif statement_type == "balance_sheet":
-                data = ticker.balance_sheet
-            elif statement_type == "cashflow":
-                data = ticker.cashflow
-            
-            if data is not None and not data.empty:
-                # DataFrame'i JSON'a çevir
-                data_json = json.loads(data.to_json(orient="index"))
-                with open(cache_filepath, 'w') as f:
-                    json.dump(data_json, f)
-                logger.info(f"Finansal tablo verisi önbelleğe alındı: {cache_filepath}")
-                return data_json
-            return None
-        except Exception as e:
-            logger.error(f"yfinance ile finansal tablo verisi çekilirken hata oluştu: {e}")
-            return None
-
-    def fetch_ticker_info(self, symbol: str) -> Union[Dict, None]:
-        """
-        Hisse senedi için genel bilgileri (info) çeker.
-        Veriyi JSON olarak önbelleğe alır.
-        """
-        cache_filepath = self._get_info_cache_filepath(symbol)
-
-        if self._is_cache_valid(cache_filepath):
-            logger.info(f"Ticker bilgisi önbellekten okunuyor: {cache_filepath}")
-            with open(cache_filepath, 'r') as f:
-                return json.load(f)
-
-        logger.info(f"Yeni ticker bilgisi çekiliyor: {symbol}")
-        try:
-            ticker = yf.Ticker(symbol)
-            info = ticker.info
-            
-            if info:
-                with open(cache_filepath, 'w') as f:
-                    json.dump(info, f)
-                logger.info(f"Ticker bilgisi önbelleğe alındı: {cache_filepath}")
-                return info
-            return None
-        except Exception as e:
-            logger.error(f"yfinance ile ticker bilgisi çekilirken hata oluştu: {e}")
-            return None
-
-    def fetch_risk_free_rate(self) -> Union[float, None]:
-        """
-        Risksiz faiz oranını (10 yıllık ABD Hazine tahvili getirisi) çeker.
-        Veriyi JSON olarak önbelleğe alır.
-        """
-        cache_filepath = self._get_risk_free_rate_cache_filepath()
-
-        if self._is_cache_valid(cache_filepath):
-            logger.info(f"Risksiz faiz oranı önbellekten okunuyor: {cache_filepath}")
-            with open(cache_filepath, 'r') as f:
-                return json.load().get('rate')
-
-        logger.info("Yeni risksiz faiz oranı çekiliyor (^TNX)")
-        try:
-            tnx = yf.Ticker("^TNX")
-            # Son bir günün verisini çek ve en son kapanış fiyatını al
-            history = tnx.history(period="1d")
-            if not history.empty:
-                rate = history['Close'].iloc[-1] / 100 # Yüzdeye çevir
-                with open(cache_filepath, 'w') as f:
-                    json.dump({'rate': rate, 'timestamp': datetime.now().isoformat()}, f)
-                logger.info(f"Risksiz faiz oranı önbelleğe alındı: {rate:.4f}")
-                return rate
-            return None
-        except Exception as e:
-            logger.error(f"yfinance ile risksiz faiz oranı çekilirken hata oluştu: {e}")
-            return None
 
 class NewsDataHandler:
     """Çeşitli API'lerden haber verilerini çekmek için bir sınıf."""
@@ -326,7 +300,7 @@ class DataFetcher:
         self.onchain_handler = OnChainDataHandler()
         logger.info("DataFetcher servisi başlatıldı.")
 
-    def get_market_data(self, asset_type: str, symbol: str, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
+    def get_market_data(self, symbol: str, period: str = "1y", interval: str = "1d") -> pd.DataFrame:
         """
         Belirtilen sembol için piyasa verilerini (OHLCV) çeker.
 
@@ -339,41 +313,9 @@ class DataFetcher:
         Returns:
             pd.DataFrame: Piyasa verilerini içeren DataFrame.
         """
-        return self.market_handler.fetch_data(asset_type, symbol, period, interval)
+        return self.market_handler.fetch_data(symbol, period, interval)
 
-    def get_financial_statement(self, symbol: str, statement_type: str) -> Union[Dict, None]:
-        """
-        Belirtilen hisse senedi için finansal tablo verilerini çeker.
 
-        Args:
-            symbol (str): Hisse senedi sembolü (örn: "AAPL").
-            statement_type (str): Tablo tipi ("financials", "balance_sheet", "cashflow").
-
-        Returns:
-            dict: Finansal tablo verilerini içeren bir sözlük.
-        """
-        return self.market_handler.fetch_financial_statement(symbol, statement_type)
-
-    def get_ticker_info(self, symbol: str) -> Union[Dict, None]:
-        """
-        Belirtilen hisse senedi için genel bilgileri (info) çeker.
-
-        Args:
-            symbol (str): Hisse senedi sembolü (örn: "AAPL").
-
-        Returns:
-            dict: Ticker bilgilerini içeren bir sözlük.
-        """
-        return self.market_handler.fetch_ticker_info(symbol)
-
-    def get_risk_free_rate(self) -> Union[float, None]:
-        """
-        Risksiz faiz oranını (10 yıllık ABD Hazine tahvili getirisi) çeker.
-
-        Returns:
-            float: Risksiz faiz oranı.
-        """
-        return self.market_handler.fetch_risk_free_rate()
 
     def get_news(self, query: str) -> Union[Dict, None]:
         """
@@ -446,54 +388,3 @@ class DataFetcher:
         """
         return self.onchain_handler.fetch_btc_transaction_data(timespan)
 
-# Örnek Kullanım (Geliştirme ve test için)
-if __name__ == '__main__':
-    # Bu blok, modül doğrudan çalıştırıldığında çalışır.
-    # Komut satırı arayüzü veya test kodları buraya eklenebilir.
-    
-    logger.info("DataFetcher test ediliyor...")
-    fetcher = DataFetcher()
-
-    # 1. Piyasa Verisi Çekme Testi
-    btc_data = fetcher.get_market_data("BTC-USD", period="1mo", interval="1d")
-    if not btc_data.empty:
-        logger.info("BTC-USD Piyasa Verisi başarıyla çekildi.")
-        print(btc_data.head())
-    else:
-        logger.error("BTC-USD Piyasa Verisi çekilemedi.")
-
-    # 2. Haber Verisi Çekme Testi
-    news = fetcher.get_news("Bitcoin")
-    if news and news.get('articles'):
-        logger.info(f"'{news['totalResults']}' adet Bitcoin haberi bulundu.")
-        # İlk makalenin başlığını yazdır
-        print(f"İlk Haber Başlığı: {news['articles'][0]['title']}")
-    else:
-        logger.warning("Haber verisi çekilemedi veya bulunamadı.")
-
-    # 3. Sosyal Medya Verisi Çekme Testi
-    reddit_posts = fetcher.get_reddit_posts("BTC price", limit=5)
-    if reddit_posts:
-        logger.info(f"{len(reddit_posts)} adet Reddit gönderisi bulundu.")
-        # İlk gönderiyi yazdır
-        print(f"İlk Reddit Gönderisi: {reddit_posts[0][:100]}...")
-    else:
-        logger.warning("Reddit gönderisi çekilemedi veya bulunamadı.")
-
-    # 4. The Guardian Haber Verisi Çekme Testi
-    guardian_news = fetcher.get_guardian_news("Bitcoin")
-    if guardian_news and guardian_news.get('response', {}).get('results'):
-        logger.info(f"The Guardian'dan {len(guardian_news['response']['results'])} adet Bitcoin haberi bulundu.")
-        # İlk makalenin başlığını yazdır
-        print(f"İlk The Guardian Haberi: {guardian_news['response']['results'][0]['webTitle']}")
-    else:
-        logger.warning("The Guardian haberi çekilemedi veya bulunamadı.")
-
-    # 5. Twitter Verisi Çekme Testi
-    tweets = fetcher.get_tweets("#Bitcoin", limit=5)
-    if tweets:
-        logger.info(f"{len(tweets)} adet tweet bulundu.")
-        # İlk tweeti yazdır
-        print(f"İlk Tweet: {tweets[0][:100]}...")
-    else:
-        logger.warning("Tweet çekilemedi veya bulunamadı.")

@@ -24,20 +24,21 @@ class BaseModel(ABC):
         self.data_fetcher = data_fetcher
 
     @abstractmethod
-    def generate_score(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
+    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
         """
         Generates a trading signal score and related details for the given data.
 
         This method must be implemented by each subclass according to its own logic.
 
         Args:
-            data (pd.DataFrame): The input data for the model.
+            symbol (str): The symbol to predict for.
+            interval (str): The interval to predict for.
             **kwargs: Additional parameters that can be passed to the model.
 
         Returns:
             Dict[str, Any]: A dictionary containing at least the 'score' key.
                             Example: {'score': 0.75, 'details': 'Strong bullish signal'}
-        """
+                """
         pass
 
     @property

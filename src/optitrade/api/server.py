@@ -11,11 +11,11 @@ import asyncio
 from .. import config
 from ..utils.data_fetcher import DataFetcher
 from ..scoring.scoring_engine import ScoringEngine
-from ..database.database_handler import DatabaseHandler
-from ..realtime.binance_stream_handler import BinanceStreamHandler
-from ..realtime.stock_stream_handler import StockStreamHandler
-from ..realtime.processor import RealtimeProcessor
-from ..risk.portfolio_optimizer import PortfolioOptimizer
+
+
+
+
+
 
 # Loglama yapılandırması
 logging.basicConfig(
@@ -57,20 +57,17 @@ async def lifespan(app: FastAPI):
     logger.info("OptiTrade API başlatılıyor...")
     # Servisleri başlat
     data_fetcher = DataFetcher()
-    db_handler = DatabaseHandler()
-    scoring_engine = ScoringEngine(data_fetcher=data_fetcher, db_handler=db_handler)
+    scoring_engine = ScoringEngine(data_fetcher=data_fetcher)
     
     # Servisleri global sözlüğe kaydet
     app_lifespan_services["data_fetcher"] = data_fetcher
     app_lifespan_services["scoring_engine"] = scoring_engine
-    app_lifespan_services["db_handler"] = db_handler
     app_lifespan_services["realtime_processors"] = {}
     
     logger.info("Tüm servisler başarıyla başlatıldı.")
     yield
     # Uygulama kapandığında çalışacak kod (temizlik vb.)
     logger.info("OptiTrade API kapatılıyor...")
-    db_handler.close_connection()
     app_lifespan_services.clear()
 
 # FastAPI uygulamasını başlat
@@ -97,27 +94,20 @@ def get_scoring_engine() -> ScoringEngine:
 def get_data_fetcher() -> DataFetcher:
     return app_lifespan_services["data_fetcher"]
 
-@app.websocket("/ws/{asset_type}/{symbol}")
-async def websocket_endpoint(websocket: WebSocket, asset_type: str, symbol: str):
+@app.websocket("/ws/{symbol}")
+async def websocket_endpoint(websocket: WebSocket, symbol: str):
     await manager.connect(websocket)
     
-    processor_key = f"{asset_type}_{symbol}"
-    if processor_key not in app_lifespan_services["realtime_processors"]:
-        logger.info(f"Creating new realtime processor for {processor_key}")
-        if asset_type == 'crypto':
-            stream_handler = BinanceStreamHandler(on_message_callback=realtime_on_message)
-        elif asset_type == 'stock':
-            stream_handler = StockStreamHandler(on_message_callback=realtime_on_message)
-        else:
-            logger.error(f"Invalid asset type: {asset_type}")
-            return
-
-        processor = RealtimeProcessor(
-            stream_handler=stream_handler,
-            model_lookback_bars=200
-        )
-        app_lifespan_services["realtime_processors"][processor_key] = asyncio.create_task(processor.start(symbol, interval="1d")) # Assuming 1d for now
+        processor_key = f"crypto_{symbol}"
+            if processor_key not in app_lifespan_services["realtime_processors"]:
+                logger.info(f"Creating new realtime processor for {processor_key}")
+                # stream_handler = BinanceStreamHandler(on_message_callback=realtime_on_message) # Removed as per crypto-only focus
     
+            # processor = RealtimeProcessor(
+            #     stream_handler=stream_handler,
+            #     model_lookback_bars=200
+            # )
+            # app_lifespan_services["realtime_processors"][processor_key] = asyncio.create_task(processor.start(symbol, interval="1d")) # Assuming 1d for now    
     try:
         while True:
             await websocket.receive_text()
@@ -134,7 +124,6 @@ async def realtime_on_message(data: dict):
 
 @app.get("/api/v1/signals", response_model=Dict[str, Any])
 def get_trading_signals(
-    asset_type: str = Query("crypto", description="Varlık tipi (crypto veya stock)"),
     symbol: str = Query(..., description="Analiz edilecek finansal varlık sembolü (örn: BTC-USD)"),
     interval: str = Query("1d", description="Analiz aralığı (örn: 15m, 4h, 1d)"),
     rsi_period: Optional[int] = Query(None, description="RSI periyodu (örn: 14). Eğer belirtilmezse modelin varsayılan değeri kullanılır."),
@@ -165,7 +154,7 @@ def get_trading_signals(
 
     try:
         # Analiz ve tüm hesaplamalar artık ScoringEngine içinde yapılıyor
-        analysis_result = scoring_engine.run_engine(asset_type=asset_type, symbol=symbol, interval=interval, model_params=parsed_model_params)
+        analysis_result = scoring_engine.run_engine(symbol=symbol, interval=interval, model_params=parsed_model_params)
         return analysis_result
     except Exception as e:
         logger.error(f"Sinyal analizi sırasında hata oluştu: {e}", exc_info=True)
@@ -176,7 +165,6 @@ def get_trading_signals(
 
 @app.get("/api/v1/market_data", response_model=list[Dict[str, Any]])
 def get_market_data_for_chart(
-    asset_type: str = Query("crypto", description="Varlık tipi (crypto veya stock)"),
     symbol: str = Query(..., description="Grafik için finansal varlık sembolü (örn: BTC-USD)"),
     interval: str = Query("1d", description="Grafik için analiz aralığı (örn: 15m, 4h, 1d)"),
     data_fetcher: DataFetcher = Depends(get_data_fetcher)
@@ -187,7 +175,7 @@ def get_market_data_for_chart(
         period_map = {"15m": "60d", "4h": "730d", "1d": "5y", "1w": "10y", "1mo": "20y"}
         fetch_period = period_map.get(interval, "5y")
         
-        market_data = data_fetcher.get_market_data(asset_type=asset_type, symbol=symbol, period=fetch_period, interval=interval)
+        market_data = data_fetcher.get_market_data(symbol=symbol, period=fetch_period, interval=interval)
         
         if market_data.empty:
             return []
@@ -205,24 +193,6 @@ def get_market_data_for_chart(
             detail="Sunucu hatası: Grafik verisi çekilirken bir sorun oluştu."
         )
 
-@app.get("/api/v1/portfolio/optimize", response_model=Dict[str, Any])
-def optimize_portfolio(
-    symbols: str = Query(..., description="Comma-separated list of symbols (e.g., 'AAPL,MSFT,GOOG')."),
-    start_date: str = Query(..., description="Start date for historical data (YYYY-MM-DD)."),
-    end_date: str = Query(..., description="End date for historical data (YYYY-MM-DD)."),
-):
-    logger.info(f"Portfolio optimization request received for symbols: {symbols}, from {start_date} to {end_date}")
-    try:
-        symbol_list = [s.strip() for s in symbols.split(',')]
-        optimizer = PortfolioOptimizer()
-        optimal_portfolio = optimizer.optimize_portfolio(symbol_list, start_date, end_date)
-        return optimal_portfolio
-    except Exception as e:
-        logger.error(f"Error during portfolio optimization: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Server error during portfolio optimization: {e}"
-        )
 
 @app.get("/")
 def read_root():

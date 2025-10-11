@@ -21,10 +21,11 @@ class MachineLearningModel(BaseModel):
         self.model = self._load_model(self.interval)
         self.features = [
             'feature_price_change_1d', 'feature_price_change_3d', 'feature_price_change_7d',
+            'feature_price_change_1d_lag1', 'feature_price_change_1d_lag2', 'feature_price_change_1d_lag3',
             'feature_volatility_7d', 'feature_volatility_30d', 'feature_rsi_14d',
+            'feature_rsi_14d_lag1', 'feature_rsi_14d_lag2', 'feature_rsi_14d_lag3',
             'feature_macd', 'feature_macd_signal', 'feature_macd_diff',
-            'feature_sma_50', 'feature_sma_200', 'feature_price_vs_sma50',
-            'feature_pe_ratio', 'feature_pb_ratio', 'feature_de_ratio' # New financial ratio features
+            'feature_sma_50', 'feature_sma_200', 'feature_price_vs_sma50'
         ]
         self.required_data_points = 200 + 5
 
@@ -41,31 +42,36 @@ class MachineLearningModel(BaseModel):
         logger.info("Model loaded successfully.")
         return model
 
-    def generate_score(self, data: pd.DataFrame, financial_ratios: Optional[Dict[str, Any]] = None) -> float:
+    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
         if not self.model:
             logger.warning(f"'{self.name}': Model not loaded, skipping prediction.")
-            return 0.0
+            return {'score': 0.0, 'details': 'Model not loaded.'}
 
         logger.info(f"Running '{self.name}' model for interval '{self.interval}'...")
 
-        if data.empty or len(data) < self.required_data_points:
-            logger.warning(f"'{self.name}': Not enough data for prediction.")
-            return 0.0
+        try:
+            data = self.data_fetcher.get_historical_data(symbol, interval, limit=self.required_data_points)
+            if data.empty or len(data) < self.required_data_points:
+                logger.warning(f"'{self.name}': Not enough data for prediction.")
+                return {'score': 0.0, 'details': 'Not enough data.'}
 
-        data_with_features = create_features(data, interval=self.interval, financial_ratios=financial_ratios)
-        latest_features = data_with_features[self.features].iloc[-1:]
-        
-        if latest_features.isnull().values.any():
-            logger.warning(f"'{self.name}': Could not calculate features for the latest data (NaN values present).")
-            return 0.0
+            data_with_features = create_features(data, interval=self.interval)
+            latest_features = data_with_features[self.features].iloc[-1:]
+            
+            if latest_features.isnull().values.any():
+                logger.warning(f"'{self.name}': Could not calculate features for the latest data (NaN values present).")
+                return {'score': 0.0, 'details': 'Could not calculate features.'}
 
-        prediction_proba = self.model.predict_proba(latest_features)
-        probability_of_increase = prediction_proba[0][1]
+            prediction_proba = self.model.predict_proba(latest_features)
+            probability_of_increase = prediction_proba[0][1]
 
-        score = (probability_of_increase - 0.5) * 2
+            score = (probability_of_increase - 0.5) * 2
 
-        logger.info(f"'{self.name}' model result: Probability of Increase={probability_of_increase:.4f}, Score={score:.4f}")
-        return float(score)
+            logger.info(f"'{self.name}' model result: Probability of Increase={probability_of_increase:.4f}, Score={score:.4f}")
+            return {'score': float(score), 'details': f'Probability of increase: {probability_of_increase:.2f}'}
+        except Exception as e:
+            logger.error(f"An error occurred while running the '{self.name}' model: {e}", exc_info=True)
+            return {'score': 0.0, 'details': f"Error during model execution: {e}"}
 
     def retrain(self, data: pd.DataFrame):
         """

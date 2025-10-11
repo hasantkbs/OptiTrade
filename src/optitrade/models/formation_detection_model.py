@@ -21,18 +21,19 @@ class FormationDetectionModel(BaseModel):
         self.tolerance = kwargs.get('tolerance', 0.03)
         self.required_data_points = 150
 
-    def generate_score(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
+    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
         logger.info(f"Running '{self.name}' model...")
 
         # Update parameters if provided in kwargs
         self.extrema_order = kwargs.get('extrema_order', self.extrema_order)
         self.tolerance = kwargs.get('tolerance', self.tolerance)
 
-        if data.empty or len(data) < self.required_data_points:
-            logger.warning(f"'{self.name}': Not enough data. Returning neutral score.")
-            return {'score': 0.0, 'details': f"Not enough data. Need {self.required_data_points} data points, but got {len(data)}."}
-
         try:
+            data = self.data_fetcher.get_historical_data(symbol, interval, limit=self.required_data_points)
+            if data.empty or len(data) < self.required_data_points:
+                logger.warning(f"'{self.name}': Not enough data. Returning neutral score.")
+                return {'score': 0.0, 'details': f"Not enough data. Need {self.required_data_points} data points, but got {len(data)}."}
+
             prices = data['Close']
             score, details, formation_info = self._detect_head_and_shoulders(prices)
             if score == 0.0:
@@ -51,7 +52,6 @@ class FormationDetectionModel(BaseModel):
         except Exception as e:
             logger.error(f"An error occurred while running the '{self.name}' model: {e}", exc_info=True)
             return {'score': 0.0, 'details': f"Error during model execution: {e}"}
-
     def _get_extrema(self, prices: pd.Series) -> Tuple[pd.Series, pd.Series]:
         highs = prices.iloc[argrelextrema(prices.values, np.greater_equal, order=self.extrema_order)[0]]
         lows = prices.iloc[argrelextrema(prices.values, np.less_equal, order=self.extrema_order)[0]]

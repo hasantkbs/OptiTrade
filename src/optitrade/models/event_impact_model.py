@@ -17,14 +17,17 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-class EventImpactModel:
+from .base_model import BaseModel
+
+class EventImpactModel(BaseModel):
     """
     Önemli ekonomik/takvimsel olayların etkisini modelleyen model.
     Kullanır: Tarihsel haber-sonrası fiyat tepkisi analizi (basitleştirilmiş).
     Girdi: Olay tarihi, etkisi (FOMC, ETF onayı, vs.).
     Çıktı: Etki katsayısı.
     """
-    def __init__(self, decay_rate: float = 0.1):
+    def __init__(self, decay_rate: float = 0.1, **kwargs):
+        super().__init__(**kwargs)
         """
         Modeli başlatır ve önceden tanımlanmış olayları yükler.
         Gerçek bir uygulamada bu veriler bir veritabanından veya API'den çekilmelidir.
@@ -66,18 +69,10 @@ class EventImpactModel:
         ]
         self.decay_rate = decay_rate
 
-    def calculate_impact(self, current_date: datetime, lookback_days: int = 7, lookforward_days: int = 3) -> float:
-        """
-        Belirtilen tarihe yakın olayların etki katsayısını hesaplar.
-
-        Args:
-            current_date (datetime): Mevcut analiz tarihi.
-            lookback_days (int): Geçmişe dönük kaç gün içinde olay aranacağı.
-            lookforward_days (int): Geleceğe dönük kaç gün içinde olay aranacağı.
-
-        Returns:
-            float: Toplam etki katsayısı (genellikle -1.0 ile 1.0 arası).
-        """
+    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> float:
+        current_date = datetime.now()
+        lookback_days = kwargs.get('lookback_days', 7)
+        lookforward_days = kwargs.get('lookforward_days', 3)
         # current_date'i zaman dilimi bilgisinden arındır (tz-naive yap)
         if current_date.tzinfo is not None:
             current_date = current_date.replace(tzinfo=None)
@@ -104,45 +99,3 @@ class EventImpactModel:
 
         # Skoru -1.0 ile 1.0 arasına sıkıştır
         return max(-1.0, min(1.0, total_impact))
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Ekonomik/takvimsel olayların etki katsayısını hesaplar.')
-    parser.add_argument('--date', type=str, default=datetime.now().strftime('%Y-%m-%d'),
-                        help='Analiz edilecek tarih (YYYY-MM-DD formatında). Varsayılan: Bugün')
-    parser.add_argument('--decay_rate', type=float, default=0.1, help='Etkinin zamanla azalma oranı. Varsayılan: 0.1')
-
-    args = parser.parse_args()
-
-    try:
-        analysis_date = datetime.strptime(args.date, '%Y-%m-%d')
-    except ValueError:
-        logger.error("Hata: Geçersiz tarih formatı. Lütfen YYYY-MM-DD formatını kullanın.")
-        exit(1)
-
-    model = EventImpactModel(decay_rate=args.decay_rate)
-    impact_score = model.calculate_impact(analysis_date)
-
-    logger.info(f"--- {analysis_date.strftime('%Y-%m-%d')} için Olay Etki Analizi ---")
-    logger.info(f"Olay Etki Katsayısı: {impact_score:.2f}")
-
-    # Örnek olaylara yakın tarihlerle test
-    logger.info("--- Örnek Olaylara Yakın Tarihlerle Test ---")
-    test_dates = [
-        datetime(2024, 7, 24), # FOMC öncesi
-        datetime(2024, 7, 25), # FOMC günü
-        datetime(2024, 7, 26), # FOMC sonrası
-        datetime(2025, 1, 9),  # ETF onayı öncesi
-        datetime(2025, 1, 10), # ETF onayı günü
-        datetime(2025, 1, 11), # ETF onayı sonrası
-        datetime(2024, 9, 1),  # Olaylardan uzak bir tarih
-        datetime(2025, 7, 19), # Yeni eklenen olaylara yakın
-        datetime(2025, 7, 20), # Yeni eklenen olaylara yakın
-        datetime(2025, 7, 21), # Yeni eklenen olaylara yakın (bugün)
-        datetime(2025, 8, 4),  # Yeni eklenen olaylara yakın
-        datetime(2025, 8, 5),  # Yeni eklenen olaylara yakın
-        datetime(2025, 8, 6),  # Yeni eklenen olaylara yakın
-    ]
-
-    for date in test_dates:
-        score = model.calculate_impact(date)
-        logger.info(f"{date.strftime('%Y-%m-%d')} için Etki: {score:.2f}")
