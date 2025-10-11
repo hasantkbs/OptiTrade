@@ -19,7 +19,7 @@ class MarketConditionClassifier(BaseModel):
         self.adx_threshold = kwargs.get('adx_threshold', 25)
         self.required_data_points = self.adx_window * 2
 
-    def generate_score(self, data: pd.DataFrame, **kwargs) -> pd.Series: # Changed return type
+    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
         """
         Analyzes the market condition and returns a Series of regime classifications.
         """
@@ -29,11 +29,12 @@ class MarketConditionClassifier(BaseModel):
         self.adx_window = kwargs.get('adx_window', self.adx_window)
         self.adx_threshold = kwargs.get('adx_threshold', self.adx_threshold)
 
-        if data.empty or len(data) < self.required_data_points:
-            logger.warning(f"'{self.name}': Not enough data. Returning 'Unknown' regimes.")
-            return pd.Series("Unknown", index=data.index) # Return a Series of "Unknown"
-
         try:
+            data = self.data_fetcher.get_historical_data(symbol, interval, limit=self.required_data_points)
+            if data.empty or len(data) < self.required_data_points:
+                logger.warning(f"'{self.name}': Not enough data. Returning 'Unknown' regimes.")
+                return {"regime": "Unknown"}
+
             # ADX and +/-DI indicators
             adx_indicator = ta.trend.ADXIndicator(
                 high=data['High'],
@@ -41,29 +42,26 @@ class MarketConditionClassifier(BaseModel):
                 close=data['Close'],
                 window=self.adx_window
             )
-            adx = adx_indicator.adx()
-            di_pos = adx_indicator.adx_pos()
-            di_neg = adx_indicator.adx_neg()
+            adx = adx_indicator.adx().iloc[-1]
+            di_pos = adx_indicator.adx_pos().iloc[-1]
+            di_neg = adx_indicator.adx_neg().iloc[-1]
 
-            # Initialize a Series for regimes
-            regimes = pd.Series("Unknown", index=data.index)
+            regime = "Unknown"
+            if adx > self.adx_threshold:
+                if di_pos > di_neg:
+                    regime = "Strong Bull Trend"
+                else:
+                    regime = "Strong Bear Trend"
+            else:
+                if di_pos > di_neg:
+                    regime = "Weak Bull Trend"
+                else:
+                    regime = "Weak Bear Trend"
 
-            # Vectorized classification
-            strong_trend_condition = adx > self.adx_threshold
-            bull_trend_condition = di_pos > di_neg
-
-            regimes[strong_trend_condition & bull_trend_condition] = "Strong Bull Trend"
-            regimes[strong_trend_condition & ~bull_trend_condition] = "Strong Bear Trend"
-            regimes[~strong_trend_condition & bull_trend_condition] = "Weak Bull Trend"
-            regimes[~strong_trend_condition & ~bull_trend_condition] = "Weak Bear Trend"
-
-            # Handle NaN values that might result from indicator calculations
-            regimes = regimes.fillna("Unknown")
-
-            logger.info(f"'{self.name}' result: Regimes generated for {len(regimes)} data points.")
+            logger.info(f"'{self.name}' result: Regime is {regime}.")
             
-            return regimes
+            return {"regime": regime}
 
         except Exception as e:
             logger.error(f"An error occurred while running '{self.name}': {e}", exc_info=True)
-            return pd.Series("Unknown", index=data.index) # Return a Series of "Unknown" on error
+            return {"regime": "Unknown"}

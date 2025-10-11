@@ -188,7 +188,7 @@ MODEL_WEIGHTS_DEFAULT = {
     "SupportResistanceModel": 0.1,
     "DivergenceDetectionModel": 0.1,
     "FormationDetectionModel": 0.1,
-    "FinancialRatioModel": 0.1, # Hisse senetleri için
+    "FibonacciModel": 0.1,
 }
 
 # Güçlü Trend (yükselen veya düşen)
@@ -203,7 +203,6 @@ MODEL_WEIGHTS_STRONG_TREND = {
     "SupportResistanceModel": 0.1,
     "DivergenceDetectionModel": 0.15,
     "FormationDetectionModel": 0.0,
-    "FinancialRatioModel": 0.0, # Trendde daha az önemli
 }
 
 # Yatay Piyasa (menkul kıymet belirli bir aralıkta işlem gördüğünde)
@@ -218,54 +217,5 @@ MODEL_WEIGHTS_RANGING = {
     "SupportResistanceModel": 0.2,
     "DivergenceDetectionModel": 0.15,
     "FormationDetectionModel": 0.1,
-    "FinancialRatioModel": 0.1, # Yatayda daha önemli
 }
 
-# -----------------------------------------------------------------------------
-# MODEL AĞIRLIKLARI - HİSSE SENEDİ (STOCK MODEL WEIGHTS)
-# -----------------------------------------------------------------------------
-
-# Varsayılan (bilinmeyen veya karmaşık rejimler için) - Hisse Senedi
-MODEL_WEIGHTS_STOCK_DEFAULT = {
-    "MarketConditionClassifier": 0,
-    "PriceTrendModel": 0.20,
-    "VolumeSurgeModel": 0.10,
-    "NewsSentimentModel": 0.15,
-    "SocialSentimentModel": 0.0, # Hisse senetleri için daha az güvenilir
-    "OnChainModel": 0.0, # Hisse senetleri için geçerli değil
-    "CorrelationModel": 0.1,
-    "SupportResistanceModel": 0.1,
-    "DivergenceDetectionModel": 0.1,
-    "FormationDetectionModel": 0.05,
-    "FinancialRatioModel": 0.2, # Hisse senetleri için önemli
-}
-
-# Güçlü Trend (yükselen veya düşen) - Hisse Senedi
-MODEL_WEIGHTS_STOCK_STRONG_TREND = {
-    "MarketConditionClassifier": 0,
-    "PriceTrendModel": 0.35,
-    "VolumeSurgeModel": 0.15,
-    "NewsSentimentModel": 0.1,
-    "SocialSentimentModel": 0.0,
-    "OnChainModel": 0.0,
-    "CorrelationModel": 0.05,
-    "SupportResistanceModel": 0.1,
-    "DivergenceDetectionModel": 0.1,
-    "FormationDetectionModel": 0.0,
-    "FinancialRatioModel": 0.15, # Trendde de temel analiz önemli
-}
-
-# Yatay Piyasa (menkul kıymet belirli bir aralıkta işlem gördüğünde) - Hisse Senedi
-MODEL_WEIGHTS_STOCK_RANGING = {
-    "MarketConditionClassifier": 0,
-    "PriceTrendModel": 0.1,
-    "VolumeSurgeModel": 0.1,
-    "NewsSentimentModel": 0.15,
-    "SocialSentimentModel": 0.0,
-    "OnChainModel": 0.0,
-    "CorrelationModel": 0.1,
-    "SupportResistanceModel": 0.15,
-    "DivergenceDetectionModel": 0.1,
-    "FormationDetectionModel": 0.05,
-    "FinancialRatioModel": 0.25, # Yatayda temel analiz daha da önemli
-}

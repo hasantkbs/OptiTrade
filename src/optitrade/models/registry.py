@@ -6,17 +6,18 @@ Merkezi bir noktadan modellere erişim sağlayarak modülerliği artırır.
 """
 import logging
 from .. import config
+from typing import Dict
 
 from .price_trend_model import PriceTrendModel
 # from .volume_surge_model import VolumeSurgeModel
-from .news_sentiment_model import NewsSentimentModel
-from .social_sentiment_model import SocialSentimentModel
+
 from .support_resistance_model import SupportResistanceModel
 from .divergence_detection_model import DivergenceDetectionModel
 from .event_impact_model import EventImpactModel
 from .market_condition_classifier import MarketConditionClassifier
 from .recommendation_model import RecommendationModel
 from .scalping_model import ScalpingModel # Yeni model eklendi
+from .fibonacci_model import FibonacciModel
 
 # Loglama yapılandırması
 logging.basicConfig(
@@ -35,14 +36,14 @@ logger = logging.getLogger(__name__)
 MODEL_REGISTRY = {
     "PriceTrendModel": PriceTrendModel,
     # "VolumeSurgeModel": VolumeSurgeModel, # Temporarily disabled
-    "NewsSentimentModel": NewsSentimentModel,
-    "SocialSentimentModel": SocialSentimentModel,
+
     "SupportResistanceModel": SupportResistanceModel,
     "DivergenceDetectionModel": DivergenceDetectionModel,
     "EventImpactModel": EventImpactModel,
     "MarketConditionClassifier": MarketConditionClassifier,
     "RecommendationModel": RecommendationModel,
     "ScalpingModel": ScalpingModel, # Yeni model eklendi
+    "FibonacciModel": FibonacciModel,
 }
 
 def initialize_models() -> dict:

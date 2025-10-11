@@ -19,7 +19,7 @@ class PriceTrendModel(BaseModel):
     def __init__(self):
         super().__init__()
 
-    def generate_score(self, data: pd.DataFrame, **kwargs) -> pd.Series: # Changed return type
+    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
         logger.info(f"Running '{self.name}' model...")
 
         # Parametreleri kwargs'tan veya config'den al
@@ -35,17 +35,19 @@ class PriceTrendModel(BaseModel):
 
         required_data_points = max(rsi_window, macd_slow, sma_long, bollinger_window, adx_window) + 5
 
-        if data.empty or len(data) < required_data_points:
-            logger.warning(f"'{self.name}': Not enough data ({len(data)}/{required_data_points}). Returning neutral scores.")
-            return pd.Series(0.0, index=data.index) # Return a Series of zeros
-
         try:
+            data = self.data_fetcher.get_historical_data(symbol, interval, limit=required_data_points)
+            if data.empty or len(data) < required_data_points:
+                logger.warning(f"'{self.name}': Not enough data ({len(data)}/{required_data_points}). Returning neutral scores.")
+                return {'score': 0.0, 'details': 'Not enough data.'}
+
             scores = self._calculate_score(data, rsi_window, macd_fast, macd_slow, macd_sign, sma_short, sma_long, bollinger_window, bollinger_std, adx_window, **kwargs)
-            logger.info(f"'{self.name}' model result: Scores generated for {len(scores)} data points.")
-            return scores
+            score = scores.iloc[-1]
+            logger.info(f"'{self.name}' model result: Score is {score}.")
+            return {'score': score, 'details': f'Price trend score: {score:.2f}'}
         except Exception as e:
             logger.error(f"An error occurred while running the '{self.name}' model: {e}", exc_info=True)
-            return pd.Series(0.0, index=data.index) # Return a Series of zeros on error
+            return {'score': 0.0, 'details': f'Error during model execution: {e}'}
     def _calculate_score(self, data: pd.DataFrame, rsi_window: int, macd_fast: int, macd_slow: int, macd_sign: int, sma_short: int, sma_long: int, bollinger_window: int, bollinger_std: float, adx_window: int, **kwargs) -> pd.Series:
         data = data.copy()
         scores = pd.Series(0.0, index=data.index) # Initialize scores Series
