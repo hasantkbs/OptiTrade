@@ -23,7 +23,11 @@ class SupportResistanceModel(BaseModel):
         self.required_data_points = self.order * 2 + 5
 
     def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
-        logger.info(f"Running '{self.name}' model...")
+        logger.info(f"Running '{self.name}' model for {symbol} {interval}...")
+
+        data = kwargs.get('data')
+        if not isinstance(data, pd.DataFrame) or data.empty:
+            raise ValueError("SupportResistanceModel requires a non-empty pandas DataFrame in 'data' kwarg.")
 
         # Update parameters if provided in kwargs
         self.order = kwargs.get('order', self.order)
@@ -31,26 +35,21 @@ class SupportResistanceModel(BaseModel):
         self.atr_tolerance_multiplier = kwargs.get('atr_tolerance_multiplier', self.atr_tolerance_multiplier)
         self.required_data_points = self.order * 2 + 5
 
-        try:
-            # Fetch more historical data
-            data = self.data_fetcher.get_historical_data(symbol, interval, limit=500)
-            if data.empty or len(data) < self.required_data_points:
-                logger.warning(f"'{self.name}': Not enough data. Returning neutral score.")
-                return {'score': 0.0, 'details': f"Not enough data. Need {self.required_data_points} data points, but got {len(data)}."}
+        if len(data) < self.required_data_points:
+            logger.warning(f"'{self.name}': Not enough data ({len(data)}/{self.required_data_points}). Returning neutral score.")
+            return {'score': 0.0, 'details': f"Not enough data. Need {self.required_data_points} data points, but got {len(data)}."}
 
-            atr = kwargs.get('atr')
-            dynamic_tolerance = self.tolerance # Varsayılan olarak yüzde tabanlı tolerans
-            if atr is not None and atr > 0 and not data['Close'].empty:
-                # ATR tabanlı dinamik tolerans hesapla
-                dynamic_tolerance = (atr * self.atr_tolerance_multiplier) / data['Close'].iloc[-1]
-                logger.debug(f"SupportResistanceModel: ATR tabanlı dinamik tolerans: {dynamic_tolerance:.4f}")
+        atr = kwargs.get('atr') # ATR might be passed from another model or calculated internally
+        dynamic_tolerance = self.tolerance # Varsayılan olarak yüzde tabanlı tolerans
+        if atr is not None and atr > 0 and not data['close'].empty:
+            # ATR tabanlı dinamik tolerans hesapla
+            dynamic_tolerance = (atr * self.atr_tolerance_multiplier) / data['close'].iloc[-1]
+            logger.debug(f"SupportResistanceModel: ATR tabanlı dinamik tolerans: {dynamic_tolerance:.4f}")
 
-            result = self._calculate_score_and_levels(data['Close'], self.order, dynamic_tolerance)
-            logger.info(f"'{self.name}' model result: Score={result['score']:.4f}")
-            return result
-        except Exception as e:
-            logger.error(f"An error occurred while running the '{self.name}' model: {e}", exc_info=True)
-            return {'score': 0.0, 'details': f"Error during model execution: {e}"}
+        result = self._calculate_score_and_levels(data['close'], self.order, dynamic_tolerance)
+        logger.info(f"'{self.name}' model result for {symbol} {interval}: Score={result['score']:.4f}")
+        return result
+
     def _find_levels(self, price_series: pd.Series, order: int) -> Tuple[List[float], List[float]]:
         local_min_indices = argrelextrema(price_series.values, np.less_equal, order=order)[0]
         local_max_indices = argrelextrema(price_series.values, np.greater_equal, order=order)[0]

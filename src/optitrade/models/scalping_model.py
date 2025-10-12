@@ -31,12 +31,16 @@ class ScalpingModel(BaseModel):
     def predict(self, symbol: str, interval: str = '1m', **kwargs) -> Dict[str, Any]:
         logger.debug(f"ScalpingModel: predict called with interval: {interval}")
 
+        data = kwargs.get('data')
+        if not isinstance(data, pd.DataFrame) or data.empty:
+            raise ValueError("ScalpingModel requires a non-empty pandas DataFrame in 'data' kwarg.")
+
         # Interval'e göre pencere boyutlarını ayarla
         if interval == '1m':
             fast_ma_window = 3
             slow_ma_window = 8
             rsi_window = 5
-        elif interval == '5m':
+        elif interval == '5m': # This interval is not streamed, but kept for completeness
             fast_ma_window = 5
             slow_ma_window = 13
             rsi_window = 7
@@ -44,54 +48,49 @@ class ScalpingModel(BaseModel):
             fast_ma_window = 8
             slow_ma_window = 21
             rsi_window = 9
-        elif interval == '30m' or interval == '60m' or interval == '1h':
+        elif interval == '30m' or interval == '60m' or interval == '1h': # These intervals are not streamed, but kept for completeness
             fast_ma_window = 13
             slow_ma_window = 34
             rsi_window = 14
-        else: # 1d, 1wk, 1mo ve diğerleri için varsayılan değerler
+        else: # 4h, 1w, 1M ve diğerleri için varsayılan değerler
             fast_ma_window = self.fast_ma_window
             slow_ma_window = self.slow_ma_window
             rsi_window = self.rsi_window
 
-        try:
-            data = self.data_fetcher.get_historical_data(symbol, interval, limit=max(fast_ma_window, slow_ma_window, rsi_window) + 5)
-            if data.empty or len(data) < max(fast_ma_window, slow_ma_window, rsi_window):
-                logger.warning("ScalpingModel: Yeterli veri yok. Nötr skor döndürülüyor.")
-                return {'score': 0.0, 'details': 'Not enough data.'}
+        required_data_points = max(fast_ma_window, slow_ma_window, rsi_window) + 5 # Add some buffer
+        if len(data) < required_data_points:
+            logger.warning(f"ScalpingModel: Yeterli veri yok ({len(data)}/{required_data_points}). Nötr skor döndürülüyor.")
+            return {'score': 0.0, 'details': 'Not enough data.'}
 
-            close_prices = data['close']
+        close_prices = data['close']
 
-            # Kısa vadeli hareketli ortalamalar
-            fast_ma = ta.trend.sma_indicator(close_prices, window=fast_ma_window)
-            slow_ma = ta.trend.sma_indicator(close_prices, window=slow_ma_window)
+        # Kısa vadeli hareketli ortalamalar
+        fast_ma = ta.trend.sma_indicator(close_prices, window=fast_ma_window)
+        slow_ma = ta.trend.sma_indicator(close_prices, window=slow_ma_window)
 
-            # RSI
-            rsi = ta.momentum.rsi(close_prices, window=rsi_window)
+        # RSI
+        rsi = ta.momentum.rsi(close_prices, window=rsi_window)
 
-            score = 0.0
+        score = 0.0
 
-            # MA Kesişimleri
-            if not fast_ma.empty and not slow_ma.empty and \
-               not pd.isna(fast_ma.iloc[-1]) and not pd.isna(slow_ma.iloc[-1]) and \
-               not pd.isna(fast_ma.iloc[-2]) and not pd.isna(slow_ma.iloc[-2]):
-                
-                # Altın Kesişim (Golden Cross) - Alım sinyali
-                if fast_ma.iloc[-1] > slow_ma.iloc[-1] and fast_ma.iloc[-2] <= slow_ma.iloc[-2]:
-                    score += 0.5
-                # Ölüm Kesişimi (Death Cross) - Satış sinyali
-                elif fast_ma.iloc[-1] < slow_ma.iloc[-1] and fast_ma.iloc[-2] >= slow_ma.iloc[-2]:
-                    score -= 0.5
+        # MA Kesişimleri
+        if not fast_ma.empty and not slow_ma.empty and \
+           not pd.isna(fast_ma.iloc[-1]) and not pd.isna(slow_ma.iloc[-1]) and \
+           not pd.isna(fast_ma.iloc[-2]) and not pd.isna(slow_ma.iloc[-2]):
+            
+            # Altın Kesişim (Golden Cross) - Alım sinyali
+            if fast_ma.iloc[-1] > slow_ma.iloc[-1] and fast_ma.iloc[-2] <= slow_ma.iloc[-2]:
+                score += 0.5
+            # Ölüm Kesişimi (Death Cross) - Satış sinyali
+            elif fast_ma.iloc[-1] < slow_ma.iloc[-1] and fast_ma.iloc[-2] >= slow_ma.iloc[-2]:
+                score -= 0.5
 
-            # RSI Aşırı Alım/Satım
-            if not rsi.empty and not pd.isna(rsi.iloc[-1]):
-                if rsi.iloc[-1] > self.rsi_overbought:
-                    score -= 0.3 # Aşırı alım, satış baskısı
-                elif rsi.iloc[-1] < self.rsi_oversold:
-                    score += 0.3 # Aşırı satım, alış baskısı
+        # RSI Aşırı Alım/Satım
+        if not rsi.empty and not pd.isna(rsi.iloc[-1]):
+            if rsi.iloc[-1] > self.rsi_overbought:
+                score -= 0.3 # Aşırı alım, satış baskısı
+            elif rsi.iloc[-1] < self.rsi_oversold:
+                score += 0.3 # Aşırı satım, alış baskısı
 
-            # Skoru -1.0 ile 1.0 arasına normalize et
-            return {'score': float(np.tanh(score)), 'details': f'Scalping score: {float(np.tanh(score)):.2f}'}
-        except Exception as e:
-            logger.error(f"An error occurred while running the '{self.name}' model: {e}", exc_info=True)
-            return {'score': 0.0, 'details': f"Error during model execution: {e}"}
-
+        # Skoru -1.0 ile 1.0 arasına normalize et
+        return {'score': float(np.tanh(score)), 'details': f'Scalping score: {float(np.tanh(score)):.2f}'}
