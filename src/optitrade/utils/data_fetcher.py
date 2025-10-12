@@ -64,35 +64,33 @@ class MarketDataHandler:
 
         logger.info(f"Yeni piyasa verisi çekiliyor: {symbol} (Periyot: {period}, Aralık: {interval})")
         try:
-            # CoinGecko API'den veri çekme (basit bir örnek)
-            # Gerçek uygulamada interval ve period dönüşümleri daha karmaşık olabilir.
-            # 'symbol' genellikle 'bitcoin', 'ethereum' gibi coin ID'leri olmalı.
-            coin_id = symbol.lower().replace('-usd', '') # BTC-USD -> bitcoin
+            # CoinGecko API'den veri çekme
+            coin_map = {
+                "BTC-USD": "bitcoin",
+                "ETH-USD": "ethereum"
+            }
+            coin_id = coin_map.get(symbol, symbol.lower().replace('-usd', ''))
             if not coin_id:
-                raise ValueError("Invalid symbol for CoinGecko API.")
+                raise ValueError(f"Invalid symbol for CoinGecko API: {symbol}")
 
             # CoinGecko API için tarih aralığı hesaplama
             end_date = datetime.now()
-            if period == "1d":
-                start_date = end_date - timedelta(days=1)
-            elif period == "7d":
-                start_date = end_date - timedelta(days=7)
-            elif period == "1mo":
-                start_date = end_date - timedelta(days=30)
-            elif period == "3mo":
-                start_date = end_date - timedelta(days=90)
-            elif period == "1y":
-                start_date = end_date - timedelta(days=365)
+            if period.endswith('d'):
+                days = int(period[:-1])
+                start_date = end_date - timedelta(days=days)
+            elif period.endswith('mo'):
+                months = int(period[:-2])
+                start_date = end_date - timedelta(days=months * 30)
+            elif period.endswith('y'):
+                years = int(period[:-1])
+                start_date = end_date - timedelta(days=years * 365)
             elif period == "max":
-                start_date = datetime(2010, 1, 1) # CoinGecko'nun başlangıcı
+                start_date = datetime(2010, 1, 1)
             else:
                 start_date = end_date - timedelta(days=30) # Varsayılan
 
-            # CoinGecko API'si 'days' parametresi ile çalışır, 'interval' değil.
-            # Basitlik adına, 'interval'i 'days' parametresine dönüştürelim.
-            # Daha detaylı interval'ler için farklı endpoint'ler veya daha karmaşık mantık gerekebilir.
             days_param = (end_date - start_date).days
-            if days_param == 0: days_param = 1 # En az 1 gün
+            if days_param <= 0: days_param = 1
 
             coingecko_url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart"
             coingecko_params = {

@@ -47,10 +47,10 @@ def main():
     fetcher = DataFetcher()
     
     # Interval'e göre veri çekme periyodunu ayarla
-    period_map = {"15m": "60d", "4h": "730d", "1d": "5y"}
+    period_map = {"15m": "60d", "4h": "730d", "1d": "365d"}
     fetch_period = period_map.get(current_interval, "5y")
 
-    data = fetcher.get_market_data(asset_type=asset_type, symbol=current_symbol, period=fetch_period, interval=current_interval)
+    data = fetcher.get_market_data(symbol=current_symbol, period=fetch_period, interval=current_interval)
     if data.empty:
         logging.error("Veri çekilemedi. Eğitim durduruldu.")
         return
@@ -71,13 +71,7 @@ def main():
 
     # 4. Hedef (Target) Oluşturma
     logging.info("Hedef değişken oluşturuluyor (7 gün sonrası için fiyat artışı)...")
-    # Hedef değişkenin look_forward_days değerini interval'e göre ölçeklendir
-    # _get_scaling_factor fonksiyonu model_utils.py'den kaldırıldığı için burada manuel olarak ölçeklendirme yapalım
-    scaling_factor = 1.0
-    if current_interval == "4h": scaling_factor = 6.0 / 24.0 # 4 saatlik bar, günlük barın 1/6'sı
-    elif current_interval == "15m": scaling_factor = 15.0 / (24.0 * 60.0) # 15 dakikalık bar, günlük barın 1/96'sı
-
-    look_forward_days = max(1, int(7 * scaling_factor)) # 7 günlük hedefi ölçeklendir
+    look_forward_days = 7 # Use a fixed 7-day look-forward period for target creation
     data['target'] = create_target(data, look_forward_days=look_forward_days)
 
     # 5. Veri Temizleme ve Hazırlama
@@ -87,7 +81,16 @@ def main():
         logging.error("Özellik ve hedef oluşturulduktan sonra veri kalmadı. Eğitim durduruldu.")
         return
 
-    features = [col for col in data.columns if col.startswith('feature_')]
+    features = [
+        'feature_price_change_1d', 'feature_price_change_3d', 'feature_price_change_7d',
+        'feature_price_change_1d_lag1', 'feature_price_change_1d_lag2', 'feature_price_change_1d_lag3',
+        'feature_volatility_7d', 'feature_volatility_30d', 'feature_rsi_14d',
+        'feature_rsi_14d_lag1', 'feature_rsi_14d_lag2', 'feature_rsi_14d_lag3',
+        'feature_macd', 'feature_macd_signal', 'feature_macd_diff',
+        'feature_sma_50', 'feature_sma_200', 'feature_price_vs_sma50'
+    ]
+    # Ensure all required features are present in the dataframe
+    features = [f for f in features if f in data.columns]
     X = data[features]
     y = data['target']
     logging.info(f"{len(X.columns)} adet özellik ile eğitim yapılacak: {X.columns.tolist()}")

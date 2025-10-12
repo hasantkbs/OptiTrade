@@ -5,7 +5,7 @@ OptiTrade is an AI-powered trading signal generation and analysis platform. It a
 ## Key Features & Enhancements
 
 -   **Modular & Extensible Architecture:** Core components (Data Fetching, Models, Scoring Engine, API) are designed for modularity, allowing easy integration of new models and data sources.
--   **Centralized Data Fetching (`DataFetcher`):** A unified service for fetching market data (historical via yfinance, real-time via Binance WebSocket), news, and social media sentiment.
+-   **Centralized Data Fetching (`DataFetcher`):** A unified service for fetching market data (historical via CoinGecko, real-time via Binance WebSocket), news, and social media sentiment.
 -   **Diverse & Standardized Financial Models:**
     -   **Price Trend Model:** Analyzes price movements using RSI, MACD, SMA, and ADX.
     -   **Volume Surge Model:** Detects anomalies in trading volume and their impact.
@@ -66,11 +66,19 @@ Follow these steps to set up and run the OptiTrade project on your local machine
     ```
 
 4.  **Train Machine Learning Models (Crucial for ML Model Functionality):**
-    The Machine Learning model needs to be trained for each desired analysis interval. Run the following commands:
+    The Machine Learning model needs to be trained for each desired analysis interval. Run the following commands. 
+    **Note:** Historical data for training is fetched from the CoinGecko API. The free API has limitations on the amount of data you can request. For periods longer than 1 year, you may need a paid CoinGecko API key.
     ```bash
+    # Train for BTC-USD with 1-day interval (fetches 365 days of data)
     python scripts/train_model.py --interval 1d --symbol BTC-USD
+
+    # Train for BTC-USD with 4-hour interval (fetches 730 days of data)
     python scripts/train_model.py --interval 4h --symbol BTC-USD
+    
+    # Train for BTC-USD with 15-minute interval (fetches 60 days of data)
     python scripts/train_model.py --interval 15m --symbol BTC-USD
+
+    # Train for a stock symbol (e.g., AAPL)
     python scripts/train_model.py --interval 1d --symbol AAPL
     ```
 
