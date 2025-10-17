@@ -9,15 +9,15 @@ from .. import config
 from typing import Dict
 
 from .price_trend_model import PriceTrendModel
-# from .volume_surge_model import VolumeSurgeModel
-
 from .support_resistance_model import SupportResistanceModel
 from .divergence_detection_model import DivergenceDetectionModel
 from .event_impact_model import EventImpactModel
 from .market_condition_classifier import MarketConditionClassifier
 from .recommendation_model import RecommendationModel
-from .scalping_model import ScalpingModel # Yeni model eklendi
+from .scalping_model import ScalpingModel
 from .fibonacci_model import FibonacciModel
+from .financial_ratio_model import FinancialRatioModel
+from .on_chain_model import OnChainModel
 
 # Loglama yapılandırması
 logging.basicConfig(
@@ -32,27 +32,22 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Modelleri bir sözlükte (dictionary) kaydedelim.
-# Anahtar: modelin adı (küçük harf), Değer: modelin sınıfı.
 MODEL_REGISTRY = {
     "PriceTrendModel": PriceTrendModel,
-    # "VolumeSurgeModel": VolumeSurgeModel, # Temporarily disabled
-
     "SupportResistanceModel": SupportResistanceModel,
     "DivergenceDetectionModel": DivergenceDetectionModel,
     "EventImpactModel": EventImpactModel,
     "MarketConditionClassifier": MarketConditionClassifier,
     "RecommendationModel": RecommendationModel,
-    "ScalpingModel": ScalpingModel, # Yeni model eklendi
+    "ScalpingModel": ScalpingModel,
     "FibonacciModel": FibonacciModel,
+    "FinancialRatioModel": FinancialRatioModel,
+    "OnChainModel": OnChainModel,
 }
 
 def initialize_models() -> dict:
     """
     Kayıt defterindeki tüm modelleri başlatır ve bir sözlük olarak döndürür.
-
-    Returns:
-        dict: Başlatılmış model nesnelerini içeren bir sözlük.
-              Örnek: {'price_trend': PriceTrendModel(), ...}
     """
     logger.info("Kayıt defterindeki tüm modeller başlatılıyor...")
     initialized_models = {name: model_class() for name, model_class in MODEL_REGISTRY.items()}
@@ -62,12 +57,6 @@ def initialize_models() -> dict:
 def get_model(name: str):
     """
     Kayıtlı adı kullanarak tek bir modelin bir örneğini döndürür.
-
-    Args:
-        name (str): Kayıt defterindeki modelin adı.
-
-    Returns:
-        İstenen modelin bir örneği veya bulunamazsa None.
     """
     model_class = MODEL_REGISTRY.get(name)
     if model_class:

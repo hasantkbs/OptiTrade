@@ -1,6 +1,0 @@
-{
-    "rsi_window": 10,
-    "macd_fast_window": 10,
-    "macd_slow_window": 20,
-    "macd_signal_window": 5
-}

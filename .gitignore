@@ -123,3 +123,4 @@ dmypy.json
 
 # data files
 data/
+\n# Keras models\n*.h5
