@@ -4,45 +4,35 @@ import ta
 from typing import Dict, Any
 
 from .base_model import BaseModel
-from ..utils.data_fetcher import DataFetcher
+from .. import config
 
 logger = logging.getLogger(__name__)
 
 class MarketConditionClassifier(BaseModel):
     """
     ADX ve +/-DI göstergelerini kullanarak mevcut piyasa rejimini sınıflandırır.
-    Bu model bir al/sat 'skoru' üretmez, bunun yerine bir 'rejim' tanımı döndürür.
     """
     def __init__(self, **kwargs):
         super().__init__()
-        self.adx_window = kwargs.get('adx_window', 14)
-        self.adx_threshold = kwargs.get('adx_threshold', 25)
+        self.adx_window = kwargs.get('adx_window', config.MARKET_CLASSIFIER_ADX_WINDOW)
+        self.adx_threshold = kwargs.get('adx_threshold', config.MARKET_CLASSIFIER_ADX_THRESHOLD)
         self.required_data_points = self.adx_window * 2
 
-    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
+    def predict(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
         """
         Analyzes the market condition and returns a Series of regime classifications.
         """
-        logger.info(f"Running '{self.name}' model for {symbol} {interval}...")
+        logger.info(f"Running '{self.name}' model...")
         
-        data = kwargs.get('data')
-        if not isinstance(data, pd.DataFrame) or data.empty:
-            raise ValueError("MarketConditionClassifier requires a non-empty pandas DataFrame in 'data' kwarg.")
-
-        # Update parameters if provided in kwargs
-        self.adx_window = kwargs.get('adx_window', self.adx_window)
-        self.adx_threshold = kwargs.get('adx_threshold', self.adx_threshold)
-        self.required_data_points = self.adx_window * 2 # Ensure enough data for ADX calculation
-
-        if len(data) < self.required_data_points:
-            logger.warning(f"'{self.name}': Not enough data ({len(data)}/{self.required_data_points}). Returning 'Unknown' regimes.")
-            return {'score': 0.0, "details": "Regime: Unknown (Not enough data)"}
+        if data.empty or len(data) < self.required_data_points:
+            logger.warning(f"'{self.name}': Not enough data ({len(data)}/{self.required_data_points}). Returning 'Unknown'.")
+            return {'score': 0.0, "regime": "Unknown", "details": "Not enough data"}
 
         # ADX and +/-DI indicators
         adx_indicator = ta.trend.ADXIndicator(
-            high=data['high'],
-            low=data['low'],
-            close=data['close'],
+            high=data['High'],
+            low=data['Low'],
+            close=data['Close'],
             window=self.adx_window
         )
         adx = adx_indicator.adx().iloc[-1]
@@ -61,7 +51,6 @@ class MarketConditionClassifier(BaseModel):
             else:
                 regime = "Weak Bear Trend"
 
-        logger.info(f"'{self.name}' result for {symbol} {interval}: Regime is {regime}.")
+        logger.info(f"'{self.name}' result: Regime is {regime}.")
         
-        # Return a score (dummy 0.0) and details including the regime
-        return {'score': 0.0, "details": f"Regime: {regime}"}
+        return {'score': 0.0, "regime": regime, "details": f"Regime: {regime}"}

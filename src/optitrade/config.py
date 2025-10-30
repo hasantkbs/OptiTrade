@@ -32,6 +32,14 @@ REDDIT_CLIENT_ID = os.getenv("kSlf5qJ1Po-OxCL3qs-Vhw")
 REDDIT_CLIENT_SECRET = os.getenv("vtSpZN21CugAvTGkfAUzTR2D3znvBw")
 REDDIT_USER_AGENT = os.getenv("REDDIT_USER_AGENT", "OptiTrade_App/1.0")
 
+# -----------------------------------------------------------------------------
+# REDIS YAPILANDIRMASI
+# -----------------------------------------------------------------------------
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+REDIS_DB = int(os.getenv("REDIS_DB", 0))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+
 # Twitter API
 TWITTER_API_KEY = os.getenv("XYSpRPvbYoGfnyyLEhfRAV2Ui")
 TWITTER_API_SECRET_KEY = os.getenv("YvQ2jVwiaUOrAxDNS40uoEyOxuM8NYzErL5jiMU31L8FovQnOx")
@@ -137,6 +145,16 @@ FORMATION_REQUIRED_DATA_POINTS = 150
 # ADX göstergesi için pencere boyutu ve trend eşiği.
 MARKET_CLASSIFIER_ADX_WINDOW = 14
 MARKET_CLASSIFIER_ADX_THRESHOLD = 25
+
+
+# -----------------------------------------------------------------------------
+# MACD VE BOLLINGER BANDS MODELLERİ İÇİN YAPILANDIRMA
+# -----------------------------------------------------------------------------
+MACD_FAST_PERIOD = 12
+MACD_SLOW_PERIOD = 26
+MACD_SIGNAL_PERIOD = 9
+BB_WINDOW = 20
+BB_WINDOW_DEV = 2
 
 
 # -----------------------------------------------------------------------------

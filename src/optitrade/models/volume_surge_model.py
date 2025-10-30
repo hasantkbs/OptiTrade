@@ -23,7 +23,7 @@ class VolumeSurgeModel(BaseModel):
         self.obv_influence = kwargs.get('obv_influence', config.VOLUME_SURGE_OBV_INFLUENCE)
         self.required_data_points = self.volume_ma_window + 5
 
-    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
+    def predict(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
         logger.info(f"Running '{self.name}' model...")
 
         # Update parameters if provided in kwargs
@@ -33,7 +33,6 @@ class VolumeSurgeModel(BaseModel):
         self.required_data_points = self.volume_ma_window + 5
 
         try:
-            data = self.data_fetcher.get_historical_data(symbol, interval, limit=self.required_data_points)
             if data.empty or len(data) < self.required_data_points:
                 logger.warning(f"'{self.name}': Not enough data. Returning neutral score.")
                 return {'score': 0.0, 'details': f"Not enough data. Need {self.required_data_points} data points, but got {len(data)}."}
@@ -44,6 +43,7 @@ class VolumeSurgeModel(BaseModel):
         except Exception as e:
             logger.error(f"An error occurred while running the '{self.name}' model: {e}", exc_info=True)
             return {'score': 0.0, 'details': f"Error during model execution: {e}"}
+            
     def _calculate_score(self, data: pd.DataFrame, volume_ma_window: int) -> Tuple[float, str]:
         data = data.copy()
         details = []
@@ -68,8 +68,8 @@ class VolumeSurgeModel(BaseModel):
         # --- OBV (On-Balance Volume) Score ---
         obv = ta.volume.on_balance_volume(data['Close'], data['Volume'])
         obv_score = 0.0
-        if len(obv) > 1:
-            obv_change = np.sign(obv.iloc[-1] - obv.iloc[-2])
+        if len(obv) > 1 and not obv.isnull().all():
+            obv_change = np.sign(obv.diff().iloc[-1])
             obv_score = obv_change * self.obv_influence
             if obv_change > 0: details.append("OBV Uptrend")
             elif obv_change < 0: details.append("OBV Downtrend")

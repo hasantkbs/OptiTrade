@@ -3,63 +3,42 @@ import pandas as pd
 from typing import Dict, Any
 
 from .base_model import BaseModel
-from ..utils.data_fetcher import DataFetcher
+from .. import config
 
-# Loglama yapılandırması
 logger = logging.getLogger(__name__)
 
 class OnChainModel(BaseModel):
     """
-    Zincir üstü verileri (örn: işlem sayısı) analiz ederek bir ticaret sinyali üretir.
+    Analyzes on-chain data (e.g., transaction volume, active addresses) to generate a score.
+    This is a placeholder and needs a real on-chain data provider.
     """
-    def __init__(self, data_fetcher: DataFetcher, short_window: int = 14, long_window: int = 50):
-        super().__init__(data_fetcher)
-        self.short_window = short_window
-        self.long_window = long_window
+    def __init__(self, **kwargs):
+        super().__init__()
+        self.short_window = kwargs.get('short_window', config.ONCHAIN_SHORT_WINDOW)
+        self.long_window = kwargs.get('long_window', config.ONCHAIN_LONG_WINDOW)
 
-    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
-        """
-        Günlük işlem sayısının hareketli ortalamalarını analiz eder.
-        """
-        # Bu model BTC'ye özgüdür, bu yüzden sembolü kontrol edebiliriz.
-        if 'BTC' not in symbol.upper():
-            return {"score": 0.0, "details": "Bu model sadece BTC için geçerlidir."}
+    def predict(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
+        logger.info(f"Running '{self.name}' model...")
 
-        logger.info(f"'{self.name}' modeli çalıştırılıyor...")
+        # On-chain data is not typically in the main market data DataFrame.
+        # This model would need a dedicated on-chain data fetcher.
+        # For now, we simulate a signal based on market volume as a proxy.
+        if 'Volume' not in data.columns or data['Volume'].isnull().all():
+            return {'score': 0.0, 'details': 'On-chain data (Volume) not available.'}
+
+        short_vol_ma = data['Volume'].rolling(window=self.short_window).mean().iloc[-1]
+        long_vol_ma = data['Volume'].rolling(window=self.long_window).mean().iloc[-1]
+
+        if short_vol_ma > long_vol_ma * 1.2:
+            score = 0.4
+            details = "On-chain activity (volume) is increasing."
+        elif short_vol_ma < long_vol_ma * 0.8:
+            score = -0.4
+            details = "On-chain activity (volume) is decreasing."
+        else:
+            score = 0.0
+            details = "On-chain activity (volume) is neutral."
         
-        try:
-            # Zincir üstü veriyi çek (son 1 yıl yeterli olacaktır)
-            onchain_data = self.data_fetcher.get_btc_transaction_data(timespan="1year")
+        logger.info(f"'{self.name}' model result: {details}")
+        return {'score': score, 'details': details}
 
-            if not onchain_data or "values" not in onchain_data or len(onchain_data["values"]) < self.long_window:
-                logger.warning(f"'{self.name}': Yeterli zincir üstü veri bulunamadı.")
-                return {"score": 0.0, "details": "Yetersiz zincir üstü veri."}
-
-            # Veriyi pandas Series'e dönüştür
-            values = [item['y'] for item in onchain_data["values"]]
-            tx_series = pd.Series(values)
-
-            # Hareketli ortalamaları hesapla
-            short_sma = tx_series.rolling(window=self.short_window).mean()
-            long_sma = tx_series.rolling(window=self.long_window).mean()
-
-            if short_sma.empty or long_sma.empty:
-                 return {"score": 0.0, "details": "Hareketli ortalamalar hesaplanamadı."}
-
-            # En son SMA değerlerini karşılaştır
-            latest_short_sma = short_sma.iloc[-1]
-            latest_long_sma = long_sma.iloc[-1]
-
-            if latest_short_sma > latest_long_sma:
-                score = 0.7
-                details = f"Pozitif on-chain momentum: Kısa vadeli işlem ortalaması ({self.short_window} gün), uzun vadelinin ({self.long_window} gün) üzerinde."
-            else:
-                score = -0.7
-                details = f"Negatif on-chain momentum: Kısa vadeli işlem ortalaması ({self.short_window} gün), uzun vadelinin ({self.long_window} gün) altında."
-            
-            logger.info(f"'{self.name}' modeli sonucu: Skor={score:.4f}")
-            return {"score": score, "details": details}
-
-        except Exception as e:
-            logger.error(f"'{self.name}' skoru hesaplanırken hata oluştu: {e}", exc_info=True)
-            return {"score": 0.0, "details": "Model çalışırken hata oluştu."}

@@ -7,7 +7,6 @@ from typing import Dict, Any, Tuple
 
 from .base_model import BaseModel
 from .. import config
-from ..utils.data_fetcher import DataFetcher
 
 # Loglama yapılandırması
 logger = logging.getLogger(__name__)
@@ -19,12 +18,8 @@ class PriceTrendModel(BaseModel):
     def __init__(self):
         super().__init__()
 
-    def predict(self, symbol: str, interval: str = "1d", **kwargs) -> Dict[str, Any]:
-        logger.info(f"Running '{self.name}' model for {symbol} {interval}...")
-
-        data = kwargs.get('data')
-        if not isinstance(data, pd.DataFrame) or data.empty:
-            raise ValueError("PriceTrendModel requires a non-empty pandas DataFrame in 'data' kwarg.")
+    def predict(self, data: pd.DataFrame, **kwargs) -> Dict[str, Any]:
+        logger.info(f"Running '{self.name}' model...")
 
         # Parametreleri kwargs'tan veya config'den al
         rsi_window = kwargs.get('rsi_window', config.PRICE_TREND_RSI_WINDOW)
@@ -45,7 +40,7 @@ class PriceTrendModel(BaseModel):
 
         scores = self._calculate_score(data, rsi_window, macd_fast, macd_slow, macd_sign, sma_short, sma_long, bollinger_window, bollinger_std, adx_window, **kwargs)
         score = scores.iloc[-1]
-        logger.info(f"'{self.name}' model result for {symbol} {interval}: Score is {score:.4f}.")
+        logger.info(f"'{self.name}' model result: Score is {score:.4f}.")
         return {'score': score, 'details': f'Price trend score: {score:.2f}'}
 
     def _calculate_score(self, data: pd.DataFrame, rsi_window: int, macd_fast: int, macd_slow: int, macd_sign: int, sma_short: int, sma_long: int, bollinger_window: int, bollinger_std: float, adx_window: int, **kwargs) -> pd.Series:
@@ -53,13 +48,13 @@ class PriceTrendModel(BaseModel):
         scores = pd.Series(0.0, index=data.index) # Initialize scores Series
 
         # Calculate indicators
-        rsi = ta.momentum.rsi(data['close'], window=rsi_window)
-        macd_diff = ta.trend.macd_diff(data['close'], window_fast=macd_fast, window_slow=macd_slow, window_sign=macd_sign)
-        sma_short_val = ta.trend.sma_indicator(data['close'], window=sma_short)
-        sma_long_val = ta.trend.sma_indicator(data['close'], window=sma_long)
-        adx = ta.trend.adx(data['high'], data['low'], data['close'], window=adx_window)
-        adx_pos = ta.trend.adx_pos(data['high'], data['low'], data['close'], window=adx_window)
-        adx_neg = ta.trend.adx_neg(data['high'], data['low'], data['close'], window=adx_window)
+        rsi = ta.momentum.rsi(data['Close'], window=rsi_window)
+        macd_diff = ta.trend.macd_diff(data['Close'], window_fast=macd_fast, window_slow=macd_slow, window_sign=macd_sign)
+        sma_short_val = ta.trend.sma_indicator(data['Close'], window=sma_short)
+        sma_long_val = ta.trend.sma_indicator(data['Close'], window=sma_long)
+        adx = ta.trend.adx(data['High'], data['Low'], data['Close'], window=adx_window)
+        adx_pos = ta.trend.adx_pos(data['High'], data['Low'], data['Close'], window=adx_window)
+        adx_neg = ta.trend.adx_neg(data['High'], data['Low'], data['Close'], window=adx_window)
 
         # Define weights for each indicator's contribution
         weights = kwargs.get('indicator_weights', config.PRICE_TREND_INDICATOR_WEIGHTS)
@@ -71,7 +66,7 @@ class PriceTrendModel(BaseModel):
         scores += ((rsi < 30) * (30 - rsi) / 30 * weights.get('rsi_oversold', 0.5)).fillna(0)
 
         # MACD
-        scores += (macd_diff / data['close'] * weights.get('macd_momentum', 5.0)).fillna(0)
+        scores += (macd_diff / data['Close'] * weights.get('macd_momentum', 5.0)).fillna(0)
 
         # SMA
         scores += ((sma_short_val > sma_long_val) * weights.get('sma_golden_cross', 0.15)).fillna(0)

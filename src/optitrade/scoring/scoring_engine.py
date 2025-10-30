@@ -1,138 +1,103 @@
-
 import logging
-import pkgutil
-import inspect
 import json
-import os
 from typing import Dict, Any
 
 import numpy as np
-import ta
 
 from .. import config
-from .. import models
 from ..models.registry import MODEL_REGISTRY
 from ..models.base_model import BaseModel
 from ..utils.data_fetcher import DataFetcher
-
-
-
-# MarketConditionClassifier modelini özel olarak içe aktar
-from ..models.market_condition_classifier import MarketConditionClassifier
 
 logger = logging.getLogger(__name__)
 
 class ScoringEngine:
     """
-    Piyasa rejimini tespit eder, dinamik olarak model ağırlıklarını seçer,
-    tüm modelleri çalıştırır ve nihai bir skor üretir.
+    Runs all valid models, determines market regime, and aggregates their results
+    using dynamic, regime-based weighting to produce a final score.
     """
     def __init__(self, data_fetcher: DataFetcher):
         self.data_fetcher = data_fetcher
-
-        # Varlık tipine göre tüm ağırlık profillerini yükle
-        self.weight_profiles = {
-            "crypto": {
-                "DEFAULT": config.MODEL_WEIGHTS_DEFAULT,
-                "STRONG_TREND": config.MODEL_WEIGHTS_STRONG_TREND,
-                "RANGING": config.MODEL_WEIGHTS_RANGING
-            }
-        }
         self.models = self._load_models()
 
-        self.optimized_parameters = self._load_optimized_parameters()
+    def _load_models(self) -> Dict[str, BaseModel]:
+        logger.info("Loading models...")
+        loaded_models = {}
+        broken_models = ["RecommendationModel", "FinancialRatioModel"]
 
-    def _load_optimized_parameters(self) -> Dict[str, Any]:
-        """Loads optimized parameters from JSON files."""
-        optimized_params = {}
-        for filename in os.listdir("."):
-            if filename.startswith("optimized_parameters_") and filename.endswith(".json"):
-                try:
-                    with open(filename, "r") as f:
-                        parts = filename.replace("optimized_parameters_", "").replace(".json", "").split("_")
-                        model_name = parts[0]
-                        symbol = parts[1]
-                        interval = parts[2]
-                        if model_name not in optimized_params:
-                            optimized_params[model_name] = {}
-                        if symbol not in optimized_params[model_name]:
-                            optimized_params[model_name][symbol] = {}
-                        optimized_params[model_name][symbol][interval] = json.load(f)
-                except Exception as e:
-                    logger.error(f"Error loading optimized parameters from {filename}: {e}")
-        return optimized_params
+        for model_name, model_class in MODEL_REGISTRY.items():
+            if model_name in broken_models:
+                logger.warning(f"Skipping broken/abstract model: {model_name}")
+                continue
+            try:
+                loaded_models[model_name] = model_class()
+            except Exception as e:
+                logger.error(f"Failed to initialize model '{model_name}': {e}")
+        logger.info(f"{len(loaded_models)} models loaded successfully: {list(loaded_models.keys())}")
+        return loaded_models
 
     def _normalize_weights(self, weights: Dict[str, float]) -> Dict[str, float]:
-        """Verilen ağırlık setinin toplamını 1'e normalize eder."""
+        """Normalizes a given set of weights to sum to 1."""
         total_weight = sum(weights.values())
         if total_weight > 0:
             return {name: w / total_weight for name, w in weights.items()}
         return weights
 
-    def _load_models(self) -> Dict[str, BaseModel]:
-        logger.info("Modeller yükleniyor...")
-        loaded_models = {}
-        
-        for model_name, model_class in MODEL_REGISTRY.items():
-            if issubclass(model_class, BaseModel) and model_class is not BaseModel and not inspect.isabstract(model_class):
-                logger.info(f"'{model_name}' modeli başlatılıyor...")
-                try:
-                    # Modelin __init__ metodunun 'data_fetcher' argümanı alıp almadığını kontrol et
-                    init_signature = inspect.signature(model_class.__init__)
-                    if 'data_fetcher' in init_signature.parameters:
-                        loaded_models[model_name] = model_class(data_fetcher=self.data_fetcher)
-                    else:
-                        loaded_models[model_name] = model_class()
-                except Exception as e:
-                    logger.error(f"'{model_name}' modeli başlatılırken bir hata oluştu: {e}")
-        logger.info(f"{len(loaded_models)} adet model başarıyla yüklendi: {list(loaded_models.keys())}")
-        return loaded_models
-
     def _select_weights(self, regime: str) -> Dict[str, float]:
-        """Piyasa rejimine göre uygun ağırlık profilini seçer."""
-        asset_profiles = self.weight_profiles["crypto"] # Varlık tipi yoksa kripto varsay
-        
-        selected_weights = {}
+        """Selects the appropriate weight profile based on the market regime."""
         if "Strong" in regime:
-            logger.info(f"Rejim '{regime}' -> GÜÇLÜ TREND ağırlıkları seçildi.")
-            selected_weights = asset_profiles["STRONG_TREND"]
-        elif "Weak" in regime:
-            logger.info(f"Rejim '{regime}' -> YATAY PİYASA ağırlıkları seçildi.")
-            selected_weights = asset_profiles["RANGING"]
-        else: # Unknown veya diğer durumlar için
-            logger.info(f"Rejim '{regime}' -> VARSAYILAN ağırlıklar seçildi.")
-            selected_weights = asset_profiles["DEFAULT"]
+            logger.info(f"Regime '{regime}' -> Selecting STRONG_TREND weights.")
+            return config.MODEL_WEIGHTS_STRONG_TREND
+        elif "Weak" in regime or "Ranging" in regime:
+            logger.info(f"Regime '{regime}' -> Selecting RANGING weights.")
+            return config.MODEL_WEIGHTS_RANGING
+        else: # Default/Unknown
+            logger.info(f"Regime '{regime}' -> Selecting DEFAULT weights.")
+            return config.MODEL_WEIGHTS_DEFAULT
 
-        return selected_weights
+    def run_engine(self, symbol: str, interval: str = "1d", model_params: Dict[str, Any] = None) -> Dict[str, Any]:
+        if model_params is None:
+            model_params = {}
 
-    def run_engine(self, symbol: str, interval: str = "1d") -> Dict[str, Any]:
-        """
-        Tüm modelleri çalıştırır ve nihai bir skor ve diğer analiz sonuçlarını üretir.
-        """
-        market_regime = self.models["MarketConditionClassifier"].predict(symbol, interval)['regime']
-        logger.info(f"Piyasa Rejimi Belirlendi: {market_regime}")
+        is_stock = '.' in symbol
+        asset_type = "stock" if is_stock else "crypto"
 
+        data = self.data_fetcher.get_market_data(symbol, asset_type, interval=interval, period="1y")
+        if data.empty:
+            logger.warning(f"Could not fetch market data for '{symbol}'. Aborting analysis.")
+            return {"error": "Market data not available."}
+
+        all_results = {}
+        logger.info(f"Running analysis for {symbol}...")
+
+        for model_name, model_instance in self.models.items():
+            if is_stock and model_name == "OnChainModel":
+                logger.info("Skipping OnChainModel for stock analysis.")
+                continue
+
+            try:
+                params = model_params.get(model_name, {})
+                model_result = model_instance.predict(data=data.copy(), **params)
+                all_results[model_name] = model_result
+            except Exception as e:
+                logger.error(f"Error running model '{model_name}': {e}", exc_info=True)
+                all_results[model_name] = {'error': str(e)}
+
+        # --- Dynamic Weighted Scoring ---
+        market_regime = all_results.get("MarketConditionClassifier", {}).get("regime", "Unknown")
         active_weights = self._select_weights(market_regime)
         normalized_weights = self._normalize_weights(active_weights)
-        logger.info(f"Aktif Ağırlıklar ({market_regime}): {json.dumps(normalized_weights, indent=2)}")
-
+        
+        logger.info(f"Calculating final score with weights for regime '{market_regime}'.")
         final_score = 0.0
-        all_results = {}
+        for model_name, result in all_results.items():
+            if model_name in normalized_weights and 'score' in result:
+                model_score = result.get('score', 0.0)
+                weight = normalized_weights[model_name]
+                final_score += model_score * weight
+                logger.debug(f"  - {model_name}: (Score: {model_score:.2f} * Weight: {weight:.2f}) -> Partial: {model_score * weight:.2f}")
 
-        logger.info(f"Scoring Engine, '{symbol}' için '{market_regime}' rejiminde çalıştırılıyor...")
-        for model_name, weight in normalized_weights.items():
-            if model_name in self.models:
-                try:
-                    model_result = self.models[model_name].predict(symbol, interval)
-                    all_results[model_name] = model_result
-                    final_score += model_result.get('score', 0.0) * weight
-                except Exception as e:
-                    logger.error(f"'{model_name}' modeli çalıştırılırken hata oluştu: {e}", exc_info=True)
-            else:
-                logger.warning(f"Model '{model_name}' bulunamadı. Ağırlık uygulanmayacak.")
+        all_results['final_score'] = np.tanh(final_score)
 
-        final_score = np.tanh(final_score)
-        all_results['final_score'] = final_score
-
-        logger.info(f"Scoring Engine tamamlandı. Nihai Skor: {final_score:.4f}")
+        logger.info(f"Scoring Engine finished. Final Score: {all_results['final_score']:.4f}")
         return all_results

@@ -6,7 +6,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, L
 const modelDisplayNameMap = {
   'MarketConditionClassifier': 'Piyasa Rejimi',
   'PriceTrendModel': 'Fiyat Trendi',
-  'VolumeSurgeModel': 'Hacim Artışı',
+  'VolumeSurgeModel': 'Hacim Analizi',
   'NewsSentimentModel': 'Haber Sent.',
   'SocialSentimentModel': 'Sosyal Sent.',
   'SupportResistanceModel': 'Destek/Direnç',
@@ -17,16 +17,9 @@ const modelDisplayNameMap = {
   'OnChainModel': 'On-Chain',
   'CorrelationModel': 'Korelasyon',
   'DCFModel': 'DCF Modeli',
-};
-
-// Modelleri kategorilere ayır
-const modelCategories = {
-  'Trend': ['PriceTrendModel', 'MachineLearningModel'],
-  'Momentum': ['VolumeSurgeModel', 'DivergenceDetectionModel'],
-  'Yapı': ['SupportResistanceModel', 'FormationDetectionModel'],
-  'Duyarlılık': ['NewsSentimentModel', 'SocialSentimentModel'],
-  'Değerleme': ['DCFModel'],
-  'Bağlam': ['MacroEconomicModel', 'OnChainModel', 'CorrelationModel'],
+  'MACDModel': 'MACD',
+  'BollingerBandsModel': 'Bollinger Bantları',
+  'FibonacciModel': 'Fibonacci Seviyeleri',
 };
 
 const getPredictionDirection = (score) => {
@@ -40,36 +33,23 @@ const CryptoView = ({
   interval,
   analysisResult,
   chartData,
-  support,
-  resistance,
-  formation,
   priceFlash
 }) => {
 
   // Model çıktılarını grafik ve liste için uygun formata dönüştür
-  const modelOutputsData = analysisResult && analysisResult.model_outputs ? 
-    Object.entries(analysisResult.model_outputs).map(([key, value]) => ({
-      name: modelDisplayNameMap[key] || key, // Eşleşme bulunamazsa sınıf adını kullan
-      score: value.score,
-      details: value.details
-    })) : [];
+  const modelOutputsData = analysisResult ? 
+    Object.entries(analysisResult)
+      .filter(([key]) => modelDisplayNameMap[key] && typeof analysisResult[key] === 'object' && analysisResult[key] !== null && 'score' in analysisResult[key])
+      .map(([key, value]) => ({
+        name: modelDisplayNameMap[key] || key,
+        score: value.score,
+        details: value.details
+      })) : [];
 
-  // Kategori skorlarını hesapla
-  const categoryScores = Object.keys(modelCategories).map(categoryName => {
-    const modelsInCat = modelCategories[categoryName];
-    let totalScore = 0;
-    let count = 0;
-    modelsInCat.forEach(modelKey => {
-      if (analysisResult && analysisResult.model_outputs && analysisResult.model_outputs[modelKey]) {
-        totalScore += analysisResult.model_outputs[modelKey].score;
-        count++;
-      }
-    });
-    return {
-      category: categoryName,
-      score: count > 0 ? totalScore / count : 0,
-    };
-  });
+  const fibonacciLevels = analysisResult?.FibonacciModel?.levels;
+  const support = analysisResult?.SupportResistanceModel?.support;
+  const resistance = analysisResult?.SupportResistanceModel?.resistance;
+  const formation = analysisResult?.FormationDetectionModel;
 
   return (
     <div className="results-container crypto-grid">
@@ -100,6 +80,39 @@ const CryptoView = ({
           )}
         </div>
       </div>
+
+      {/* Çekirdek Teknik Analiz Göstergeleri */}
+      <div className="grid-core-analysis">
+        <h3>Teknik Göstergeler</h3>
+        <div className="summary-grid">
+          {analysisResult.MACDModel && analysisResult.MACDModel.signal !== 'Neutral' && (
+            <div className="summary-item tech-indicator">
+              <p>MACD Sinyali</p>
+              <span className={analysisResult.MACDModel.signal === 'Bullish' ? 'score-positive' : 'score-negative'}>
+                {analysisResult.MACDModel.signal}
+              </span>
+              <small>{analysisResult.MACDModel.details}</small>
+            </div>
+          )}
+          {analysisResult.BollingerBandsModel && analysisResult.BollingerBandsModel.signal !== 'Neutral' && (
+            <div className="summary-item tech-indicator">
+              <p>Bollinger Bandı</p>
+              <span className={analysisResult.BollingerBandsModel.signal === 'Oversold' ? 'score-positive' : 'score-negative'}>
+                {analysisResult.BollingerBandsModel.signal}
+              </span>
+              <small>{analysisResult.BollingerBandsModel.details}</small>
+            </div>
+          )}
+          {analysisResult.VolumeSurgeModel && analysisResult.VolumeSurgeModel.score !== 0 && (
+            <div className="summary-item tech-indicator">
+              <p>Hacim Analizi</p>
+              <span className={analysisResult.VolumeSurgeModel.score > 0 ? 'score-positive' : 'score-negative'}>
+                {analysisResult.VolumeSurgeModel.details}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
       
       {/* Fiyat Grafiği */}
       {chartData.length > 0 && (
@@ -114,7 +127,7 @@ const CryptoView = ({
                 domain={['dataMin', 'dataMax']} 
                 tickFormatter={(tick) => {
                   if (tick > 1000) return `${(tick / 1000).toFixed(1)}k`;
-                  return tick.toFixed(2); // Ensure 2 decimal places for smaller numbers
+                  return tick.toFixed(2);
                 }}
                 tick={{ fontSize: 10 }}
               />
@@ -131,43 +144,43 @@ const CryptoView = ({
                 dot={false} 
                 formatter={(value) => value.toFixed(2)}
               />
-              {support && <ReferenceLine y={support} label="Support" stroke="green" />}
-              {resistance && <ReferenceLine y={resistance} label="Resistance" stroke="red" />}
-              {formation && formation.points && <ReferenceArea x1={formation.points.x1} x2={formation.points.x2} y1={formation.points.y1} y2={formation.points.y2} stroke="orange" strokeOpacity={0.3} />}
+              {support && <ReferenceLine y={support} label="Support" stroke="#4caf50" />}
+              {resistance && <ReferenceLine y={resistance} label="Resistance" stroke="#f44336" />}
+              {/* Fibonacci seviyelerini grafiğe ekle */}
+              {fibonacciLevels && Object.entries(fibonacciLevels).map(([level, price]) => (
+                  <ReferenceLine key={level} y={price} strokeOpacity={0.5} strokeDasharray="4 4" stroke="#ffc658">
+                      <Legend value={`${level.replace('level_','')} %`}/>
+                  </ReferenceLine>
+              ))}
             </LineChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      {/* Model Skorları Radar Grafiği */}
-      {categoryScores.length > 0 && (
-        <div className="grid-radar-chart chart-container">
-          <h3>Model Kategori Skorları (Radar)</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <RadarChart outerRadius={90} width={730} height={250} data={categoryScores}>
-              <PolarGrid stroke="#4a4f57" />
-              <PolarAngleAxis dataKey="category" stroke="#ccc" tick={{ fontSize: 12 }} />
-              <PolarRadiusAxis angle={30} domain={[-1, 1]} stroke="#ccc" tick={{ fontSize: 12 }} />
-              <Radar name="Kategori Skoru" dataKey="score" stroke="#8884d8" fill="#8884d8" fillOpacity={0.6} />
-              <Tooltip 
-                contentStyle={{ backgroundColor: '#2a2f37', border: '1px solid #4a4f57' }} 
-                labelStyle={{ color: '#eee' }} wrapperStyle={{ fontSize: 12 }}
-              />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-            </RadarChart>
-          </ResponsiveContainer>
+      {/* Fibonacci Seviyeleri Listesi */}
+      {fibonacciLevels && (
+        <div className="grid-fibonacci-levels model-scores">
+            <h3>Fibonacci Seviyeleri</h3>
+            <ul>
+              {Object.entries(fibonacciLevels).map(([level, price]) => (
+                <li key={level}>
+                  <span>{level.replace('level_','').replace('_', '.')} %:</span>
+                  <span>{price.toFixed(2)}</span>
+                </li>
+              ))}
+            </ul>
         </div>
       )}
 
       {/* Model Skorları Çubuk Grafiği */}
       {modelOutputsData.length > 0 && (
         <div className="grid-bar-chart chart-container">
-          <h3>Detaylı Model Skorları (Çubuk)</h3>
+          <h3>Detaylı Model Skorları</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={modelOutputsData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+            <BarChart data={modelOutputsData} layout="vertical" margin={{ top: 5, right: 20, left: 40, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#4a4f57" />
-              <XAxis dataKey="name" stroke="#ccc" tick={{ fontSize: 12 }} />
-              <YAxis domain={[-1, 1]} stroke="#ccc" tick={{ fontSize: 12 }} />
+              <XAxis type="number" domain={[-1, 1]} stroke="#ccc" tick={{ fontSize: 12 }} />
+              <YAxis type="category" dataKey="name" stroke="#ccc" tick={{ fontSize: 12 }} />
               <Tooltip 
                 contentStyle={{ backgroundColor: '#2a2f37', border: '1px solid #4a4f57' }} 
                 labelStyle={{ color: '#eee' }} wrapperStyle={{ fontSize: 12 }}
@@ -179,18 +192,6 @@ const CryptoView = ({
         </div>
       )}
 
-      <div className="grid-model-list model-scores">
-        <h3>Tüm Model Çıktıları</h3>
-        <ul>
-          {modelOutputsData.map(({ name, score, details }) => (
-            <li key={name}>
-              <span>{name}:</span> 
-              <span className={score > 0 ? 'score-positive' : 'score-negative'}>{(typeof score === 'number' ? score : 0).toFixed(3)}</span>
-              {details && <span className="model-details"> ({details})</span>}
-            </li>
-          ))}
-        </ul>
-      </div>
     </div>
   );
 };

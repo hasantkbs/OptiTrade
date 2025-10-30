@@ -18,6 +18,9 @@ from .scalping_model import ScalpingModel
 from .fibonacci_model import FibonacciModel
 from .financial_ratio_model import FinancialRatioModel
 from .on_chain_model import OnChainModel
+from .volume_surge_model import VolumeSurgeModel
+from .macd_model import MACDModel
+from .bollinger_bands_model import BollingerBandsModel
 
 # Loglama yapılandırması
 logging.basicConfig(
@@ -43,6 +46,9 @@ MODEL_REGISTRY = {
     "FibonacciModel": FibonacciModel,
     "FinancialRatioModel": FinancialRatioModel,
     "OnChainModel": OnChainModel,
+    "VolumeSurgeModel": VolumeSurgeModel,
+    "MACDModel": MACDModel,
+    "BollingerBandsModel": BollingerBandsModel,
 }
 
 def initialize_models() -> dict:
