@@ -1,0 +1,87 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Firebase Authentication Yapılandırması
+# ─────────────────────────────────────────────────────────────────────────────
+# Firebase Console → Authentication → Sign-in method sekmesinde
+# aşağıdaki ayarları uygulayın.
+# ─────────────────────────────────────────────────────────────────────────────
+
+providers:
+  email_password:
+    enabled: true
+    # E-posta doğrulama zorunlu değil (isteğe bağlı açabilirsiniz)
+    email_verification_required: false
+
+  # Gelecekte eklenebilecek sağlayıcılar (şimdilik kapalı)
+  google:
+    enabled: false
+  apple:
+    enabled: false
+
+password_policy:
+  # Minimum 6 karakter (Firebase default), önerimiz 8+
+  min_length: 6
+  # Karmaşıklık zorunluluğu yok (UX öncelikli)
+  require_uppercase: false
+  require_lowercase: false
+  require_numeric: false
+  require_special_char: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Oturum & Token Ayarları
+# ─────────────────────────────────────────────────────────────────────────────
+session:
+  # ID token geçerlilik süresi (Firebase sabit: 1 saat, yenilenebilir)
+  id_token_ttl: 3600s
+  # Refresh token geçerlilik süresi
+  refresh_token_ttl: 2160h   # 90 gün
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Yetkili Alan Adları (Authorized Domains)
+# ─────────────────────────────────────────────────────────────────────────────
+# Firebase Console → Authentication → Settings → Authorized domains
+authorized_domains:
+  - localhost
+  - optitrade-fcda9.web.app
+  - optitrade-fcda9.firebaseapp.com
+  # - api.optitrade.com        # Üretim domain'iniz hazır olduğunda ekleyin
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Kullanıcı Hesabı Politikaları
+# ─────────────────────────────────────────────────────────────────────────────
+account_policy:
+  # Aynı e-posta ile birden fazla sağlayıcı bağlamaya izin verme
+  # (email+password ile kayıtlıysa Google ile de giremez)
+  prevent_duplicate_emails: true
+
+  # Silinmiş hesabı yeniden oluşturmayı engelle (opsiyonel)
+  # Kapalı tutuyoruz — kullanıcı isterse aynı mail ile tekrar kayıt olabilir
+  block_deleted_email_reuse: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# E-posta Şablonları (Firebase Console → Authentication → Templates)
+# ─────────────────────────────────────────────────────────────────────────────
+email_templates:
+  sender_name: "OptiTrade"
+  sender_email: "noreply@optitrade-fcda9.firebaseapp.com"
+
+  password_reset:
+    subject: "OptiTrade — Şifre Sıfırlama"
+    body: |
+      Merhaba,
+
+      Şifrenizi sıfırlamak için aşağıdaki bağlantıya tıklayın:
+      %LINK%
+
+      Bu isteği siz yapmadıysanız bu e-postayı görmezden gelin.
+
+      OptiTrade Ekibi
+
+  email_verification:
+    subject: "OptiTrade — E-posta Doğrulama"
+    body: |
+      Merhaba,
+
+      OptiTrade hesabınızı doğrulamak için aşağıdaki bağlantıya tıklayın:
+      %LINK%
+
+      OptiTrade Ekibi

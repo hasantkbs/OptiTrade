@@ -1,0 +1,357 @@
+================================================================
+   OptiTrade - Canliya Cikma Yol Haritasi
+   Guncelleme: Mart 2026
+================================================================
+
+Bu dosya uygulamayi gercek kullanicilara acmak icin yapilmasi
+gereken her seyi maddeler halinde aciklar. Her madde icin
+durum (EKSIK / HAZIR / OPSIYONEL) belirtilmistir.
+
+================================================================
+BOLUM 1 — BACKEND (SUNUCU TARAF)
+================================================================
+
+1.1  BULUT SUNUCUSU KIRALAMA
+     Durum  : EKSIK
+     -------------------------------------------------------
+     Uygulamanin 7/24 erisebilir olmasi icin bir sunucu
+     gereklidir. Asagidaki seceneklerden biri yeterlidir:
+
+     Ucuz ve Hizli Baslangiç:
+       Railway.app  → Ucretsiz plan mevcut, 5 dakikada deploy
+       Render.com   → Ucretsiz tier, Docker destekli
+
+     Orta Seviye (Onerilen):
+       DigitalOcean Droplet  → Aylik ~6-12 USD, tam kontrol
+       Hetzner VPS           → Aylik ~4-8 EUR, Avrupa'da hizli
+
+     Kurumsal:
+       AWS EC2 / Google Cloud Run / Azure
+
+     Yapilacaklar:
+       [ ] Sunucu kirala ve SSH erisimi al
+       [ ] Sunucuya Docker kur
+       [ ] docker compose up -d ile backend'i ayaga kaldir
+       [ ] Sunucu IP adresini kaydet
+
+1.2  DOMAIN (ALAN ADI) ALIMI
+     Durum  : EKSIK
+     -------------------------------------------------------
+     iOS uygulamasi ve API icin gercek bir URL gereklidir.
+     Ornek: api.optitrade.app
+
+     Nereden Alinir:
+       Namecheap.com, GoDaddy, Cloudflare Registrar
+       .app uzantisi: yillik ~15-20 USD
+
+     Yapilacaklar:
+       [ ] Domain al (ornek: optitrade.app)
+       [ ] DNS ayarlarindan sunucu IP'sini yonlendir
+           A kaydı: api.optitrade.app → sunucu_IP
+
+1.3  SSL SERTİFİKASI (HTTPS)
+     Durum  : EKSIK — iOS icin ZORUNLU
+     -------------------------------------------------------
+     Apple, App Store'daki uygulamalarin yalnizca HTTPS
+     kullanan API'lere baglanmasina izin verir.
+     HTTP baglanti iOS'ta varsayilan olarak engellenir.
+
+     Cozum (Ucretsiz):
+       Let's Encrypt + Certbot ile ucretsiz SSL
+       Komut: certbot --nginx -d api.optitrade.app
+
+     Yapilacaklar:
+       [ ] Sunucuya Nginx kur
+       [ ] Certbot ile SSL sertifikasi al
+       [ ] Nginx'i FastAPI icin reverse proxy olarak ayarla
+       [ ] Sertifika otomatik yenilemesini kur (cron)
+
+1.4  iOS UYGULAMA URL GUNCELLEME
+     Durum  : EKSIK
+     -------------------------------------------------------
+     Su an uygulama localhost:8000'e baglanıyor.
+     Yayina almadan once production URL'e guncellenmeli.
+
+     Degistirilecek Dosya:
+       OptiTradeiOS/Services/APIService.swift
+       Satir: var baseURL: String = "http://localhost:8000"
+       Yeni : var baseURL: String = "https://api.optitrade.app"
+
+     Kullanici Ayarlardan da Degistirebilir:
+       Uygulama icindeki Ayarlar sekmesi bu degisikligi
+       zaten destekliyor. Kullanici kendi URL'ini girebilir.
+
+1.5  ORTAM DEGISKENLERI GUVENLIGI
+     Durum  : EKSIK
+     -------------------------------------------------------
+     Gelecekte eklenecek API anahtarlari (NewsAPI, vb.)
+     kaynak kodun icinde olmamali.
+
+     Yapilacaklar:
+       [ ] backend/.env dosyasi olustur (zaten .gitignore'da)
+       [ ] python-dotenv ile ortam degiskenlerini yukle
+       [ ] Sunucuda environment variable olarak tanimla
+
+1.6  RATE LIMITING (ISTEK SINIRLANDIRMA)
+     Durum  : EKSIK — Onerilen
+     -------------------------------------------------------
+     Kotü niyetli kullanicilar ya da hatali istemciler
+     sunucuyu cokertebilir.
+
+     Yapilacaklar:
+       [ ] slowapi kutuphanesini requirements.txt'e ekle
+       [ ] Her IP'ye dakikada maksimum 30 istek siniri koy
+       [ ] /scan endpoint'ini daha agir sinirla (10/dk)
+
+1.7  ÖNBELLEKLEME (CACHE)
+     Durum  : EKSIK — Performans icin Onemli
+     -------------------------------------------------------
+     yfinance her cagrida dis sunucuya istek atiyor.
+     Ayni sembol icin 5 dakikada bir veri cekip cachelemek
+     hem sunucuyu rahatlatir hem kullaniciya hizli cevap verir.
+
+     Yapilacaklar:
+       [ ] functools.lru_cache veya basit dict cache ekle
+       [ ] Sembol basi 5 dakika gecerlilik suresi koy
+       [ ] Tarama (scan) sonuclarini 10 dakika cachele
+
+1.8  HATA IZLEME (ERROR MONITORING)
+     Durum  : OPSIYONEL
+     -------------------------------------------------------
+     Kullanicinin yasadigi hatalari gercek zamanli gormen icin.
+
+       Sentry.io → Ucretsiz plan yeterli
+       Kurulum: pip install sentry-sdk[fastapi]
+
+
+================================================================
+BOLUM 2 — iOS UYGULAMASI (APP STORE)
+================================================================
+
+2.1  APPLE DEVELOPER HESABI
+     Durum  : EKSIK — ZORUNLU
+     -------------------------------------------------------
+     App Store'a uygulama yuklemek icin gereken lisans.
+
+       Adres  : developer.apple.com/programs
+       Ucret  : Yillik 99 USD (bireysel)
+                Yillik 299 USD (sirket hesabi)
+       Sure   : Onay 1-2 is gunu
+
+     Yapilacaklar:
+       [ ] developer.apple.com'da hesap ac
+       [ ] 99 USD odemesi yap
+       [ ] Kimlik dogrulamasi tamamla
+
+2.2  BUNDLE ID KAYDI
+     Durum  : EKSIK
+     -------------------------------------------------------
+     Su an proje bundle ID: com.algorix.optitrade
+     Bu ID'nin Apple'da kayitli olmasi gerekiyor.
+
+     Yapilacaklar:
+       [ ] developer.apple.com > Identifiers > + simgesi
+       [ ] App IDs sec
+       [ ] Bundle ID: com.algorix.optitrade gir
+       [ ] Kaydet
+
+2.3  PROVISIONING PROFILE
+     Durum  : EKSIK
+     -------------------------------------------------------
+     Uygulamanin gercek cihazda ve App Store'da calisabilmesi
+     icin imzalama sertifikasi gereklidir.
+
+     Yapilacaklar:
+       [ ] Xcode > Settings > Accounts > Apple ID ekle
+       [ ] Xcode otomatik olarak provisioning profile olusturur
+       [ ] Proje ayarlarindan DEVELOPMENT_TEAM doldurmali
+
+2.4  GIZLILIK POLITIKASI (PRIVACY POLICY)
+     Durum  : EKSIK — ZORUNLU
+     -------------------------------------------------------
+     Apple, uygulama incelerken bir Privacy Policy URL'i
+     istemektedir. Bu olmadan uygulama reddedilir.
+
+     Icermesi gerekenler:
+       - Hangi verilerin toplandigi (hic kisisel veri toplanmiyor ise bunu yaz)
+       - Ucuncu taraf servisler (yfinance, Yahoo Finance)
+       - Iletisim bilgileri
+
+     Ucretsiz Olusturma:
+       privacypolicygenerator.info veya app-privacy-policy-generator.firebaseapp.com
+
+     Yapilacaklar:
+       [ ] Privacy Policy olustur (Turkce + Ingilizce)
+       [ ] Bir web sayfasina yukle (GitHub Pages ucretsiz)
+       [ ] App Store Connect'e URL'i gir
+
+2.5  APP STORE CONNECT GIRISLER
+     Durum  : EKSIK
+     -------------------------------------------------------
+     App Store sayfasinin hazirlanmasi gerekiyor.
+
+     Gerekli Gorseller:
+       [ ] Uygulama ikonu (1024x1024 PNG)
+       [ ] iPhone 6.9" ekran goruntuleri (en az 3 adet)
+       [ ] iPad ekran goruntuleri (opsiyonel ama onerilen)
+       [ ] Tanitim videosu (opsiyonel, max 30 saniye)
+
+     Metin Icerikler:
+       [ ] Uygulama adi: "OptiTrade - Hisse Analiz Asistani"
+       [ ] Kisa aciklama (30 karakter): "Hisse & Kripto Analiz"
+       [ ] Uzun aciklama (4000 karakter)
+       [ ] Anahtar kelimeler (100 karakter)
+       [ ] Kategori: Finance
+
+2.6  YAS SINIFLANDIRMASI VE UYARILAR
+     Durum  : EKSIK
+     -------------------------------------------------------
+     Finans uygulamalari icin standart uyarilar gereklidir.
+
+     Yapilacaklar:
+       [ ] App Store'da yas siniri: 4+
+       [ ] Uygulama ici "Yatirim tavsiyesi degildir" uyarisi ekle
+       [ ] Ilk acilista kullaniciya bilgilendirme goster
+
+
+================================================================
+BOLUM 3 — HUKUKI VE VERI UYUMU
+================================================================
+
+3.1  YATIRIM TAVSIYES DEGILDIR UYARISI
+     Durum  : EKSIK — ZORUNLU
+     -------------------------------------------------------
+     Bu uygulama teknik analiz yapıyor ve alisatis sinyali
+     uretiyor. Bu bir yatirim tavsiyesi degildir.
+
+     Yapilacaklar:
+       [ ] Uygulamanin ilk acilisinda bir onay ekrani ekle:
+           "OptiTrade yalnizca bilgi amaclidir ve yatirim
+           tavsiyesi icermez. Tum yatirim kararlari
+           kullanicinin kendi sorumlulugundadir."
+       [ ] Kullanici bu ekrani onaylamadan devam edemesin
+
+3.2  KVKK / GDPR UYUMU
+     Durum  : OPSIYONEL (su an veri toplanmiyor)
+     -------------------------------------------------------
+     Su an uygulama hic kisisel veri toplamıyor.
+     Gelecekte kullanici hesabi eklenirse KVKK uyumu zorunlu.
+
+3.3  VERİ KAYNAĞI KULLANIM KOSULLARI
+     Durum  : DİKKAT GEREKTIRIYOR
+     -------------------------------------------------------
+     yfinance, Yahoo Finance'in resmi API'si degildir.
+     Ticari kullanimda sorun yasanabilir.
+
+     Alternatifleri:
+       Polygon.io  → Ucretsiz plan: 5 istek/dk, ABD hisseleri
+       Alpha Vantage → Ucretsiz plan: 500 istek/gun
+       BIST icin KAP → Resmi kaynak ama API yok, scraping gerekir
+
+     Yapilacaklar:
+       [ ] Kullanim yogunlugu arttikca resmi API degerlendirmesi yap
+
+
+================================================================
+BOLUM 4 — URUN GELISTIRME (CANLIYA CIKMADAN ONCE ONERILEN)
+================================================================
+
+4.1  KULLANICI GIRISI / HESAP SISTEMI
+     Durum  : OPSIYONEL
+     -------------------------------------------------------
+     Su an tum kullanicilar ayni API'ye erisebiliyor.
+     Kisisel takip listesi ve bildirimler icin gerekli.
+
+       Kolay Cozum: Supabase (ucretsiz plan, 5 dk kurulum)
+       Backend: JWT token dogrulama
+       iOS: Sign in with Apple (App Store gereksinimi)
+
+4.2  PUSH BILDIRIMLER
+     Durum  : EKSIK — Yuksek Deger
+     -------------------------------------------------------
+     GUCLU AL veya GUCLU SAT sinyali uretildiginde
+     kullanicinin telefonuna bildirim gitmesi.
+
+     Teknoloji:
+       APNs (Apple Push Notification service)
+       Firebase Cloud Messaging (FCM) - platformlar arasi
+
+     Gereksinim:
+       [ ] Kullanici hesap sistemi (bildirimleri kiminle eslestirecegiz)
+       [ ] Backend'de bildirim tetikleme mantigi
+       [ ] iOS'ta UNUserNotificationCenter entegrasyonu
+
+4.3  GRAFIK / FİYAT GECMİSİ
+     Durum  : EKSIK — Yuksek Deger
+     -------------------------------------------------------
+     Son 3 aylik fiyat grafigi, RSI ve MACD gorsellestirmesi
+     kullanici deneyimini cok arttirir.
+
+       Swift icin: Swift Charts (iOS 16+, ucretsiz, yerlesik)
+       Veri: Backend zaten 3 aylik veri cekiyor, endpoint eklemek yeterli
+
+4.4  TARAMA ZAMANLAYICISI (SCHEDULER)
+     Durum  : EKSIK — Onerilen
+     -------------------------------------------------------
+     Piyasa acilisi (10:05) ve kapanisinda (18:35) otomatik
+     tarama yapip sonuclari hazir tutma.
+
+       Python: APScheduler kutuphanesi
+       Cron: Sunucuda cron job
+
+4.5  HABER ENTEGRASYONU
+     Durum  : OPSIYONEL
+     -------------------------------------------------------
+     Haber sentiment (olumlu/olumsuz) analiz motoruna eklenirse
+     dogruluk artabilir.
+
+       NewsAPI.org → Ucretsiz plan: 100 istek/gun
+       RSS: Finansgundem, Ekonomim, Bloomberg HT RSS besleri
+
+
+================================================================
+BOLUM 5 — ONCELIK SIRASI (ONERILEN YOL HARITASI)
+================================================================
+
+Asama 1 — Temel Canliya Cikis (1-2 hafta)
+  [ ] Bulut sunucusu kirala ve Docker ile deploy et
+  [ ] Domain al ve SSL kur
+  [ ] iOS'ta production URL'i guncelle
+  [ ] Apple Developer hesabi ac
+  [ ] Privacy Policy hazirla
+  [ ] Yatirim uyarisi ekrani ekle
+  [ ] App Store Connect'e gorselleri ve metinleri yukle
+  [ ] Incelemeye gonder
+
+Asama 2 — Kalite Artisi (2-4 hafta)
+  [ ] Rate limiting ekle
+  [ ] Cache katmani ekle
+  [ ] Hata izleme (Sentry) kur
+  [ ] Fiyat grafigi ekle
+
+Asama 3 — Buyume (1-3 ay)
+  [ ] Kullanici hesap sistemi
+  [ ] Push bildirimler
+  [ ] Haber sentiment entegrasyonu
+  [ ] Tarama zamanlayicisi
+
+================================================================
+MALIYET OZETI (AYLIK TAHMINI)
+================================================================
+
+Zorunlu:
+  Apple Developer Hesabi    8 USD/ay  (99 USD/yil)
+  Bulut Sunucu (DigitalOcean) 6 USD/ay
+  Domain                    2 USD/ay  (25 USD/yil)
+  SSL Sertifikasi           UCRETSIZ  (Let's Encrypt)
+  -------------------------------------------------------
+  TOPLAM ZORUNLU            ~16 USD/ay
+
+Opsiyonel:
+  NewsAPI                   UCRETSIZ (baslangic)
+  Sentry                    UCRETSIZ (baslangic)
+  Supabase (kullanici)      UCRETSIZ (baslangic)
+  -------------------------------------------------------
+  TOPLAM OPSIYONEL          0 USD (baslangic icin)
+
+================================================================

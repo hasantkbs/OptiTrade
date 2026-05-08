@@ -1,0 +1,114 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Helper functions
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Kullanıcı oturum açmış mı?
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // İstek sahibi, belgenin sahibi mi?
+    function isOwner(uid) {
+      return request.auth.uid == uid;
+    }
+
+    // Gelen veri belirli alan listesini içeriyor mu? (ekstra alan engellemek için)
+    function hasOnly(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // String alanı var mı ve boş değil mi?
+    function nonEmptyString(field) {
+      return field in request.resource.data
+          && request.resource.data[field] is string
+          && request.resource.data[field].size() > 0;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // /users/{uid}  — Kullanıcı profili
+    // ─────────────────────────────────────────────────────────────────────────
+    match /users/{uid} {
+
+      // Sadece kendi profilini okuyabilir
+      allow read: if isSignedIn() && isOwner(uid);
+
+      // Kendi profilini oluşturabilir/güncelleyebilir
+      allow create, update: if isSignedIn()
+          && isOwner(uid)
+          && hasOnly(['uid', 'displayName', 'email',
+                      'defaultAssetType', 'showNeutralInScan',
+                      'appTheme', 'createdAt'])
+          && nonEmptyString('email')
+          && nonEmptyString('uid');
+
+      // Silme yasak (hesap silme ayrı akışla yapılacak)
+      allow delete: if false;
+
+      // ── /users/{uid}/watchlist ─────────────────────────────────────────────
+      match /watchlist/{itemId} {
+        allow read, write: if isSignedIn() && isOwner(uid);
+
+        // Yazma sırasında zorunlu alan kontrolü
+        allow create, update: if isSignedIn()
+            && isOwner(uid)
+            && nonEmptyString('symbol')
+            && nonEmptyString('assetType')
+            && hasOnly(['symbol', 'assetType', 'potentialPrice']);
+      }
+
+      // ── /users/{uid}/paperTrades ───────────────────────────────────────────
+      match /paperTrades/{tradeId} {
+        allow read: if isSignedIn() && isOwner(uid);
+
+        allow create: if isSignedIn()
+            && isOwner(uid)
+            && nonEmptyString('symbol')
+            && nonEmptyString('direction')
+            && request.resource.data.entryPrice is number
+            && request.resource.data.quantity is number
+            && hasOnly(['symbol', 'assetType', 'direction', 'entryPrice',
+                        'quantity', 'entryDate', 'isOpen',
+                        'analysisScore', 'decisionCode',
+                        'exitPrice', 'exitDate']);
+
+        // Sadece kapatma alanlarını güncelleyebilir
+        allow update: if isSignedIn()
+            && isOwner(uid)
+            && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['exitPrice', 'exitDate', 'isOpen']);
+
+        allow delete: if isSignedIn() && isOwner(uid);
+      }
+
+      // ── /users/{uid}/searchHistory ─────────────────────────────────────────
+      match /searchHistory/{historyId} {
+        allow read: if isSignedIn() && isOwner(uid);
+
+        allow create: if isSignedIn()
+            && isOwner(uid)
+            && nonEmptyString('symbol')
+            && nonEmptyString('assetType')
+            && nonEmptyString('decisionCode')
+            && request.resource.data.score is number
+            && hasOnly(['symbol', 'assetType', 'date',
+                        'score', 'decisionCode']);
+
+        // Geçmiş değiştirilemez, sadece silinebilir
+        allow update: if false;
+        allow delete: if isSignedIn() && isOwner(uid);
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Diğer tüm koleksiyonlar — erişim yok
+    // ─────────────────────────────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

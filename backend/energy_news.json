@@ -1,0 +1,110 @@
+{
+  "symbol": "XOM",
+  "sector": "ENERGY",
+  "total_news": 10,
+  "analyzed_news": 10,
+  "sentiment_score": -0.0606,
+  "sentiment_label": "NEUTRAL",
+  "score_delta": -1,
+  "positive_count": 6,
+  "negative_count": 4,
+  "neutral_count": 0,
+  "signals": [
+    "Haber Analizi: Enerji sektöründe haberler karışık/nötr (6 pozitif, 4 negatif / 10 toplam)"
+  ],
+  "top_positive_title": "Exxon Mobil shares climb after Q1 earnings and revenue beat",
+  "top_negative_title": "Oil Is Replacing Interest Rates as the Global Economy’s Dominant Force",
+  "fetched_at": "2026-05-01T13:20:51.339745+00:00",
+  "headlines": [
+    {
+      "title": "Oil Is Replacing Interest Rates as the Global Economy’s Dominant Force",
+      "sentiment": "NEGATIVE",
+      "score": -0.6390384887156341,
+      "age_weight": 1.0,
+      "keywords": [
+        "inflation",
+        "closed"
+      ],
+      "published_at": "2026-05-01T12:06:24+00:00"
+    },
+    {
+      "title": "ExxonMobil and Chevron earnings fall, but bigger profits are on their way because of soaring oil prices",
+      "sentiment": "NEGATIVE",
+      "score": -0.6211939179239094,
+      "age_weight": 1.0,
+      "keywords": [
+        "fall",
+        "drop",
+        "profit",
+        "war"
+      ],
+      "published_at": "2026-05-01T11:54:03+00:00"
+    },
+    {
+      "title": "ExxonMobil Q1 2026 earnings beat estimates despite Iran war hit",
+      "sentiment": "POSITIVE",
+      "score": 0.45322625299477715,
+      "age_weight": 1.0,
+      "keywords": [
+        "beat",
+        "war"
+      ],
+      "published_at": "2026-05-01T11:45:59+00:00"
+    },
+    {
+      "title": "Exxon Mobil shares climb after Q1 earnings and revenue beat",
+      "sentiment": "POSITIVE",
+      "score": 0.6911,
+      "age_weight": 1.0,
+      "keywords": [
+        "revenue beat",
+        "climb",
+        "beat"
+      ],
+      "published_at": "2026-05-01T11:17:58+00:00"
+    },
+    {
+      "title": "Profit for the biggest US oil companies declined in the first quarter, but only on paper",
+      "sentiment": "POSITIVE",
+      "score": 0.5906,
+      "age_weight": 1.0,
+      "keywords": [
+        "profit",
+        "higher"
+      ],
+      "published_at": "2026-05-01T12:15:08+00:00"
+    },
+    {
+      "title": "US Equity Futures Nudge Higher Pre-Bell After S&P 500, Nasdaq Reach New Closing Highs",
+      "sentiment": "POSITIVE",
+      "score": 0.2449,
+      "age_weight": 1.0,
+      "keywords": [
+        "higher"
+      ],
+      "published_at": "2026-05-01T12:58:47+00:00"
+    },
+    {
+      "title": "Stocks Mostly Up Pre-Bell as Investors Await More Corporate Earnings",
+      "sentiment": "POSITIVE",
+      "score": 0.2094,
+      "age_weight": 1.0,
+      "keywords": [
+        "up",
+        "higher"
+      ],
+      "published_at": "2026-05-01T11:24:57+00:00"
+    },
+    {
+      "title": "US Equity Futures Turn Mixed Pre-Bell After S&P 500, Nasdaq Reach New Closing Highs",
+      "sentiment": "SLIGHTLY_NEGATIVE",
+      "score": -0.1489,
+      "age_weight": 1.0,
+      "keywords": [
+        "mixed"
+      ],
+      "published_at": "2026-05-01T11:59:57+00:00"
+    }
+  ],
+  "error": null
+}

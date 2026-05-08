@@ -1,0 +1,254 @@
+================================================================
+   OptiTrade - Baslatma ve Kullanim Rehberi
+   Guncelleme: Mart 2026
+================================================================
+
+Bu dosya projeyi ilk kez kuracak veya calistiracak herkes icin
+adim adim yol gostericisidir.
+
+----------------------------------------------------------------
+PROJE YAPISI
+----------------------------------------------------------------
+
+OptiTradeCode/
+  backend/             → Python analiz motoru + API sunucusu
+    main.py            → FastAPI uygulamasi, tum endpoint'ler
+    backtest.py        → Gecmis veri dogruluk testi
+    core/
+      analyzer.py      → Ana analiz motoru (hepsini bir araya getirir)
+      indicators.py    → RSI, MACD, Bollinger Bands, EMA hesaplama
+      scoring.py       → Puanlama mantigi + karar uretme
+    data/
+      fetcher.py       → yfinance ile veri cekme
+    models/
+      schemas.py       → API veri modelleri (Pydantic)
+    Dockerfile         → Docker image tarifi
+    requirements.txt   → Python bagimliliklar
+
+  OptiTradeiOS/        → Swift iOS uygulamasi
+    OptiTradeiOS.xcodeproj       → Xcode proje dosyasi
+    OptiTradeiOS/
+      OptiTradeApp.swift         → Uygulama giris noktasi
+      Views/
+        ContentView.swift        → Tab bar (4 sekme)
+        DashboardView.swift      → BIST / Kripto piyasa taramasi
+        SearchView.swift         → Tekil sembol analizi
+        WatchlistView.swift      → Kisisel takip listesi
+        AnalysisDetailView.swift → Detayli analiz sayfasi
+        ResultCardView.swift     → Sembol karti bileseni
+        SettingsView.swift       → API URL ve uygulama ayarlari
+      Models/
+        Models.swift             → Swift veri modelleri
+      Services/
+        APIService.swift         → Backend ile iletisim katmani
+      Components/
+        Components.swift         → ScoreMeter, DecisionBadge vb.
+
+  docker-compose.yml   → Docker ile tek komutla calistirma
+  .gitignore           → Git disinda tutulacaklar
+
+
+----------------------------------------------------------------
+GEREKSINIMLER
+----------------------------------------------------------------
+
+Backend icin:
+  - Python 3.11 veya uzeri
+  - pip paket yoneticisi
+  (ya da Docker Desktop kurulu olmasi yeterlidir)
+
+iOS icin:
+  - macOS bilgisayar
+  - Xcode 16 veya uzeri
+  - iOS 26.2 Simulator (Xcode > Settings > Platforms)
+
+
+----------------------------------------------------------------
+ADIM 1 — BACKEND KURULUMU (Python ile)
+----------------------------------------------------------------
+
+Terminal acin ve backend klasorune girin:
+
+    cd OptiTradeCode/backend
+
+Gerekli kutuphaneleri yukleyin:
+
+    pip install -r requirements.txt
+
+Sunucuyu calistirin:
+
+    uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+Tarayicinizda su adresi acin:
+
+    http://localhost:8000
+    → {"status": "ok", "message": "OptiTrade API v2.0"}
+
+    http://localhost:8000/docs
+    → Swagger UI - tum endpoint'leri gorsel olarak test edebilirsiniz
+
+
+----------------------------------------------------------------
+ADIM 2 — BACKEND KURULUMU (Docker ile — Tercih Edilen)
+----------------------------------------------------------------
+
+Docker Desktop kurulu olmasi yeterlidir.
+OptiTradeCode klasorunden:
+
+    docker compose up -d
+
+Durumu kontrol edin:
+
+    docker compose ps
+    docker compose logs -f
+
+Durdurmak icin:
+
+    docker compose down
+
+
+----------------------------------------------------------------
+ADIM 3 — iOS UYGULAMASI CALISTIRMA
+----------------------------------------------------------------
+
+1. Xcode ile projeyi acin:
+
+   OptiTradeiOS/OptiTradeiOS.xcodeproj
+
+2. Ust barda simulator olarak "iPhone 17 Pro" secin
+
+3. Ayarlar (Settings) sekmesinden API URL'ini girin:
+   http://localhost:8000
+
+4. Cmd+R ile calistirin
+
+Not: Gercek cihazda test etmek icin Apple Developer hesabi gerekir.
+
+
+----------------------------------------------------------------
+ADIM 4 — KOMUT SATIRINDAN DERLEME VE CALISTIRMA
+----------------------------------------------------------------
+
+Derleme:
+
+    xcodebuild \
+      -project OptiTradeiOS/OptiTradeiOS.xcodeproj \
+      -scheme OptiTradeiOS \
+      -destination "platform=iOS Simulator,id=94731217-8967-45FD-9726-8537C6CE569E" \
+      -configuration Debug build
+
+Simulatoru acma ve uygulamayi yukleme:
+
+    xcrun simctl boot 94731217-8967-45FD-9726-8537C6CE569E
+    open -a Simulator
+    xcrun simctl install 94731217-8967-45FD-9726-8537C6CE569E \
+      ~/Library/Developer/Xcode/DerivedData/OptiTradeiOS-*/Build/Products/Debug-iphonesimulator/OptiTradeiOS.app
+    xcrun simctl launch 94731217-8967-45FD-9726-8537C6CE569E com.algorix.optitrade
+
+
+----------------------------------------------------------------
+API ENDPOINT'LERI
+----------------------------------------------------------------
+
+Tum endpoint'ler http://localhost:8000 ustunde calisir.
+
+GET  /                  → API saglik kontrolu
+GET  /health            → Detayli saglik kontrolu
+GET  /docs              → Swagger dokumantasyonu (tarayici)
+
+POST /analyze           → Tekil sembol analizi
+     Body (JSON):
+     {
+       "symbol": "THYAO.IS",
+       "potential_price": 350,   ← opsiyonel
+       "asset_type": "stock"     ← "stock" veya "crypto"
+     }
+
+GET  /scan/bist         → 15 BIST hissesini otomatik tara
+GET  /scan/crypto       → 10 kripto parayı otomatik tara
+
+POST /scan              → Ozel sembol listesini tara
+     Body (JSON):
+     {
+       "symbols": ["GARAN.IS", "EREGL.IS"],
+       "asset_type": "stock"
+     }
+
+GET  /symbols/bist      → BIST sembol listesi
+GET  /symbols/crypto    → Kripto sembol listesi
+
+
+----------------------------------------------------------------
+ANALIZ MOTORU NASIL CALISIR
+----------------------------------------------------------------
+
+Her analiz 5 katmandan olusur:
+
+1. VERİ CEKME
+   yfinance uzerinden son 3 aylik fiyat ve hacim verisi cekilir.
+   BIST hisseleri icin bilanço verisi (EPS) de alinir.
+
+2. INDİKATOR HESAPLAMA
+   RSI (14)             → Asiri alim / satim tespiti
+   MACD (12/26/9)       → Trend yonu ve momentum
+   Bollinger Bands (20) → Fiyatin volatilite bandindaki konumu
+   EMA Kesisimi (20/50) → Altin Kesisim / Olum Kesisimi
+   Trend Gucu          → Fiyatin EMA'dan sapma yuzdesi
+   Hacim Orani         → Gunluk hacim / aylik ortalama hacim
+
+3. PUANLAMA (0-100)
+   Baslangic: 50 puan (nottr)
+   Her indikatorden + veya - puan eklenir.
+   3+ indikatör ayni yonu gosterirse "confluence" bonusu verilir.
+
+4. KARAR URETME
+   >= 78  → GUCLU AL (LONG)
+   >= 63  → AL
+   38-62  → NOTR / IZLE
+   <= 37  → SAT
+   <= 22  → GUCLU SAT (SHORT)
+
+5. RİSK SEVIYESI
+   Fiyat hizi (gun ici degisim %) baz alinir:
+   > %5  → Cok Yuksek
+   > %3  → Yuksek
+   > %1.5 → Orta
+   Diger → Dusuk
+
+
+----------------------------------------------------------------
+BACKTEST CALISTIRMA
+----------------------------------------------------------------
+
+Analiz motorunun gecmis veri dogrulugunu test etmek icin:
+
+    cd backend
+    python backtest.py
+
+Son test sonuclari (1 yillik veri, 15 sembol):
+  Genel dogruluk : %62.5
+  AL sinyalleri  : %55.6
+  SAT sinyalleri : %68.2
+
+
+----------------------------------------------------------------
+SIKCA KARSILASILAN SORUNLAR
+----------------------------------------------------------------
+
+"veri bulunamadi" hatasi:
+  → Sembol formatini kontrol edin.
+    BIST : THYAO.IS, GARAN.IS (sonuna .IS eklenmeli)
+    Kripto: BTC-USD, ETH-USD (tire ile)
+
+MACD deger yok:
+  → Normal. 3 aydan az veri olan sembollerde MACD hesaplanamaz.
+
+Simulator'da "Could not connect":
+  → Backend'in calisir oldugunu kontrol edin (localhost:8000/health)
+  → iOS ayarlarinda URL'in dogru yazildigini kontrol edin
+
+iOS derleme hatasi "SDK not found":
+  → Xcode > Settings > Platforms > iOS yuklu olmali
+  → Simulatör: iPhone 17 Pro, iOS 26.2 olmali
+
+================================================================
