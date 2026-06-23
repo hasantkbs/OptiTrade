@@ -35,6 +35,7 @@ struct SettingsView: View {
                 aboutSection
             }
             .navigationTitle("Ayarlar")
+            .preferredColorScheme(preferences.appTheme.colorScheme)
             .task { await fetchMLStatus() }
             .alert("Takip listesi sıfırlansın mı?", isPresented: $showResetAlert) {
                 Button("Sıfırla", role: .destructive) { session.saveWatchlist([]) }
@@ -93,7 +94,7 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                         Spacer()
-                        Image(systemName: "crown.fill")
+                        Image(systemImage: "crown.fill")
                             .font(.title)
                             .foregroundColor(.yellow)
                     }
@@ -119,15 +120,14 @@ struct SettingsView: View {
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 38)
                                 .background(Color.orange)
-                                .foregroundColor(.black)
+                                .foregroundColor(.white)
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
                     }
                 }
-                .padding(.vertical, 4)
             }
         } header: {
-            Text("Üyelik Durumu")
+            Text("Üyelik")
         }
     }
 
@@ -135,32 +135,27 @@ struct SettingsView: View {
 
     private var marketSection: some View {
         Section {
-            HStack {
-                Text(preferences.selectedMarket.flag)
-                    .font(.title2)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Aktif Piyasa")
-                        .font(.subheadline.weight(.medium))
-                    Text(preferences.selectedMarket.displayName)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+            Picker("Piyasa", selection: $preferences.selectedMarket) {
+                ForEach(TradingMarket.allCases, id: \.self) { market in
+                    HStack {
+                        Text(market.flag).font(.title3)
+                        Text(market.displayName)
+                    }.tag(market)
                 }
-                Spacer()
-                Button("Değiştir") {
-                    showMarketSelection = true
-                }
-                .font(.subheadline)
-                .foregroundColor(.blue)
             }
-            .padding(.vertical, 2)
+            .onChange(of: preferences.selectedMarket) {
+                preferences.setMarket($0)
+            }
+            .pickerStyle(.navigationLink)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(preferences.selectedMarket.description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .transition(.opacity)
+            }
         } header: {
-            Text("Piyasa Tercihi")
-        } footer: {
-            Text("Haber filtresi, arama önerileri ve varsayılan izleme listesi bu tercihle yapılandırılır.")
-                .font(.caption)
-        }
-        .sheet(isPresented: $showMarketSelection) {
-            MarketSelectionView(isOnboarding: false)
+            Text("Piyasa Seçimi")
         }
     }
 
@@ -168,134 +163,146 @@ struct SettingsView: View {
 
     private var profileSection: some View {
         Section {
-            HStack(spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.2))
-                        .frame(width: 52, height: 52)
-                    Image(systemName: session.isGuestMode ? "person.slash.fill" : "person.fill")
-                        .font(.title2)
-                        .foregroundColor(.accentColor)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    if session.isGuestMode {
-                        Text("Misafir Kullanıcı")
-                            .font(.headline)
-                        Text("Giriş yapılmamış")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    } else {
-                        Text(session.displayName.isEmpty ? "Kullanıcı" : session.displayName)
-                            .font(.headline)
-                        Text(session.userEmail.isEmpty ? "OptiTrade Kullanıcısı" : session.userEmail)
+            if firebase.isAuthenticated {
+                HStack {
+                    Label("Hesap", systemImage: "person.crop.circle")
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(firebase.currentUser?.displayName ?? "Kullanıcı")
+                            .font(.subheadline.weight(.semibold))
+                        Text(firebase.currentUser?.email ?? "")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
-            }
-            .padding(.vertical, 4)
-
-            HStack {
-                Text("İsim")
-                Spacer()
-                TextField("Adınız (opsiyonel)", text: $session.displayName)
-                    .multilineTextAlignment(.trailing)
-                    .foregroundColor(.secondary)
-            }
-
-            HStack {
-                Text("E-posta")
-                Spacer()
-                TextField("E-posta (opsiyonel)", text: $session.userEmail)
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    .multilineTextAlignment(.trailing)
-                    .foregroundColor(.secondary)
-            }
-
-            if let date = session.disclaimerAcceptedAt {
+            } else {
                 HStack {
-                    Label("Risk Uyarısı Onaylandı", systemImage: "checkmark.shield.fill")
-                        .foregroundColor(.green)
+                    Label("Hesap", systemImage: "person.crop.circle.badge.xmark")
                     Spacer()
-                    Text(date, style: .date)
+                    Text("Oturum açılmadı")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
         } header: {
-            Text("Hesap")
+            Text("Profil")
         }
     }
 
+    // MARK: - Connection Section
+
     private var connectionSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Backend URL")
+            HStack {
+                Label("API Sunucusu", systemImage: "server.rack")
+                Spacer()
+                Text(apiURL == "http://localhost:8000" ? "Yerel" : "Uzak")
                     .font(.caption)
-                    .foregroundColor(.secondary)
-                TextField("http://localhost:8000", text: $apiURL)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .disableAutocorrection(true)
-                    .font(.system(.body, design: .monospaced))
-                    .onChange(of: apiURL) { APIService.shared.baseURL = apiURL }
+                    .foregroundColor(connectionState == .success ? .green : .orange)
             }
-            .padding(.vertical, 2)
 
             Button {
                 testConnection()
             } label: {
-                HStack {
-                    if connectionState == .testing {
-                        ProgressView().tint(.accentColor)
-                    } else {
-                        Image(systemName: connectionState == .success ? "checkmark.circle.fill" :
-                              connectionState == .failure ? "xmark.circle.fill" : "antenna.radiowaves.left.and.right")
-                            .foregroundColor(connectionState == .success ? .green :
-                                            connectionState == .failure ? .red : .accentColor)
-                    }
-                    Text(connectionState == .success ? "Bağlantı Başarılı" :
-                         connectionState == .failure ? "Bağlanamadı" :
-                         connectionState == .testing ? "Test ediliyor..." : "Bağlantıyı Test Et")
-                }
+                Label("Bağlantıyı Test Et", systemImage: "network")
+                    .foregroundColor(.blue)
             }
             .disabled(connectionState == .testing)
+            
+            HStack {
+                Label("İnternet", systemImage: "wifi")
+                Spacer()
+                Text(session.isOnline ? "Çevrimiçi" : "Çevrimdışı")
+                    .font(.caption)
+                    .foregroundColor(session.isOnline ? .green : .red)
+            }
         } header: {
             Text("Bağlantı")
         } footer: {
-            Text("Sunucu adresi değiştirildiğinde analiz verileri bu adresten çekilir.")
+            if connectionState == .success {
+                Text("Başarıyla bağlandı")
+                    .foregroundColor(.green)
+            } else if connectionState == .failure {
+                Text("Bağlantı başarısız")
+                    .foregroundColor(.red)
+            }
         }
     }
+
+    // MARK: - Analysis Section
 
     private var analysisSection: some View {
         Section {
-            Picker("Varsayılan Varlık Tipi", selection: $session.defaultAssetType) {
-                Text("Hisse Senedi").tag("stock")
-                Text("Kripto Para").tag("crypto")
+            if let ml = mlStatus {
+                HStack {
+                    Label("Model", systemImage: "brain")
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(ml.modelName)
+                            .font(.caption.weight(.semibold))
+                        Text("v\(ml.version)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                HStack {
+                    Label("Doğruluk", systemImage: "chart.bar.fill")
+                    Spacer()
+                    Text(ml.accuracy)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.green)
+                }
             }
-
-            Toggle("Taramada Nötr Sinyalleri Göster", isOn: $session.showNeutralInScan)
         } header: {
-            Text("Analiz Tercihleri")
-        } footer: {
-            Text("Nötr sinyaller kapatılırsa tarama sayfasında yalnızca AL/SAT sonuçları görünür.")
+            Text("Analiz")
         }
     }
+
+    // MARK: - Appearance Section
 
     private var appearanceSection: some View {
         Section {
-            Picker("Tema", selection: $session.appTheme) {
+            Picker("Tema", selection: $preferences.appTheme) {
                 ForEach(AppTheme.allCases, id: \.self) { theme in
-                    Label(theme.label, systemImage: themeIcon(theme))
-                        .tag(theme)
+                    HStack {
+                        Image(systemName: themeIcon(theme))
+                        Text(theme.rawValue)
+                    }
+                    .tag(theme)
                 }
             }
+            .onChange(of: preferences.appTheme) {
+                preferences.setTheme($0)
+            }
             .pickerStyle(.navigationLink)
+            
+            Toggle("Bildirimler", isOn: $preferences.enableNotifications)
+                .onChange(of: preferences.enableNotifications) {
+                    preferences.save()
+                    Task { await preferences.syncToFirebase() }
+                }
+            
+            HStack {
+                Label("Yenile Süresi", systemImage: "timer")
+                Spacer()
+                Picker("", selection: $preferences.refreshInterval) {
+                    ForEach([1, 2, 5, 10, 30], id: \.self) { interval in
+                        Text("\(interval) dk").tag(interval)
+                    }
+                }
+                .onChange(of: preferences.refreshInterval) {
+                    preferences.save()
+                    Task { await preferences.syncToFirebase() }
+                }
+                .pickerStyle(.navigationLink)
+            }
         } header: {
-            Text("Görünüm")
+            Text("Görünüm & Tercihler")
         }
     }
+
+    // MARK: - Data Section
 
     private var dataSection: some View {
         Section {
@@ -312,7 +319,8 @@ struct SettingsView: View {
             }
 
             Button(role: .destructive) {
-                session.onboardingDone = false
+                preferences.hasCompletedOnboarding = false
+                preferences.save()
             } label: {
                 Label("Başlangıç Ekranını Tekrar Göster", systemImage: "arrow.counterclockwise")
             }
@@ -346,167 +354,87 @@ struct SettingsView: View {
         }
     }
 
-    private func fetchMLStatus() async {
-        guard let url = URL(string: APIService.shared.baseURL + "/ml/status") else { return }
-        guard let (data, _) = try? await URLSession.shared.data(from: url),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-        let name     = json["model_name"]    as? String ?? "XGBoost"
-        let accuracy = json["test_accuracy"] as? Double ?? 0
-        let version  = json["version"]       as? String ?? "—"
-        await MainActor.run {
-            mlStatus = MLStatusInfo(
-                modelName: name,
-                accuracy: String(format: "%.1f%%", accuracy * 100),
-                version: version
-            )
-        }
-    }
+    // MARK: - About Section
 
-    @ViewBuilder
     private var aboutSection: some View {
         Section {
-            HStack(spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.accentColor.opacity(0.15))
-                        .frame(width: 44, height: 44)
-                    Image(systemName: "chart.line.uptrend.xyaxis.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(.accentColor)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("OptiTrade")
-                        .font(.headline)
-                    Text("Product by Algorix")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.accentColor)
-                        .tracking(0.8)
-                }
-            }
-            .padding(.vertical, 4)
-
             HStack {
-                Text("Versiyon")
+                Label("Versiyon", systemImage: "info.circle")
                 Spacer()
-                Text("3.1.0 (Build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))")
+                Text("1.0.0")
+                    .font(.caption)
                     .foregroundColor(.secondary)
             }
-            HStack {
-                Text("Analiz Motoru")
-                Spacer()
-                Text("OptiTrade v3.1")
-                    .foregroundColor(.secondary)
+            
+            Link(destination: URL(string: "https://algorix.io")!) {
+                Label("Web Sitesi", systemImage: "globe")
+                    .foregroundColor(.blue)
             }
-            HStack {
-                Text("ML Model")
-                Spacer()
-                if let ml = mlStatus {
-                    Text("\(ml.modelName) — \(ml.accuracy)")
-                        .foregroundColor(.secondary)
-                } else {
-                    ProgressView().scaleEffect(0.7)
-                }
-            }
-            HStack {
-                Text("Backtest Doğruluğu")
-                Spacer()
-                if let ml = mlStatus {
-                    Text(ml.accuracy)
-                        .foregroundColor(.secondary)
-                } else {
-                    Text("—").foregroundColor(.secondary)
-                }
+            
+            Link(destination: URL(string: "https://twitter.com/algorix")!) {
+                Label("Twitter", systemImage: "link")
+                    .foregroundColor(.blue)
             }
         } header: {
             Text("Hakkında")
-        }
-
-        Section {
-            Link(destination: URL(string: "https://algorix.io/privacy")!) {
-                HStack {
-                    Label("Gizlilik Politikası", systemImage: "hand.raised.fill")
-                    Spacer()
-                    Image(systemName: "arrow.up.right")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            Link(destination: URL(string: "https://algorix.io/terms")!) {
-                HStack {
-                    Label("Kullanım Koşulları", systemImage: "doc.text.fill")
-                    Spacer()
-                    Image(systemName: "arrow.up.right")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            Link(destination: URL(string: "mailto:support@algorix.io")!) {
-                HStack {
-                    Label("Destek & İletişim", systemImage: "envelope.fill")
-                    Spacer()
-                    Image(systemName: "arrow.up.right")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-        } header: {
-            Text("Algorix")
-        }
-
-        Section {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                    Text("Yatırım Tavsiyesi Değildir")
-                        .font(.caption.weight(.bold))
-                        .foregroundColor(.orange)
-                }
-                Text("OptiTrade, teknik analiz göstergeleri aracılığıyla bilgi sunar. Uygulama içeriği hiçbir koşulda yatırım tavsiyesi, alım-satım önerisi veya finansal danışmanlık hizmeti niteliği taşımaz.\n\nTüm yatırım kararları kullanıcının kendi sorumluluğundadır. Algorix, kullanıcıların uygulamadan elde ettiği bilgilere dayanarak aldıkları kararlar sonucunda oluşabilecek kayıp ve zararlardan sorumlu tutulamaz.\n\nGeçmiş performans verileri ve backtest sonuçları gelecekteki başarıyı garanti etmez.")
+        } footer: {
+            VStack(alignment: .center, spacing: 8) {
+                Text("OptiTrade v1.0.0")
                     .font(.caption2)
                     .foregroundColor(.secondary)
-
-                if let date = session.disclaimerAcceptedAt {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.shield.fill")
-                            .font(.caption2)
-                            .foregroundColor(.green)
-                        Text("Risk bildirimi \(date.formatted(date: .abbreviated, time: .omitted)) tarihinde onaylandı.")
-                            .font(.caption2)
-                            .foregroundColor(.green.opacity(0.8))
-                    }
-                    .padding(.top, 4)
-                }
+                Text("© 2025 Algorix — Tüm hakları saklıdır")
+                    .font(.caption2)
+                    .foregroundColor(.secondary.opacity(0.6))
             }
-            .padding(.vertical, 6)
-        } header: {
-            Text("Yasal Uyarı")
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
         }
     }
 
+    // MARK: - Helpers
+
     private func testConnection() {
         connectionState = .testing
-        APIService.shared.baseURL = apiURL
         Task {
             do {
-                let url = URL(string: apiURL + "/health")!
-                let (_, response) = try await URLSession.shared.data(from: url)
-                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-                await MainActor.run {
-                    connectionState = (200...299).contains(code) ? .success : .failure
+                let response = try await APIService.shared.getSessionInfo()
+                withAnimation {
+                    connectionState = .success
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    connectionState = .idle
                 }
             } catch {
-                await MainActor.run { connectionState = .failure }
+                withAnimation {
+                    connectionState = .failure
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    connectionState = .idle
+                }
             }
         }
     }
 
     private func themeIcon(_ theme: AppTheme) -> String {
         switch theme {
-        case .system: return "circle.lefthalf.filled"
-        case .dark:   return "moon.fill"
-        case .light:  return "sun.max.fill"
+        case .system: return "gearshape.fill"
+        case .light: return "sun.max.fill"
+        case .dark: return "moon.stars.fill"
+        }
+    }
+
+    private func fetchMLStatus() async {
+        guard let url = URL(string: APIService.shared.baseURL + "/ml/status") else { return }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            let decoded = try JSONDecoder().decode([String: String].self, from: data)
+            mlStatus = MLStatusInfo(
+                modelName: decoded["model"] ?? "XGBoost",
+                accuracy: decoded["accuracy"] ?? "—",
+                version: decoded["version"] ?? "1.0"
+            )
+        } catch {
+            mlStatus = nil
         }
     }
 }
