@@ -22,12 +22,15 @@ struct ScoreMeter: View {
                 Text("\(score)")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(color)
+                    .accessibilityElement(children: .ignore)
+                    .accessibility(label: Text("Puan: \(score)"))
                 Text("puan")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
         }
         .frame(width: 80, height: 80)
+        .transition(.scale.combined(with: .opacity))
     }
 }
 
@@ -63,6 +66,8 @@ struct DecisionBadge: View {
             .padding(.vertical, 5)
             .background(badgeColor.opacity(0.12))
             .clipShape(Capsule())
+            .accessibility(label: Text("\(decision) - \(decisionCode)"))
+            .animation(.easeOut(duration: 0.3), value: decisionCode)
     }
 }
 
@@ -86,6 +91,7 @@ struct RiskBadge: View {
             .padding(.vertical, 4)
             .background(config.color.opacity(0.12))
             .clipShape(Capsule())
+            .accessibility(label: Text("Risk seviyesi: \(config.text)"))
     }
 }
 
@@ -99,12 +105,15 @@ struct IndicatorRow: View {
             Text(title)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
+                .accessibilityLabel(title)
             Spacer()
             Text(value)
                 .font(.subheadline.weight(.semibold))
                 .foregroundColor(color)
+                .accessibility(label: Text("\(title): \(value)"))
         }
         .padding(.vertical, 4)
+        .animation(.easeInOut(duration: 0.2), value: value)
     }
 }
 
@@ -122,6 +131,7 @@ struct SignalRow: View {
                 .font(.caption)
                 .foregroundColor(.primary)
         }
+        .accessibility(label: Text("\(isLong ? "Alım" : "Satım") sinyali: \(text)"))
     }
 }
 
@@ -135,6 +145,7 @@ struct EmptyStateView: View {
             Image(systemName: icon)
                 .font(.system(size: 52))
                 .foregroundColor(.secondary.opacity(0.6))
+                .accessibility(hidden: true)
             Text(title)
                 .font(.headline)
                 .foregroundColor(.secondary)
@@ -144,6 +155,8 @@ struct EmptyStateView: View {
                 .multilineTextAlignment(.center)
         }
         .padding()
+        .transition(.opacity.combined(with: .scale))
+        .accessibility(label: Text("\(title). \(subtitle)"))
     }
 }
 
@@ -157,6 +170,7 @@ struct SectionHeaderView: View {
             Circle()
                 .fill(color)
                 .frame(width: 8, height: 8)
+                .accessibility(hidden: true)
             Text(title)
                 .font(.title3.bold())
             Text("(\(count))")
@@ -165,6 +179,7 @@ struct SectionHeaderView: View {
             Spacer()
         }
         .padding(.top, 8)
+        .accessibility(label: Text("\(title) - \(count) öğe"))
     }
 }
 
@@ -186,6 +201,7 @@ struct SearchHistoryTag: View {
             Circle()
                 .fill(color)
                 .frame(width: 6, height: 6)
+                .accessibility(hidden: true)
             Text(item.symbol)
                 .font(.caption.weight(.semibold))
                 .foregroundColor(.primary)
@@ -196,6 +212,7 @@ struct SearchHistoryTag: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundColor(.secondary)
+                    .accessibility(label: Text("Sil"))
             }
         }
         .padding(.horizontal, 10)
@@ -203,6 +220,8 @@ struct SearchHistoryTag: View {
         .background(Color(.tertiarySystemBackground))
         .clipShape(Capsule())
         .onTapGesture(perform: onTap)
+        .animation(.spring(response: 0.3), value: item.id)
+        .accessibility(label: Text("\(item.symbol) - Puan: \(item.score)"))
     }
 }
 
@@ -226,6 +245,8 @@ struct QuickSymbolButton: View {
             .background(Color(.tertiarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 10))
         }
+        .buttonStyle(ScaleButtonStyle())
+        .accessibility(label: Text("\(displayName) - \(symbol) sembolü"))
     }
 }
 
@@ -237,33 +258,43 @@ struct SkeletonResultCard: View {
             Circle()
                 .fill(Color(.tertiarySystemBackground))
                 .frame(width: 80, height: 80)
+                .shimmer(phase: phase)
             VStack(alignment: .leading, spacing: 8) {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color(.tertiarySystemBackground))
                     .frame(width: 90, height: 16)
+                    .shimmer(phase: phase)
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color(.tertiarySystemBackground))
                     .frame(width: 130, height: 12)
+                    .shimmer(phase: phase)
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color(.tertiarySystemBackground))
                     .frame(width: 70, height: 12)
+                    .shimmer(phase: phase)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 8) {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color(.tertiarySystemBackground))
                     .frame(width: 60, height: 16)
+                    .shimmer(phase: phase)
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color(.tertiarySystemBackground))
                     .frame(width: 44, height: 12)
+                    .shimmer(phase: phase)
             }
         }
         .padding()
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .opacity(phase ? 0.45 : 1.0)
-        .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: phase)
-        .onAppear { phase = true }
+        .cardShadow()
+        .onAppear { 
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                phase = true
+            }
+        }
+        .accessibility(hidden: true)
     }
 }
 
@@ -322,6 +353,9 @@ struct ScanSummaryBanner: View {
         .padding(12)
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        .cardShadow()
+        .transition(.scale.combined(with: .opacity))
+        .accessibility(label: Text("Tarama özeti: \(buyCount) alım, \(sellCount) satım, \(neutralCount) nötr, ortalama puan \(String(format: "%.0f", avgScore))"))
     }
 
     private func statPill(_ label: String, count: Int, color: Color) -> some View {
@@ -334,6 +368,7 @@ struct ScanSummaryBanner: View {
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity)
+        .accessibility(label: Text("\(label): \(count)"))
     }
 }
 
@@ -352,5 +387,26 @@ struct SectorChip: View {
                 .background(isSelected ? Color.accentColor : Color(.tertiarySystemBackground))
                 .clipShape(Capsule())
         }
+        .buttonStyle(ScaleButtonStyle())
+        .accessibility(label: Text("\(title) sektörü - \(isSelected ? "seçili" : "seçili değil")"))
+    }
+}
+
+// MARK: - Custom Button Style with Animation
+struct ScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .opacity(configuration.isPressed ? 0.8 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: configuration.isPressed)
+    }
+}
+
+// MARK: - Shimmer Effect
+extension View {
+    func shimmer(phase: Bool) -> some View {
+        self
+            .opacity(phase ? 0.45 : 1.0)
+            .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: phase)
     }
 }
