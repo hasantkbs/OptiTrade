@@ -125,11 +125,51 @@ final class APIService {
 
     // ── News ──────────────────────────────────────────────────────────────────
 
+    /// Aktif uygulama diline göre backend'e gönderilecek "lang" değeri ("tr"|"en").
+    /// Haber başlıkları bu dile çevrilir (orijinal kaynak dilinden bağımsız).
+    private var newsLang: String { LocalizationManager.shared.language.rawValue }
+
+    /// Piyasayı belirtmeden çağırır; backend sembolden piyasayı otomatik tespit eder (AUTO).
+    func fetchNews(symbol: String) async throws -> NewsAnalysis {
+        guard var components = URLComponents(string: baseURL + "/news/\(symbol)") else {
+            throw APIError.invalidURL
+        }
+        components.queryItems = [URLQueryItem(name: "lang", value: newsLang)]
+        guard let url = components.url else { throw APIError.invalidURL }
+        return try await get(url: url)
+    }
+
     func fetchNews(symbol: String, market: TradingMarket = .us) async throws -> NewsAnalysis {
         guard var components = URLComponents(string: baseURL + "/news/\(symbol)") else {
             throw APIError.invalidURL
         }
-        components.queryItems = [URLQueryItem(name: "market", value: market.rawValue)]
+        components.queryItems = [
+            URLQueryItem(name: "market", value: market.rawValue),
+            URLQueryItem(name: "lang", value: newsLang),
+        ]
+        guard let url = components.url else { throw APIError.invalidURL }
+        return try await get(url: url)
+    }
+
+    /// Sembole bağlı olmayan genel piyasa gündemi (BIST + ABD + kripto, TR+EN).
+    func fetchMarketNews() async throws -> TopicNewsResponse {
+        guard var components = URLComponents(string: baseURL + "/news/market") else {
+            throw APIError.invalidURL
+        }
+        components.queryItems = [URLQueryItem(name: "lang", value: newsLang)]
+        guard let url = components.url else { throw APIError.invalidURL }
+        return try await get(url: url)
+    }
+
+    /// Serbest metin sorgusu için haber (örn. bir sektör adı) — sembol gerektirmez.
+    func fetchTopicNews(query: String) async throws -> TopicNewsResponse {
+        guard var components = URLComponents(string: baseURL + "/news/topic") else {
+            throw APIError.invalidURL
+        }
+        components.queryItems = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "lang", value: newsLang),
+        ]
         guard let url = components.url else { throw APIError.invalidURL }
         return try await get(url: url)
     }

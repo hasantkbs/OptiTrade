@@ -62,11 +62,11 @@ struct OnboardingView: View {
                     Text("OptiTrade")
                         .font(.system(size: 38, weight: .bold, design: .rounded))
                         .foregroundColor(.white)
-                    Text("Hisse Senedi & Kripto\nAnaliz Asistanı")
+                    Text(L("Hisse Senedi & Kripto\nAnaliz Asistanı"))
                         .font(.title3)
                         .foregroundColor(.gray)
                         .multilineTextAlignment(.center)
-                    Text("Product by Algorix")
+                    Text("Product by AlgorixStudio")
                         .font(.caption.weight(.semibold))
                         .foregroundColor(.accentColor.opacity(0.8))
                         .tracking(1.5)
@@ -80,7 +80,7 @@ struct OnboardingView: View {
                 }
                 .padding(.horizontal, 32)
 
-                Text("Bu uygulama yatırım tavsiyesi vermez.")
+                Text(L("Bu uygulama yatırım tavsiyesi vermez."))
                     .font(.caption2)
                     .foregroundColor(.orange.opacity(0.8))
                     .multilineTextAlignment(.center)
@@ -106,7 +106,7 @@ struct OnboardingView: View {
                 }
                 .padding(.top, 52)
 
-                Text("Yasal Uyarı & Risk Bildirimi")
+                Text(L("Yasal Uyarı & Risk Bildirimi"))
                     .font(.title2.bold())
                     .foregroundColor(.white)
                     .multilineTextAlignment(.center)
@@ -122,7 +122,7 @@ struct OnboardingView: View {
                         disclaimerBlock(
                             icon: "person.fill.questionmark", color: .orange,
                             title: "Kullanıcı Sorumluluğu",
-                            body: "Tüm yatırım kararları tamamen kullanıcıya aittir. Algorix ve OptiTrade, uygulamadan elde edilen bilgiler doğrultusunda gerçekleştirilen işlemlerden doğabilecek herhangi bir kayıp, zarar veya finansal sonuçtan sorumlu tutulamaz."
+                            body: "Tüm yatırım kararları tamamen kullanıcıya aittir. AlgorixStudio ve OptiTrade, uygulamadan elde edilen bilgiler doğrultusunda gerçekleştirilen işlemlerden doğabilecek herhangi bir kayıp, zarar veya finansal sonuçtan sorumlu tutulamaz."
                         )
                         disclaimerBlock(
                             icon: "clock.arrow.2.circlepath", color: .yellow,
@@ -155,7 +155,7 @@ struct OnboardingView: View {
                         Image(systemName: disclaimerChecked ? "checkmark.square.fill" : "square")
                             .font(.title3)
                             .foregroundColor(disclaimerChecked ? .green : .gray)
-                        Text("Yukarıdaki uyarıları okudum, anladım ve kabul ediyorum.")
+                        Text(L("Yukarıdaki uyarıları okudum, anladım ve kabul ediyorum."))
                             .font(.subheadline.weight(.medium))
                             .foregroundColor(.white)
                             .multilineTextAlignment(.leading)
@@ -190,10 +190,10 @@ struct OnboardingView: View {
                 .frame(width: 22)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
+                Text(L(title))
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.white)
-                Text(body)
+                Text(L(body))
                     .font(.caption)
                     .foregroundColor(.gray)
                     .fixedSize(horizontal: false, vertical: true)
@@ -214,11 +214,11 @@ struct OnboardingView: View {
                         .foregroundColor(.blue)
                 }
 
-                Text("Sunucu Bağlantısı")
+                Text(L("Sunucu Bağlantısı"))
                     .font(.title.bold())
                     .foregroundColor(.white)
 
-                Text("OptiTrade'in çalışması için analiz sunucusuna ihtiyaç vardır. Lokal veya uzak sunucu adresini girin.")
+                Text(L("OptiTrade'in çalışması için analiz sunucusuna ihtiyaç vardır. Lokal veya uzak sunucu adresini girin."))
                     .font(.subheadline)
                     .foregroundColor(.gray)
                     .multilineTextAlignment(.center)
@@ -250,9 +250,9 @@ struct OnboardingView: View {
                                     .foregroundColor(apiTestState == .success ? .green :
                                                     apiTestState == .failure ? .red : .white)
                             }
-                            Text(apiTestState == .success ? "Bağlantı Başarılı" :
-                                 apiTestState == .failure ? "Bağlanamadı" :
-                                 apiTestState == .testing ? "Test ediliyor..." : "Bağlantıyı Test Et")
+                            Text(apiTestState == .success ? L("Bağlantı Başarılı") :
+                                 apiTestState == .failure ? L("Bağlanamadı") :
+                                 apiTestState == .testing ? L("Test ediliyor...") : L("Bağlantıyı Test Et"))
                                 .font(.subheadline.weight(.medium))
                                 .foregroundColor(.white)
                         }
@@ -288,11 +288,11 @@ struct OnboardingView: View {
                         .foregroundColor(.accentColor)
                 }
 
-                Text("Hazırsınız!")
+                Text(L("Hazırsınız!"))
                     .font(.title.bold())
                     .foregroundColor(.white)
 
-                Text("OptiTrade'i kullanmaya başlamak için giriş yapın veya yeni hesap oluşturun.\n\nVerileriniz tüm cihazlarınızda Firebase ile senkronize edilir.")
+                Text(L("OptiTrade kullanıma hazır!\n\nVerileriniz tüm cihazlarınızda Firebase ile senkronize edilir."))
                     .font(.subheadline)
                     .foregroundColor(.gray)
                     .multilineTextAlignment(.center)
@@ -307,21 +307,8 @@ struct OnboardingView: View {
             }
             Spacer()
 
-            VStack(spacing: 12) {
-                nextButton(title: "Giriş Yap / Kayıt Ol") {
-                    session.isGuestMode = false
-                    session.onboardingDone = true
-                }
-
-                Button {
-                    session.isGuestMode = true
-                    session.onboardingDone = true
-                } label: {
-                    Text("Misafir Olarak Devam Et")
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
-                        .padding(.vertical, 8)
-                }
+            nextButton(title: "Başla") {
+                session.onboardingDone = true
             }
             .padding(.horizontal, 32)
             .padding(.bottom, 80)
@@ -347,7 +334,7 @@ struct OnboardingView: View {
 
     private func nextButton(title: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
+            Text(L(title))
                 .font(.headline)
                 .foregroundColor(.black)
                 .frame(maxWidth: .infinity)
@@ -365,10 +352,10 @@ struct OnboardingView: View {
                 .foregroundColor(.accentColor)
                 .frame(width: 36)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(L(title))
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.white)
-                Text(subtitle)
+                Text(L(subtitle))
                     .font(.caption)
                     .foregroundColor(.gray)
             }
@@ -391,18 +378,18 @@ struct MarketSelectionView: View {
             VStack(spacing: 0) {
                 VStack(spacing: 8) {
                     if isOnboarding {
-                        Text("OptiTrade'e\nHoş Geldiniz")
+                        Text(L("OptiTrade'e\nHoş Geldiniz"))
                             .font(.system(size: 32, weight: .bold))
                             .foregroundColor(.white)
                             .multilineTextAlignment(.center)
-                        Text("Hangi piyasada işlem yapıyorsunuz?")
+                        Text(L("Hangi piyasada işlem yapıyorsunuz?"))
                             .font(.subheadline)
                             .foregroundColor(.gray)
                     } else {
-                        Text("Piyasa Seçimi")
+                        Text(L("Piyasa Seçimi"))
                             .font(.title2.bold())
                             .foregroundColor(.white)
-                        Text("Haber filtresi ve arama bu tercihle yapılandırılır")
+                        Text(L("Haber filtresi ve arama bu tercihle yapılandırılır"))
                             .font(.caption)
                             .foregroundColor(.gray)
                     }
@@ -420,7 +407,7 @@ struct MarketSelectionView: View {
                 if selectedMarket == .crypto {
                     HStack(spacing: 8) {
                         Image(systemName: "info.circle").foregroundColor(.blue)
-                        Text("Kripto piyasası 7/24 globaldir. Haber filtresi otomatik uygulanır.")
+                        Text(L("Kripto piyasası 7/24 globaldir. Haber filtresi otomatik uygulanır."))
                             .font(.caption).foregroundColor(.gray)
                     }
                     .padding(12).background(Color.blue.opacity(0.08)).cornerRadius(10)
@@ -431,7 +418,7 @@ struct MarketSelectionView: View {
                     if isSaving {
                         ProgressView().tint(.black).frame(maxWidth: .infinity).frame(height: 54)
                     } else {
-                        Text(isOnboarding ? "Devam Et" : "Kaydet")
+                        Text(isOnboarding ? L("Devam Et") : L("Kaydet"))
                             .font(.headline).foregroundColor(.black).frame(maxWidth: .infinity).frame(height: 54)
                     }
                 }
@@ -463,11 +450,11 @@ private struct MarketCard: View {
             HStack(spacing: 16) {
                 Text(market.flag).font(.system(size: 32)).frame(width: 52, height: 52).background(Color.white.opacity(0.06)).cornerRadius(12)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(market.displayName).font(.headline).foregroundColor(.white)
-                    Text(market.description).font(.caption).foregroundColor(.gray).lineLimit(2)
+                    Text(L(market.displayName)).font(.headline).foregroundColor(.white)
+                    Text(L(market.description)).font(.caption).foregroundColor(.gray).lineLimit(2)
                     HStack(spacing: 4) {
                         Image(systemName: "chart.line.uptrend.xyaxis").font(.caption2).foregroundColor(accentColor)
-                        Text(market.indexName).font(.caption2.weight(.medium)).foregroundColor(accentColor)
+                        Text(L(market.indexName)).font(.caption2.weight(.medium)).foregroundColor(accentColor)
                     }
                 }
                 Spacer()
@@ -541,7 +528,7 @@ struct SectorOpportunityView: View {
             else if let err = vm.error { errorView(err) }
             else { mainContent }
         }
-        .navigationTitle("Sektör Analizi")
+        .navigationTitle(L("Sektör Analizi"))
         .navigationBarTitleDisplayMode(.inline)
         .task { await vm.load(market: preferences.selectedMarket) }
         .sheet(item: $selectedSector) { sector in SectorDetailSheet(sector: sector) }
@@ -552,7 +539,7 @@ struct SectorOpportunityView: View {
                 if let top = vm.topOpportunity, let score = top.score, score >= 60 { opportunityBanner(top) }
                 HStack {
                     MarketBadge(market: preferences.selectedMarket)
-                    Text("\(vm.sectors.count) sektör").font(.caption).foregroundColor(.gray)
+                    Text("\(vm.sectors.count) \(L("sektör"))").font(.caption).foregroundColor(.gray)
                     Spacer()
                 }.padding(.horizontal, 20)
                 ForEach(vm.sectors) { sector in
@@ -566,8 +553,8 @@ struct SectorOpportunityView: View {
             HStack(spacing: 8) {
                 Text("🎯").font(.title2)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("En Yüksek Fırsat").font(.caption.weight(.semibold)).foregroundColor(Color(hex: "#00FF88").opacity(0.8))
-                    Text(top.nameTr ?? top.sector ?? "").font(.headline.bold()).foregroundColor(.white)
+                    Text(L("En Yüksek Fırsat")).font(.caption.weight(.semibold)).foregroundColor(Color(hex: "#00FF88").opacity(0.8))
+                    Text(L(top.nameTr ?? top.sector ?? "")).font(.headline.bold()).foregroundColor(.white)
                 }
                 Spacer()
                 if let score = top.score { Text("\(Int(score))").font(.title2.bold()).foregroundColor(Color(hex: "#00FF88")) }
@@ -576,7 +563,7 @@ struct SectorOpportunityView: View {
     }
     private var loadingView: some View { ProgressView().tint(.blue) }
     private func errorView(_ msg: String) -> some View { Text(msg).foregroundColor(.red) }
-    private var cryptoMessage: some View { Text("Kripto piyasasında sektör ayrımı yoktur").foregroundColor(.gray) }
+    private var cryptoMessage: some View { Text(L("Kripto piyasasında sektör ayrımı yoktur")).foregroundColor(.gray) }
 }
 
 struct SectorCard: View {
@@ -587,17 +574,17 @@ struct SectorCard: View {
                 Text(sector.icon).font(.title2).frame(width: 44, height: 44).background(Color.white.opacity(0.06)).cornerRadius(10)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(sector.nameTr).font(.headline).foregroundColor(.white)
+                        Text(L(sector.nameTr)).font(.headline).foregroundColor(.white)
                         Text(sector.trendEmoji)
                         Spacer()
-                        Text(sector.risk).font(.caption2.weight(.semibold)).foregroundColor(sector.riskColor).padding(.horizontal, 6).padding(.vertical, 2).background(sector.riskColor.opacity(0.12)).cornerRadius(5)
+                        Text(L(sector.riskLabel)).font(.caption2.weight(.semibold)).foregroundColor(sector.riskColor).padding(.horizontal, 6).padding(.vertical, 2).background(sector.riskColor.opacity(0.12)).cornerRadius(5)
                     }
-                    Text(sector.description).font(.caption).foregroundColor(.gray).lineLimit(1)
+                    Text(L(sector.description)).font(.caption).foregroundColor(.gray).lineLimit(1)
                 }
             }
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text(sector.opportunityLabel).font(.caption.weight(.semibold)).foregroundColor(sector.scoreColor)
+                    Text(L(sector.opportunityLabel)).font(.caption.weight(.semibold)).foregroundColor(sector.scoreColor)
                     Spacer()
                     Text("\(Int(sector.opportunityScore))/100").font(.caption.weight(.bold)).foregroundColor(sector.scoreColor)
                 }
@@ -620,21 +607,78 @@ struct ScoreProgressBar: View {
     }
 }
 
+@MainActor
+final class SectorNewsViewModel: ObservableObject {
+    @Published var response: TopicNewsResponse?
+    @Published var isLoading = false
+
+    func load(query: String) async {
+        isLoading = true
+        response = try? await APIService.shared.fetchTopicNews(query: query)
+        isLoading = false
+    }
+}
+
 struct SectorDetailSheet: View {
     let sector: SectorOverview
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var newsVM = SectorNewsViewModel()
+
     var body: some View {
         NavigationView {
-            ZStack {
-                Color(hex: "#0A0E1A").ignoresSafeArea()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        Text(sector.nameTr).font(.title.bold()).foregroundColor(.white).padding()
-                        Text(sector.advice).foregroundColor(.white.opacity(0.8)).padding()
-                        Spacer()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    Text(L(sector.nameTr)).font(.title.bold()).foregroundColor(.primary).padding()
+                    Text(sector.advice).foregroundColor(.secondary).padding(.horizontal)
+
+                    sectorNewsSection
+                }
+            }
+            .background(Color(.systemBackground).ignoresSafeArea())
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button(L("Kapat")) { dismiss() } } }
+            .task { await newsVM.load(query: sector.nameTr) }
+        }
+    }
+
+    @ViewBuilder
+    private var sectorNewsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L("İlgili Haberler"))
+                .font(.headline)
+                .padding(.horizontal)
+
+            if newsVM.isLoading {
+                HStack { Spacer(); ProgressView(); Spacer() }
+                    .padding()
+            } else if let headlines = newsVM.response?.headlines, !headlines.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(headlines) { headline in
+                        HStack(alignment: .top, spacing: 10) {
+                            Circle()
+                                .fill(headline.sentimentColor)
+                                .frame(width: 8, height: 8)
+                                .padding(.top, 5)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(headline.title)
+                                    .font(.caption)
+                                    .foregroundColor(.primary)
+                                Text(headline.source)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal)
+                        Divider().padding(.leading, 34)
                     }
                 }
-            }.toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Kapat") { dismiss() } } }
+            } else {
+                Text(L("İlgili haber bulunamadı."))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal)
+            }
         }
+        .padding(.top, 8)
     }
 }

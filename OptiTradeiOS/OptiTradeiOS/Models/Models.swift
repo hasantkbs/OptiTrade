@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Network
 import FirebaseFirestore
 import FirebaseAuth
 
@@ -178,6 +179,14 @@ struct SectorOverview: Decodable, Identifiable {
         default:     return .orange
         }
     }
+
+    var riskLabel: String {
+        switch risk {
+        case "LOW":  return "Düşük Risk"
+        case "HIGH": return "Yüksek Risk"
+        default:     return "Orta Risk"
+        }
+    }
 }
 
 struct SectorsResponse: Decodable {
@@ -264,6 +273,51 @@ struct NewsAnalysis: Decodable {
         case "SLIGHTLY_NEGATIVE": return Color(hex: "#FF8844")
         default:                  return .gray
         }
+    }
+}
+
+struct TopicNewsHeadline: Decodable, Identifiable {
+    var id: String { title + (publishedAt ?? "") }
+    let title:       String
+    let source:      String
+    let sentiment:   String
+    let score:       Double
+    let keywords:    [String]?
+    let publishedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title, source, sentiment, score, keywords
+        case publishedAt = "published_at"
+    }
+
+    var sentimentColor: Color {
+        switch sentiment {
+        case "POSITIVE":          return .green
+        case "SLIGHTLY_POSITIVE": return Color(hex: "#88CC44")
+        case "NEGATIVE":          return .red
+        case "SLIGHTLY_NEGATIVE": return Color(hex: "#FF8844")
+        default:                  return .gray
+        }
+    }
+
+    var publishedDate: Date? {
+        guard let publishedAt else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFraction.date(from: publishedAt) { return d }
+        return ISO8601DateFormatter().date(from: publishedAt)
+    }
+}
+
+struct TopicNewsResponse: Decodable {
+    let query:      String?
+    let total:      Int
+    let headlines:  [TopicNewsHeadline]
+    let fetchedAt:  String?
+
+    enum CodingKeys: String, CodingKey {
+        case query, total, headlines
+        case fetchedAt = "fetched_at"
     }
 }
 
@@ -622,6 +676,48 @@ struct PaperTrade: Codable, Identifiable {
     }
 }
 
+struct PortfolioHolding: Codable, Identifiable {
+    let id: UUID
+    var symbol: String
+    var assetType: String
+    var quantity: Double
+    var purchasePrice: Double
+    var purchaseDate: Date
+
+    init(symbol: String, assetType: String, quantity: Double, purchasePrice: Double, purchaseDate: Date = Date()) {
+        self.id = UUID()
+        self.symbol = symbol
+        self.assetType = assetType
+        self.quantity = quantity
+        self.purchasePrice = purchasePrice
+        self.purchaseDate = purchaseDate
+    }
+
+    init(id: UUID, symbol: String, assetType: String, quantity: Double, purchasePrice: Double, purchaseDate: Date) {
+        self.id = id
+        self.symbol = symbol
+        self.assetType = assetType
+        self.quantity = quantity
+        self.purchasePrice = purchasePrice
+        self.purchaseDate = purchaseDate
+    }
+
+    var costBasis: Double { quantity * purchasePrice }
+
+    func unrealizedPLPercent(currentPrice: Double) -> Double {
+        guard purchasePrice > 0 else { return 0 }
+        return (currentPrice - purchasePrice) / purchasePrice * 100
+    }
+
+    func unrealizedPLAmount(currentPrice: Double) -> Double {
+        (currentPrice - purchasePrice) * quantity
+    }
+
+    func marketValue(currentPrice: Double) -> Double {
+        currentPrice * quantity
+    }
+}
+
 // ── App Settings ──────────────────────────────────────────────────────────────
 
 enum AppTheme: String, CaseIterable, Codable {
@@ -634,6 +730,14 @@ enum AppTheme: String, CaseIterable, Codable {
         case .system: return "Sistem"
         case .dark:   return "Karanlik"
         case .light:  return "Aydinlik"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .dark:   return .dark
+        case .light:  return .light
         }
     }
 }
@@ -652,9 +756,13 @@ class UserPreferences: ObservableObject {
     @Published var selectedMarket: TradingMarket = .tr
     @Published var hasCompletedOnboarding: Bool  = false
     @Published var isSaving: Bool = false
+    @Published var enableNotifications: Bool = true
+    @Published var refreshInterval: Int = 5 // dakika
 
-    private let marketKey    = "selectedMarket"
-    private let onboardingKey = "hasCompletedOnboarding"
+    private let marketKey        = "selectedMarket"
+    private let onboardingKey    = "hasCompletedOnboarding"
+    private let notificationsKey = "enableNotifications"
+    private let refreshKey       = "refreshInterval"
 
     init() {
         load()
@@ -666,11 +774,16 @@ class UserPreferences: ObservableObject {
             selectedMarket = market
         }
         hasCompletedOnboarding = UserDefaults.standard.bool(forKey: onboardingKey)
+        enableNotifications = UserDefaults.standard.object(forKey: notificationsKey) as? Bool ?? true
+        let savedRefresh = UserDefaults.standard.integer(forKey: refreshKey)
+        refreshInterval = savedRefresh > 0 ? savedRefresh : 5
     }
 
     func save() {
         UserDefaults.standard.set(selectedMarket.rawValue, forKey: marketKey)
         UserDefaults.standard.set(hasCompletedOnboarding, forKey: onboardingKey)
+        UserDefaults.standard.set(enableNotifications, forKey: notificationsKey)
+        UserDefaults.standard.set(refreshInterval, forKey: refreshKey)
     }
 
     func setMarket(_ market: TradingMarket, saveToFirebase: Bool = true) {
@@ -694,8 +807,10 @@ class UserPreferences: ObservableObject {
         let db = Firestore.firestore()
         try? await db.collection("users").document(uid).setData([
             "preferences": [
-                "market":    selectedMarket.rawValue,
-                "updatedAt": FieldValue.serverTimestamp(),
+                "market":          selectedMarket.rawValue,
+                "notifications":   enableNotifications,
+                "refreshInterval": refreshInterval,
+                "updatedAt":       FieldValue.serverTimestamp(),
             ]
         ], merge: true)
     }
@@ -708,6 +823,12 @@ class UserPreferences: ObservableObject {
               let marketRaw = prefs["market"] as? String,
               let market = TradingMarket(rawValue: marketRaw) else { return }
         selectedMarket = market
+        if let notif = prefs["notifications"] as? Bool {
+            enableNotifications = notif
+        }
+        if let interval = prefs["refreshInterval"] as? Int {
+            refreshInterval = interval
+        }
         save()
     }
 }
@@ -758,6 +879,10 @@ final class UserSession: ObservableObject {
     @Published var focusAssets: [String] {
         didSet { UserDefaults.standard.set(focusAssets, forKey: "focus_assets") }
     }
+    @Published var isOnline: Bool = true
+
+    private let networkMonitor = NWPathMonitor()
+    private let networkMonitorQueue = DispatchQueue(label: "com.optitrade.networkMonitor")
 
     var disclaimerAcceptedAt: Date? {
         get {
@@ -783,6 +908,17 @@ final class UserSession: ObservableObject {
         isAdmin            = UserDefaults.standard.bool(forKey: "is_admin")
         subscriptionLevel  = SubscriptionLevel(rawValue: UserDefaults.standard.string(forKey: "subscription_level") ?? "") ?? .free
         focusAssets        = UserDefaults.standard.stringArray(forKey: "focus_assets") ?? []
+
+        networkMonitor.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                self?.isOnline = path.status == .satisfied
+            }
+        }
+        networkMonitor.start(queue: networkMonitorQueue)
+    }
+
+    func setTheme(_ theme: AppTheme) {
+        appTheme = theme
     }
 
     @MainActor
@@ -836,6 +972,19 @@ final class UserSession: ObservableObject {
             UserDefaults.standard.set(data, forKey: "paper_trades")
         }
         Task { try? await FirebaseService.shared.savePaperTrades(items) }
+    }
+
+    func portfolioHoldings() -> [PortfolioHolding] {
+        guard let data = UserDefaults.standard.data(forKey: "portfolio_holdings"),
+              let items = try? JSONDecoder().decode([PortfolioHolding].self, from: data) else { return [] }
+        return items
+    }
+
+    func savePortfolioHoldings(_ items: [PortfolioHolding]) {
+        if let data = try? JSONEncoder().encode(items) {
+            UserDefaults.standard.set(data, forKey: "portfolio_holdings")
+        }
+        Task { try? await FirebaseService.shared.savePortfolioHoldings(items) }
     }
 
     func searchHistory() -> [SearchHistoryItem] {

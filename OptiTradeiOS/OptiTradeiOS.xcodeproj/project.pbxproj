@@ -27,9 +27,12 @@
 		A10018 /* FirebaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018 /* FirebaseService.swift */; };
 		A10019 /* PortfolioAnalysisView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* PortfolioAnalysisView.swift */; };
 		A10020 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* Extensions.swift */; };
-		A10023 /* SessionInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* SessionInfoView.swift */; };
 		A10021 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = P10001 /* FirebaseAuth */; };
 		A10022 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = P10002 /* FirebaseFirestore */; };
+		A10023 /* SessionInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* SessionInfoView.swift */; };
+		A10024 /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10024 /* Localization.swift */; };
+		A10025 /* PortfolioHoldingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025 /* PortfolioHoldingsView.swift */; };
+		A10026 /* MarketNewsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* MarketNewsView.swift */; };
 		A12E47062F9589AE00417CBD /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A12E47052F9589AE00417CBD /* GoogleService-Info.plist */; };
 /* End PBXBuildFile section */
 
@@ -56,6 +59,9 @@
 		B10019 /* PortfolioAnalysisView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioAnalysisView.swift; sourceTree = "<group>"; };
 		B10020 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
 		B10023 /* SessionInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionInfoView.swift; sourceTree = "<group>"; };
+		B10024 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
+		B10025 /* PortfolioHoldingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioHoldingsView.swift; sourceTree = "<group>"; };
+		B10026 /* MarketNewsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketNewsView.swift; sourceTree = "<group>"; };
 		C10001 /* OptiTradeiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OptiTradeiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -86,6 +92,7 @@
 				A12E47052F9589AE00417CBD /* GoogleService-Info.plist */,
 				B10001 /* OptiTradeApp.swift */,
 				B10020 /* Extensions.swift */,
+				B10024 /* Localization.swift */,
 				E10003 /* Views */,
 				E10004 /* Models */,
 				E10005 /* Services */,
@@ -110,6 +117,8 @@
 				B10017 /* AuthView.swift */,
 				B10019 /* PortfolioAnalysisView.swift */,
 				B10023 /* SessionInfoView.swift */,
+				B10025 /* PortfolioHoldingsView.swift */,
+				B10026 /* MarketNewsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -180,8 +189,8 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1630;
-				LastUpgradeCheck = 2620;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					F10001 = {
 						CreatedOnToolsVersion = 16.3;
@@ -246,6 +255,9 @@
 				A10019 /* PortfolioAnalysisView.swift in Sources */,
 				A10020 /* Extensions.swift in Sources */,
 				A10023 /* SessionInfoView.swift in Sources */,
+				A10024 /* Localization.swift in Sources */,
+				A10025 /* PortfolioHoldingsView.swift in Sources */,
+				A10026 /* MarketNewsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -364,7 +376,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = U9Q5A2QGPJ;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = OptiTrade;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
@@ -393,7 +405,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = U9Q5A2QGPJ;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = OptiTrade;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";

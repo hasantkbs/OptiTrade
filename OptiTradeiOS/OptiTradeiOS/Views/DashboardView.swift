@@ -54,6 +54,7 @@ struct DashboardView: View {
                         .padding(.top, 8)
                         .padding(.bottom, 4)
                 }
+                MarketNewsTicker()
                 headerControls
                 Divider()
                 content
@@ -62,7 +63,7 @@ struct DashboardView: View {
                     AdBannerPlaceholder()
                 }
             }
-            .navigationTitle("Piyasa Taraması")
+            .navigationTitle(L("Piyasa Taraması"))
             .navigationBarTitleDisplayMode(.large)
             .toolbar { toolbarItems }
             .task {
@@ -74,9 +75,9 @@ struct DashboardView: View {
 
     private var headerControls: some View {
         VStack(spacing: 8) {
-            Picker("Piyasa", selection: $vm.selectedMarket) {
-                Text("BIST").tag("bist")
-                Text("Kripto").tag("crypto")
+            Picker(L("Piyasa"), selection: $vm.selectedMarket) {
+                Text(L("Hisse")).tag("bist")
+                Text(L("Kripto")).tag("crypto")
             }
             .pickerStyle(.segmented)
             .padding(.horizontal)
@@ -89,9 +90,9 @@ struct DashboardView: View {
                             vm.sortBy = s
                         } label: {
                             if vm.sortBy == s {
-                                Label(s.rawValue, systemImage: "checkmark")
+                                Label(L(s.rawValue), systemImage: "checkmark")
                             } else {
-                                Text(s.rawValue)
+                                Text(L(s.rawValue))
                             }
                         }
                     }
@@ -99,7 +100,7 @@ struct DashboardView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.up.arrow.down")
                             .font(.caption)
-                        Text(vm.sortBy.rawValue)
+                        Text(L(vm.sortBy.rawValue))
                             .font(.caption)
                     }
                     .foregroundColor(.accentColor)
@@ -112,7 +113,7 @@ struct DashboardView: View {
                 Spacer()
 
                 if let t = vm.lastScanned {
-                    Text("Son tarama: \(t, style: .time)")
+                    Text("\(L("Son tarama")): \(t, style: .time)")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -147,7 +148,7 @@ struct DashboardView: View {
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
-                Button("Tekrar Dene") { Task { await vm.scan() } }
+                Button(L("Tekrar Dene")) { Task { await vm.scan() } }
                     .foregroundColor(.accentColor)
             }
             Spacer()
@@ -206,7 +207,7 @@ struct DashboardView: View {
                 let showNeutral = session.showNeutralInScan || (scan.topBuys.isEmpty && scan.topSells.isEmpty)
                 if showNeutral && !scan.neutral.isEmpty {
                     let title = (scan.topBuys.isEmpty && scan.topSells.isEmpty)
-                        ? "En Yüksek Puanlı Hisseler" : "Nötr"
+                        ? L("En Yüksek Puanlı Hisseler") : L("Nötr")
                     let color: Color = (scan.topBuys.isEmpty && scan.topSells.isEmpty) ? .blue : .orange
                     let neutralSorted = scan.neutral.sorted { $0.score > $1.score }
                     let displayed = (scan.topBuys.isEmpty && scan.topSells.isEmpty)
@@ -222,7 +223,7 @@ struct DashboardView: View {
                     }
                 }
 
-                Text("\(scan.totalScanned) sembol tarandı")
+                Text("\(scan.totalScanned) \(L("sembol tarandı"))")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.vertical, 4)
@@ -233,14 +234,18 @@ struct DashboardView: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.caption2)
                             .foregroundColor(.orange)
-                        Text("Gösterilen sinyaller yatırım tavsiyesi değildir.")
+                        Text(L("Gösterilen sinyaller yatırım tavsiyesi değildir."))
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
-                    Text("Product by Algorix  •  algorix.io")
-                        .font(.caption2)
-                        .foregroundColor(.secondary.opacity(0.5))
-                        .tracking(0.5)
+                    HStack(spacing: 4) {
+                        Text("Product by AlgorixStudio  •")
+                            .foregroundColor(.secondary.opacity(0.5))
+                        Link("algorixstudio.com", destination: URL(string: "https://algorixstudio.com")!)
+                            .foregroundColor(.secondary.opacity(0.8))
+                    }
+                    .font(.caption2)
+                    .tracking(0.5)
                 }
                 .padding(.bottom, 16)
             }
@@ -260,12 +265,12 @@ struct DashboardView: View {
                     .background(Color(hex: "#00D4FF").opacity(0.1))
                     .cornerRadius(10)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Sektör Analizi")
+                    Text(L("Sektör Analizi"))
                         .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.white)
-                    Text("Hangi sektörde fırsat var?")
+                        .foregroundColor(.primary)
+                    Text(L("Hangi sektörde fırsat var?"))
                         .font(.caption)
-                        .foregroundColor(.gray)
+                        .foregroundColor(.secondary)
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -302,20 +307,20 @@ struct AdBannerPlaceholder: View {
         HStack {
             Spacer()
             VStack(spacing: 4) {
-                Text("REKLAM")
+                Text(L("REKLAM"))
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.white.opacity(0.4))
-                Text("Google AdMob Alanı")
+                    .foregroundColor(.secondary.opacity(0.7))
+                Text(L("Google AdMob Alanı"))
                     .font(.caption2)
-                    .foregroundColor(.white.opacity(0.2))
+                    .foregroundColor(.secondary.opacity(0.5))
             }
             Spacer()
         }
         .frame(height: 50)
-        .background(Color.white.opacity(0.05))
+        .background(Color.primary.opacity(0.05))
         .overlay(
             Rectangle()
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
         )
     }
 }

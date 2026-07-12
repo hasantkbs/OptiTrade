@@ -6,6 +6,7 @@ struct OptiTradeApp: App {
     @StateObject private var session     = UserSession.shared
     @StateObject private var firebase    = FirebaseService.shared
     @StateObject private var preferences = UserPreferences()
+    @StateObject private var localization = LocalizationManager.shared
 
     init() {
         FirebaseApp.configure()
@@ -22,6 +23,7 @@ struct OptiTradeApp: App {
                 .environmentObject(session)
                 .environmentObject(firebase)
                 .environmentObject(preferences)
+                .environmentObject(localization)
         }
     }
 }
@@ -34,6 +36,7 @@ struct RootView: View {
     @EnvironmentObject var preferences: UserPreferences
     @EnvironmentObject var session:     UserSession
     @EnvironmentObject var firebase:    FirebaseService
+    @EnvironmentObject var localization: LocalizationManager
 
     var body: some View {
         Group {
@@ -46,6 +49,8 @@ struct RootView: View {
                 ContentView()
             }
         }
+        // Dil değiştiğinde tüm ağacı yeniden oluştur (L(...) çağrıları anında güncellensin).
+        .id(localization.language)
         .onAppear {
             // Giriş yapılmışsa Firebase'den tercihi çek
             Task { await preferences.fetchFromFirebase() }

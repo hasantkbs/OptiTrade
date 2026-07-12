@@ -72,6 +72,8 @@ class AnalysisResult(BaseModel):
     fibonacci: Optional[dict] = None
     extra_indicators: Optional[dict] = None
     news_analysis: Optional[dict] = None
+    scoring_breakdown: Optional[List[dict]] = None
+    signal_details: Optional[dict] = None     # structured signal engine output (Phase A+)
     monte_carlo: Optional[MonteCarloResult] = None
     recommendation: Optional[RecommendationResult] = None
 

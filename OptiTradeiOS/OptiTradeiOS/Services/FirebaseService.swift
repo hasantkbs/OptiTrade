@@ -264,6 +264,51 @@ final class FirebaseService: ObservableObject {
         }
     }
 
+    // ── Firestore: Portfolio Holdings ──────────────────────────────────────────
+
+    func fetchPortfolioHoldings() async throws -> [PortfolioHolding] {
+        guard let ref = userDoc() else { return [] }
+        let snap = try await ref.collection("portfolioHoldings").getDocuments()
+        return snap.documents.compactMap { doc -> PortfolioHolding? in
+            let d = doc.data()
+            guard
+                let symbol = d["symbol"] as? String,
+                let assetType = d["assetType"] as? String,
+                let quantity = d["quantity"] as? Double,
+                let purchasePrice = d["purchasePrice"] as? Double,
+                let purchaseTS = d["purchaseDate"] as? Timestamp
+            else { return nil }
+
+            return PortfolioHolding(
+                id: UUID(uuidString: doc.documentID) ?? UUID(),
+                symbol: symbol,
+                assetType: assetType,
+                quantity: quantity,
+                purchasePrice: purchasePrice,
+                purchaseDate: purchaseTS.dateValue()
+            )
+        }
+    }
+
+    func savePortfolioHoldings(_ holdings: [PortfolioHolding]) async throws {
+        guard let ref = userDoc() else { return }
+        let colRef = ref.collection("portfolioHoldings")
+
+        let existing = try await colRef.getDocuments()
+        for doc in existing.documents { try await doc.reference.delete() }
+
+        for holding in holdings {
+            let data: [String: Any] = [
+                "symbol": holding.symbol,
+                "assetType": holding.assetType,
+                "quantity": holding.quantity,
+                "purchasePrice": holding.purchasePrice,
+                "purchaseDate": Timestamp(date: holding.purchaseDate),
+            ]
+            try await colRef.document(holding.id.uuidString).setData(data)
+        }
+    }
+
     // ── Firestore: Search History ──────────────────────────────────────────────
 
     func fetchSearchHistory() async throws -> [SearchHistoryItem] {

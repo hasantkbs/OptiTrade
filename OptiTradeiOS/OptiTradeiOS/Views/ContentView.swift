@@ -35,22 +35,19 @@ struct ContentView: View {
     private var mainTabs: some View {
         TabView {
             DashboardView()
-                .tabItem { Label("Tarama", systemImage: "chart.bar.fill") }
+                .tabItem { Label(L("Tarama"), systemImage: "chart.bar.fill") }
 
             SearchView()
-                .tabItem { Label("Analiz", systemImage: "magnifyingglass") }
+                .tabItem { Label(L("Analiz"), systemImage: "magnifyingglass") }
 
             PaperTradeView()
-                .tabItem { Label("Beta Trade", systemImage: "chart.line.uptrend.xyaxis") }
+                .tabItem { Label(L("Beta Trade"), systemImage: "chart.line.uptrend.xyaxis") }
 
             PortfolioAnalysisView()
-                .tabItem { Label("Portfoy", systemImage: "chart.pie.fill") }
-
-            WatchlistView()
-                .tabItem { Label("Takip", systemImage: "star.fill") }
+                .tabItem { Label(L("Portfoy"), systemImage: "chart.pie.fill") }
 
             SettingsView()
-                .tabItem { Label("Ayarlar", systemImage: "gearshape.fill") }
+                .tabItem { Label(L("Daha Fazla"), systemImage: "ellipsis.circle.fill") }
         }
     }
 

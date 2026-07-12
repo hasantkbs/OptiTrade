@@ -58,18 +58,6 @@ extension View {
             .animation(.easeInOut(duration: 0.4).delay(delay), value: UUID())
     }
     
-    func scaleAndFadeAnimation(scale: Double = 0.95) -> some View {
-        self
-            .scaleEffect(scale)
-            .opacity(0.5)
-            .onAppear {
-                withAnimation(.easeOut(duration: 0.5)) {
-                    self.scaleEffect(1.0)
-                    self.opacity(1.0)
-                }
-            }
-    }
-    
     func cardShadow() -> some View {
         self
             .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 4)
@@ -78,18 +66,29 @@ extension View {
 
 // MARK: - Accessibility Extensions
 extension View {
-    func accessibilityElement(children: AccessibilityChildBehavior, role: AccessibilityRole? = nil, label: String? = nil) -> some View {
+    /// Combines the system `accessibilityElement(children:)` modifier with
+    /// an optional accessibility label, without shadowing the system API.
+    func accessibleElement(children: AccessibilityChildBehavior, label: String? = nil) -> some View {
         self
-            .accessibility(children: children)
-            .if(let label) { view in
-                view.accessibility(label: Text(label))
+            .accessibilityElement(children: children)
+            .ifLet(label) { view, label in
+                view.accessibilityLabel(label)
             }
     }
-    
+
     @ViewBuilder
     func `if`<Content: View>(_ condition: Bool, transform: (Self) -> Content) -> some View {
         if condition {
             transform(self)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func ifLet<Value, Content: View>(_ value: Value?, transform: (Self, Value) -> Content) -> some View {
+        if let value = value {
+            transform(self, value)
         } else {
             self
         }

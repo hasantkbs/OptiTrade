@@ -46,7 +46,7 @@ struct PaperTradeView: View {
                     closedTradesList
                 }
             }
-            .navigationTitle("Beta Trade")
+            .navigationTitle(L("Beta Trade"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -65,9 +65,9 @@ struct PaperTradeView: View {
 
     private var summaryBar: some View {
         HStack(spacing: 0) {
-            summaryCard(title: "Açık İşlem", value: "\(openTrades.count)", color: .accentColor)
+            summaryCard(title: L("Açık İşlem"), value: "\(openTrades.count)", color: .accentColor)
             Divider().frame(height: 40)
-            summaryCard(title: "Kapalı", value: "\(closedTrades.count)", color: .secondary)
+            summaryCard(title: L("Kapalı"), value: "\(closedTrades.count)", color: .secondary)
             Divider().frame(height: 40)
             summaryCard(
                 title: "Win Rate",
@@ -76,7 +76,7 @@ struct PaperTradeView: View {
             )
             Divider().frame(height: 40)
             summaryCard(
-                title: "Ağırlıklı K/Z",
+                title: L("Ağırlıklı K/Z"),
                 value: String(format: "%+.1f%%", totalPL),
                 color: totalPL >= 0 ? .green : .red
             )
@@ -99,8 +99,8 @@ struct PaperTradeView: View {
 
     private var tabPicker: some View {
         Picker("", selection: $selectedTab) {
-            Text("Açık (\(openTrades.count))").tag(0)
-            Text("Kapalı (\(closedTrades.count))").tag(1)
+            Text("\(L("Açık")) (\(openTrades.count))").tag(0)
+            Text("\(L("Kapalı")) (\(closedTrades.count))").tag(1)
         }
         .pickerStyle(.segmented)
     }
@@ -110,8 +110,8 @@ struct PaperTradeView: View {
             if openTrades.isEmpty {
                 emptyState(
                     icon: "chart.line.uptrend.xyaxis",
-                    title: "Açık İşlem Yok",
-                    subtitle: "Yeni bir işlem açmak için + butonuna dokun."
+                    title: L("Açık İşlem Yok"),
+                    subtitle: L("Yeni bir işlem açmak için + butonuna dokun.")
                 )
             } else {
                 List {
@@ -131,8 +131,8 @@ struct PaperTradeView: View {
             if closedTrades.isEmpty {
                 emptyState(
                     icon: "clock.arrow.circlepath",
-                    title: "Kapalı İşlem Yok",
-                    subtitle: "Kapattığınız işlemler burada görünür."
+                    title: L("Kapalı İşlem Yok"),
+                    subtitle: L("Kapattığınız işlemler burada görünür.")
                 )
             } else {
                 List {
@@ -208,12 +208,12 @@ struct OpenTradeRow: View {
                     }
                 }
                 HStack {
-                    Text("Giriş: \(String(format: "%.2f", trade.entryPrice))")
+                    Text("\(L("Giriş")): \(String(format: "%.2f", trade.entryPrice))")
                         .font(.caption).foregroundColor(.secondary)
                     Text("×\(String(format: "%.2f", trade.quantity))")
                         .font(.caption).foregroundColor(.secondary)
                     Spacer()
-                    Button("Kapat", action: onClose)
+                    Button(L("Kapat"), action: onClose)
                         .font(.caption.weight(.medium))
                         .foregroundColor(.white)
                         .padding(.horizontal, 10)
@@ -265,7 +265,7 @@ struct ClosedTradeRow: View {
                         .foregroundColor(trade.finalPLPercent >= 0 ? .green : .red)
                 }
                 HStack {
-                    Text("Giriş: \(String(format: "%.2f", trade.entryPrice))")
+                    Text("\(L("Giriş")): \(String(format: "%.2f", trade.entryPrice))")
                         .font(.caption).foregroundColor(.secondary)
                     if let exit = trade.exitPrice {
                         Text("→ \(String(format: "%.2f", exit))")
@@ -298,9 +298,9 @@ struct NewTradeSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Sembol") {
+                Section(L("Sembol")) {
                     HStack {
-                        TextField("Örn: THYAO.IS veya BTC-USD", text: $symbol)
+                        TextField(L("Örn: THYAO.IS veya BTC-USD"), text: $symbol)
                             .textInputAutocapitalization(.characters)
                             .disableAutocorrection(true)
                             .onChange(of: symbol) {
@@ -322,7 +322,7 @@ struct NewTradeSheet: View {
 
                     if let price = fetchedPrice {
                         HStack {
-                            Text("Güncel Fiyat")
+                            Text(L("Güncel Fiyat"))
                             Spacer()
                             Text(String(format: "%.4f", price))
                                 .foregroundColor(.secondary)
@@ -334,8 +334,8 @@ struct NewTradeSheet: View {
                     }
                 }
 
-                Section("Yön") {
-                    Picker("Yön", selection: $direction) {
+                Section(L("Yön")) {
+                    Picker(L("Yön"), selection: $direction) {
                         ForEach(PaperTrade.TradeDirection.allCases, id: \.self) { d in
                             Label(d.label, systemImage: d.icon).tag(d)
                         }
@@ -343,13 +343,13 @@ struct NewTradeSheet: View {
                     .pickerStyle(.segmented)
                 }
 
-                Section("Ayrıntılar") {
-                    Picker("Varlık Türü", selection: $assetType) {
-                        Text("Hisse Senedi").tag("stock")
-                        Text("Kripto Para").tag("crypto")
+                Section(L("Ayrıntılar")) {
+                    Picker(L("Varlık Türü"), selection: $assetType) {
+                        Text(L("Hisse Senedi")).tag("stock")
+                        Text(L("Kripto Para")).tag("crypto")
                     }
                     HStack {
-                        Text("Miktar")
+                        Text(L("Miktar"))
                         Spacer()
                         TextField("1", text: $quantity)
                             .keyboardType(.decimalPad)
@@ -358,14 +358,14 @@ struct NewTradeSheet: View {
                     }
                 }
             }
-            .navigationTitle("Yeni Beta Trade")
+            .navigationTitle(L("Yeni Beta Trade"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("İptal") { dismiss() }
+                    Button(L("İptal")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Aç") {
+                    Button(L("Aç")) {
                         openTrade()
                     }
                     .disabled(!canSubmit)
@@ -378,7 +378,12 @@ struct NewTradeSheet: View {
     private func fetchCurrentPrice() {
         fetchState = .loading
         errorMessage = nil
-        let sym = symbol.trimmingCharacters(in: .whitespaces)
+        let trimmed = symbol.trimmingCharacters(in: .whitespaces)
+        // Free-typed BIST tickers (e.g. "THYAO") need the ".IS" suffix, or
+        // yfinance 404s with "insufficient data" — same fix as SearchView.
+        let sym = assetType == "stock"
+            ? TradingMarket.tr.normalizeSymbol(trimmed)
+            : trimmed.uppercased()
         Task {
             do {
                 let resp = try await APIService.shared.getPrice(symbol: sym)
@@ -397,7 +402,7 @@ struct NewTradeSheet: View {
             } catch {
                 await MainActor.run {
                     fetchState = .error
-                    errorMessage = "Fiyat alınamadı: \(error.localizedDescription)"
+                    errorMessage = "\(L("Fiyat alınamadı")): \(error.localizedDescription)"
                 }
             }
         }
@@ -408,9 +413,13 @@ struct NewTradeSheet: View {
 
     private func openTrade() {
         guard let price = fetchedPrice, let qty = Double(quantity), qty > 0 else { return }
+        let trimmed = symbol.trimmingCharacters(in: .whitespaces)
+        let normalizedSymbol = assetType == "stock"
+            ? TradingMarket.tr.normalizeSymbol(trimmed)
+            : trimmed.uppercased()
         let trade = PaperTrade(
             id: UUID(),
-            symbol: symbol.uppercased(),
+            symbol: normalizedSymbol,
             assetType: assetType,
             direction: direction,
             entryPrice: price,

@@ -7,6 +7,8 @@ struct AnalysisDetailView: View {
     @State private var isLoadingChart = false
     @State private var enhancedResult: AnalysisResult?
     @State private var isLoadingEnhanced = false
+    @State private var newsAnalysis: NewsAnalysis?
+    @State private var isLoadingNews = false
 
     private var displayResult: AnalysisResult { enhancedResult ?? result }
 
@@ -22,10 +24,11 @@ struct AnalysisDetailView: View {
         ScrollView {
             VStack(spacing: 14) {
                 headerCard
+                newsCard
                 if isLoadingEnhanced {
                     HStack {
                         ProgressView()
-                        Text("Derin analiz yükleniyor…")
+                        Text(L("Derin analiz yükleniyor…"))
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -49,6 +52,7 @@ struct AnalysisDetailView: View {
         .task {
             await loadChart()
             await loadEnhanced()
+            await loadNews()
         }
         .onChange(of: chartPeriod) { Task { await loadChart() } }
         .onAppear { HapticService.shared.signalFeedback(decisionCode: result.decisionCode) }
@@ -66,7 +70,7 @@ struct AnalysisDetailView: View {
                     DecisionBadge(decisionCode: result.decisionCode, decision: result.decision)
                     HStack(spacing: 8) {
                         RiskBadge(level: result.riskLevel)
-                        Text(result.assetType == "stock" ? "Hisse" : "Kripto")
+                        Text(result.assetType == "stock" ? L("Hisse") : L("Kripto"))
                             .font(.caption2)
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 7).padding(.vertical, 3)
@@ -90,7 +94,7 @@ struct AnalysisDetailView: View {
                     Image(systemName: "brain.head.profile")
                         .font(.caption)
                         .foregroundColor(.purple)
-                    Text("ML Model Güveni")
+                    Text(L("ML Model Güveni"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Spacer()
@@ -122,14 +126,14 @@ struct AnalysisDetailView: View {
         sectionCard("Yapay Zeka Önerisi") {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(rec.action)
+                    Text(L(rec.action))
                         .font(.title3.bold())
                         .foregroundColor(actionColor(rec.actionCode))
                     HStack(spacing: 6) {
                         Image(systemName: "percent")
                             .font(.caption2)
                             .foregroundColor(.secondary)
-                        Text("Birleşik Skor: \(rec.compositeScore, specifier: "%.0f")/100")
+                        Text("\(L("Birleşik Skor")): \(rec.compositeScore, specifier: "%.0f")/100")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -146,13 +150,13 @@ struct AnalysisDetailView: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text("Önerilen Pozisyon")
+                    Text(L("Önerilen Pozisyon"))
                         .font(.caption2)
                         .foregroundColor(.secondary)
                     Text(String(format: "%%%.0f", rec.suggestedPositionPct))
                         .font(.headline.monospacedDigit().bold())
                         .foregroundColor(.cyan)
-                    Text("portföyden")
+                    Text(L("portföyden"))
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -160,14 +164,14 @@ struct AnalysisDetailView: View {
             if !rec.reasons.isEmpty {
                 Divider()
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Gerekçe").font(.caption.weight(.semibold)).foregroundColor(.secondary)
+                    Text(L("Gerekçe")).font(.caption.weight(.semibold)).foregroundColor(.secondary)
                     ForEach(rec.reasons, id: \.self) { reason in
                         HStack(alignment: .top, spacing: 6) {
                             Image(systemName: "circle.fill")
                                 .font(.system(size: 4))
                                 .foregroundColor(actionColor(rec.actionCode))
                                 .padding(.top, 5)
-                            Text(reason).font(.caption).foregroundColor(.primary)
+                            Text(LD(reason)).font(.caption).foregroundColor(.primary)
                         }
                     }
                 }
@@ -179,11 +183,11 @@ struct AnalysisDetailView: View {
 
     @ViewBuilder
     private func monteCarloCard(_ mc: MonteCarloResult) -> some View {
-        sectionCard("Monte Carlo Simülasyonu (30 Gün, \(mc.nSimulations) Yol)") {
+        sectionCard("\(L("Monte Carlo Simülasyonu")) (\(L("30 Gün")), \(mc.nSimulations) \(L("Yol")))") {
             // Fiyat beklentisi
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Mevcut").font(.caption).foregroundColor(.secondary)
+                    Text(L("Mevcut")).font(.caption).foregroundColor(.secondary)
                     Text(formatPrice(mc.currentPrice))
                         .font(.headline.monospacedDigit())
                 }
@@ -191,7 +195,7 @@ struct AnalysisDetailView: View {
                 Image(systemName: "arrow.right").foregroundColor(.secondary).font(.caption)
                 Spacer()
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text("30G Beklenti").font(.caption).foregroundColor(.secondary)
+                    Text(L("30G Beklenti")).font(.caption).foregroundColor(.secondary)
                     Text(formatPrice(mc.expectedPrice30d))
                         .font(.headline.monospacedDigit())
                         .foregroundColor(mc.expectedReturnPct >= 0 ? .green : .red)
@@ -212,17 +216,17 @@ struct AnalysisDetailView: View {
             // Persentil aralığı
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("5. Persentil").font(.caption2).foregroundColor(.red)
+                    Text(L("5. Persentil")).font(.caption2).foregroundColor(.red)
                     Text(formatPrice(mc.downside5Price)).font(.caption.monospacedDigit()).foregroundColor(.red)
                 }
                 Spacer()
                 VStack(alignment: .center, spacing: 2) {
-                    Text("Beklenti").font(.caption2).foregroundColor(.secondary)
+                    Text(L("Beklenti")).font(.caption2).foregroundColor(.secondary)
                     Text(formatPrice(mc.expectedPrice30d)).font(.caption.monospacedDigit())
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("95. Persentil").font(.caption2).foregroundColor(.green)
+                    Text(L("95. Persentil")).font(.caption2).foregroundColor(.green)
                     Text(formatPrice(mc.upside95Price)).font(.caption.monospacedDigit()).foregroundColor(.green)
                 }
             }
@@ -244,9 +248,9 @@ struct AnalysisDetailView: View {
     private var chartSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Fiyat Grafiği").font(.headline)
+                Text(L("Fiyat Grafiği")).font(.headline)
                 Spacer()
-                Picker("Periyot", selection: $chartPeriod) {
+                Picker(L("Periyot"), selection: $chartPeriod) {
                     Text("1A").tag("1mo")
                     Text("3A").tag("3mo")
                     Text("6A").tag("6mo")
@@ -272,7 +276,7 @@ struct AnalysisDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Hacim").font(.caption.weight(.semibold)).foregroundColor(.secondary)
+                    Text(L("Hacim")).font(.caption.weight(.semibold)).foregroundColor(.secondary)
                         .padding(.horizontal).padding(.top, 10)
                     VolumeChart(points: c.points, isPositive: c.changePct >= 0)
                         .padding(.horizontal).padding(.bottom, 10)
@@ -291,7 +295,7 @@ struct AnalysisDetailView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("RSI (14)").font(.subheadline).foregroundColor(.secondary)
-                        Text(rsi > 70 ? "Aşırı Alım" : rsi < 30 ? "Aşırı Satım" : "Normal Bölge")
+                        Text(rsi > 70 ? L("Aşırı Alım") : rsi < 30 ? L("Aşırı Satım") : L("Normal Bölge"))
                             .font(.caption)
                             .foregroundColor(rsi > 70 ? .red : rsi < 30 ? .green : .secondary)
                     }
@@ -312,7 +316,7 @@ struct AnalysisDetailView: View {
                 }
                 IndicatorRow(
                     title: "MACD Durumu",
-                    value: macd > sig ? "Yükseliş ▲" : "Düşüş ▼",
+                    value: macd > sig ? L("Yükseliş ▲") : L("Düşüş ▼"),
                     color: macd > sig ? .green : .red
                 )
                 Divider()
@@ -341,7 +345,7 @@ struct AnalysisDetailView: View {
         sectionCard("Temel Analiz") {
             IndicatorRow(
                 title: "Bilanço Durumu",
-                value: result.balanceStatus,
+                value: L(result.balanceStatus),
                 color: result.balanceStatus == "Pozitif" ? .green :
                        result.balanceStatus == "Negatif" ? .red : .secondary
             )
@@ -355,15 +359,80 @@ struct AnalysisDetailView: View {
         if !result.longSignals.isEmpty || !result.shortSignals.isEmpty {
             sectionCard("Sinyal Analizi") {
                 if !result.longSignals.isEmpty {
-                    Text("AL Sinyalleri").font(.caption.weight(.semibold)).foregroundColor(.green)
+                    Text(L("AL Sinyalleri")).font(.caption.weight(.semibold)).foregroundColor(.green)
                     ForEach(result.longSignals, id: \.self) { s in SignalRow(text: s, isLong: true) }
                 }
                 if !result.shortSignals.isEmpty {
                     if !result.longSignals.isEmpty { Divider() }
-                    Text("SAT Sinyalleri").font(.caption.weight(.semibold)).foregroundColor(.red)
+                    Text(L("SAT Sinyalleri")).font(.caption.weight(.semibold)).foregroundColor(.red)
                     ForEach(result.shortSignals, id: \.self) { s in SignalRow(text: s, isLong: false) }
                 }
             }
+        }
+    }
+
+    // ── İlgili Haberler ───────────────────────────────────────────────────────
+
+    @ViewBuilder
+    private var newsCard: some View {
+        if isLoadingNews {
+            sectionCard("İlgili Haberler") {
+                HStack { Spacer(); ProgressView(); Spacer() }
+            }
+        } else if let news = newsAnalysis, !news.headlines.isEmpty {
+            sectionCard("İlgili Haberler") {
+                HStack(spacing: 8) {
+                    Circle().fill(news.sentimentColor).frame(width: 8, height: 8)
+                    Text(newsSentimentLabel(news.sentimentLabel))
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(news.sentimentColor)
+                    Spacer()
+                    Text("\(news.analyzedNews) \(L("haber analiz edildi"))")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                Divider()
+                ForEach(news.headlines) { headline in
+                    newsHeadlineRow(headline)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func newsHeadlineRow(_ headline: NewsHeadline) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Circle()
+                .fill(newsHeadlineColor(headline.sentiment))
+                .frame(width: 7, height: 7)
+                .padding(.top, 5)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(headline.title)
+                    .font(.caption)
+                    .foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func newsHeadlineColor(_ sentiment: String) -> Color {
+        switch sentiment {
+        case "POSITIVE":          return .green
+        case "SLIGHTLY_POSITIVE": return Color(hex: "#88CC44")
+        case "NEGATIVE":          return .red
+        case "SLIGHTLY_NEGATIVE": return Color(hex: "#FF8844")
+        default:                  return .gray
+        }
+    }
+
+    private func newsSentimentLabel(_ label: String) -> String {
+        switch label {
+        case "POSITIVE":          return L("Olumlu Haber Akışı")
+        case "SLIGHTLY_POSITIVE": return L("Hafif Olumlu")
+        case "NEGATIVE":          return L("Olumsuz Haber Akışı")
+        case "SLIGHTLY_NEGATIVE": return L("Hafif Olumsuz")
+        default:                  return L("Nötr")
         }
     }
 
@@ -374,11 +443,17 @@ struct AnalysisDetailView: View {
             Divider()
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill").font(.caption2).foregroundColor(.orange)
-                Text("Bu analiz yatırım tavsiyesi değildir. Tüm kararlar kullanıcıya aittir.")
+                Text(L("Bu analiz yatırım tavsiyesi değildir. Tüm kararlar kullanıcıya aittir."))
                     .font(.caption2).foregroundColor(.secondary).multilineTextAlignment(.center)
             }
-            Text("Product by Algorix  •  algorix.io")
-                .font(.caption2).foregroundColor(.secondary.opacity(0.6)).tracking(0.5)
+            HStack(spacing: 4) {
+                Text("Product by AlgorixStudio  •")
+                    .foregroundColor(.secondary.opacity(0.6))
+                Link("algorixstudio.com", destination: URL(string: "https://algorixstudio.com")!)
+                    .foregroundColor(.secondary.opacity(0.9))
+            }
+            .font(.caption2)
+            .tracking(0.5)
         }
         .padding(.vertical, 8).frame(maxWidth: .infinity)
     }
@@ -388,7 +463,7 @@ struct AnalysisDetailView: View {
     @ViewBuilder
     private func sectionCard<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.headline)
+            Text(L(title)).font(.headline)
             content()
         }
         .padding()
@@ -400,7 +475,7 @@ struct AnalysisDetailView: View {
     private func mcMetric(_ label: String, _ value: String, _ color: Color) -> some View {
         VStack(spacing: 4) {
             Text(value).font(.subheadline.bold().monospacedDigit()).foregroundColor(color)
-            Text(label).font(.caption2).foregroundColor(.secondary)
+            Text(L(label)).font(.caption2).foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
@@ -431,6 +506,12 @@ struct AnalysisDetailView: View {
             assetType: result.assetType
         )
         isLoadingEnhanced = false
+    }
+
+    private func loadNews() async {
+        isLoadingNews = true
+        newsAnalysis = try? await APIService.shared.fetchNews(symbol: result.symbol)
+        isLoadingNews = false
     }
 
     private func formatPrice(_ v: Double) -> String {

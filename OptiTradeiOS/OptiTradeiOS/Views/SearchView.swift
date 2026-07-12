@@ -77,9 +77,16 @@ final class SearchViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         result = nil
+        // Quick-symbol chips already carry the ".IS" suffix, but free-typed
+        // BIST tickers (e.g. "THYAO") don't — normalize so the backend/yfinance
+        // lookup doesn't 404 on a bare ticker. This view's stock suggestions
+        // are BIST-only, so .tr normalization is always correct here.
+        let normalized = assetType == "stock"
+            ? TradingMarket.tr.normalizeSymbol(trimmed)
+            : trimmed.uppercased()
         do {
             let r = try await APIService.shared.analyze(
-                symbol: trimmed.uppercased(),
+                symbol: normalized,
                 potentialPrice: Double(potentialPrice),
                 assetType: assetType
             )
@@ -141,12 +148,12 @@ struct SearchView: View {
                 .padding()
                 .padding(.bottom, 32)
             }
-            .navigationTitle("Hisse Analizi")
+            .navigationTitle(L("Hisse Analizi"))
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 if !vm.symbol.isEmpty {
                     ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("Temizle") {
+                        Button(L("Temizle")) {
                             vm.symbol = ""
                             vm.potentialPrice = ""
                             vm.result = nil
@@ -161,9 +168,9 @@ struct SearchView: View {
 
     private var searchCard: some View {
         VStack(spacing: 12) {
-            Picker("Varlık Tipi", selection: $vm.assetType) {
-                Text("Hisse Senedi").tag("stock")
-                Text("Kripto Para").tag("crypto")
+            Picker(L("Varlık Tipi"), selection: $vm.assetType) {
+                Text(L("Hisse Senedi")).tag("stock")
+                Text(L("Kripto Para")).tag("crypto")
             }
             .pickerStyle(.segmented)
             .onChange(of: vm.assetType) {
@@ -203,7 +210,7 @@ struct SearchView: View {
             HStack(spacing: 10) {
                 Image(systemName: "target")
                     .foregroundColor(.secondary)
-                TextField("Potansiyel fiyat (opsiyonel)", text: $vm.potentialPrice)
+                TextField(L("Potansiyel fiyat (opsiyonel)"), text: $vm.potentialPrice)
                     .keyboardType(.decimalPad)
             }
             .padding(12)
@@ -220,7 +227,7 @@ struct SearchView: View {
                     } else {
                         Image(systemName: "chart.xyaxis.line")
                     }
-                    Text(vm.isLoading ? "Analiz ediliyor..." : "Analiz Et")
+                    Text(vm.isLoading ? L("Analiz ediliyor...") : L("Analiz Et"))
                         .fontWeight(.semibold)
                 }
                 .frame(maxWidth: .infinity)
@@ -240,7 +247,7 @@ struct SearchView: View {
         VStack(spacing: 12) {
             ProgressView()
                 .scaleEffect(1.3)
-            Text("Analiz ediliyor...")
+            Text(L("Analiz ediliyor..."))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
@@ -257,7 +264,7 @@ struct SearchView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-            Button("Tekrar Dene") { Task { await vm.analyze() } }
+            Button(L("Tekrar Dene")) { Task { await vm.analyze() } }
                 .font(.subheadline.weight(.medium))
                 .foregroundColor(.accentColor)
         }
@@ -269,7 +276,7 @@ struct SearchView: View {
 
     private func resultSection(_ result: AnalysisResult) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Analiz Sonucu")
+            Text(L("Analiz Sonucu"))
                 .font(.headline)
                 .padding(.leading, 4)
             NavigationLink(destination: AnalysisDetailView(result: result)) {
@@ -281,7 +288,7 @@ struct SearchView: View {
 
     private var suggestionsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Öneriler")
+            Text(L("Öneriler"))
                 .font(.subheadline.weight(.semibold))
                 .foregroundColor(.secondary)
                 .padding(.leading, 4)
@@ -323,11 +330,11 @@ struct SearchView: View {
     private var historySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Son Aramalar")
+                Text(L("Son Aramalar"))
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.secondary)
                 Spacer()
-                Button("Temizle") { vm.clearHistory() }
+                Button(L("Temizle")) { vm.clearHistory() }
                     .font(.caption)
                     .foregroundColor(.accentColor)
             }
@@ -373,7 +380,7 @@ struct SearchView: View {
                 }
             }
 
-            Text(vm.assetType == "stock" ? "Popüler BIST Hisseleri" : "Popüler Kriptolar")
+            Text(vm.assetType == "stock" ? L("Popüler BIST Hisseleri") : L("Popüler Kriptolar"))
                 .font(.subheadline.weight(.semibold))
                 .foregroundColor(.secondary)
                 .padding(.horizontal, 4)

@@ -18,9 +18,15 @@ import re
 import time
 import logging
 import math
+import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
 from typing import List, Dict, Optional, Tuple
+from urllib.parse import quote_plus
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +86,57 @@ _FINANCIAL_LEXICON: Dict[str, float] = {
     "hack": -2.5, "breach": -2.0, "explosion": -2.5, "attack": -2.0,
     "war": -2.5, "conflict": -2.0, "closed": -1.5, "shutdown": -2.0,
     "embargo": -2.5, "blockade": -2.5, "seized": -2.5,
+
+    # ── Türkçe — Güçlü Pozitif (+3) ─────────────────────────────────────────
+    "rekor kırdı": 3.0, "tüm zamanların en yükseği": 3.0, "zirve yaptı": 2.5,
+    "beklentileri aştı": 3.0, "patlama yaptı": 2.5, "çığır açan anlaşma": 2.5,
+    "ateşkes": 2.5, "barış anlaşması": 2.5, "yaptırımlar kaldırıldı": 2.5,
+    "ticaret anlaşması": 2.0, "anlaşma imzalandı": 2.0,
+
+    # ── Türkçe — Orta Pozitif (+2) ───────────────────────────────────────────
+    "yükseliş": 2.0, "yükseldi": 1.5, "arttı": 1.5, "tırmandı": 1.5,
+    "sıçradı": 2.0, "ivme kazandı": 1.5, "toparlanma": 2.0, "toparlandı": 2.0,
+    "güçlü kar": 2.0, "beklenti üstü": 2.0, "yükseltti": 1.5, "geri alım": 1.5,
+    "temettü artışı": 2.0, "satın alma": 1.0, "ortaklık": 1.0,
+    "sözleşme kazandı": 2.0, "onay aldı": 2.0, "büyüme": 1.5, "kar": 1.5,
+    "gelir artışı": 2.0, "talep artışı": 2.0, "faiz indirimi": 2.0,
+    "teşvik paketi": 2.0, "yükseliş eğilimli": 2.5, "olumlu görünüm": 1.5,
+    "birleşme": 1.0, "halka arz başarılı": 2.0,
+
+    # ── Türkçe — Hafif Pozitif (+1) ───────────────────────────────────────────
+    "olumlu": 1.0, "iyimser": 1.0, "ilerleme": 1.0, "istikrarlı": 0.5,
+    "daha yüksek": 0.5, "yukarı": 0.3, "beklentiyi karşıladı": 1.0,
+    "dirençli": 1.0, "sağlam": 0.8, "güvenli": 0.8, "elverişli": 1.0,
+
+    # ── Türkçe — Hafif Negatif (-1) ───────────────────────────────────────────
+    "endişe": -0.8, "belirsizlik": -0.8, "karışık": -0.3, "daha düşük": -0.5,
+    "hayal kırıklığı": -1.0, "beklentinin altında": -0.8, "risk": -0.5,
+    "dikkat çağrısı": -0.8, "uyarı": -0.8, "baskı": -0.8, "zorlu": -0.8,
+    "zayıflık": -0.8, "yavaşlama": -0.8, "tahmin düşürüldü": -1.5,
+
+    # ── Türkçe — Orta Negatif (-2) ────────────────────────────────────────────
+    "düşüş": -1.5, "düştü": -1.5, "geriledi": -1.5, "satış baskısı": -2.0,
+    "çöküş": -2.0, "sert düşüş": -2.5, "çakıldı": -3.0, "gerileme": -2.0,
+    "notu düşürüldü": -1.5, "beklentinin çok altında": -2.0, "zarar": -1.5,
+    "değer kaybı": -2.0, "temerrüt": -2.5, "iflas": -3.0, "işten çıkarma": -1.5,
+    "yeniden yapılandırma": -1.0, "soruşturma": -1.5, "dava": -1.5,
+    "para cezası": -1.5, "faiz artışı": -2.0, "enflasyon": -1.0,
+    "durgunluk": -2.5, "düşüş eğilimli": -2.5, "satış": -1.0,
+    "değeri şişirilmiş": -1.0, "arz kesintisi": -1.5, "kıtlık": -1.0,
+    "yaptırım": -2.0, "ticaret savaşı": -2.0, "ambargo": -2.5, "yasaklandı": -1.5,
+
+    # ── Türkçe — Güçlü Negatif (-3) ──────────────────────────────────────────
+    "kriz": -3.0, "sahtekarlık": -3.0, "siber saldırı": -2.5,
+    "veri ihlali": -2.0, "patlama": -2.5, "saldırı": -2.0, "savaş": -2.5,
+    "çatışma": -2.0, "kapatıldı": -1.5, "el konuldu": -2.5,
 }
 
 # Olumsuzlama kelimeleri (ardından gelen skor tersine döner)
 _NEGATION_WORDS = {
     "not", "no", "never", "without", "against", "fail", "failed",
     "unlike", "despite", "however", "but", "although", "except",
+    "değil", "yok", "hayır", "olmadan", "rağmen", "ancak", "fakat",
+    "başarısız", "olmayan",
 }
 
 # Güçlendirici kelimeler (sonraki puanı ×1.5 yapar)
@@ -93,6 +144,8 @@ _INTENSIFIERS = {
     "very", "extremely", "highly", "significantly", "sharply",
     "massively", "dramatically", "strongly", "major", "massive",
     "severe", "critical", "unprecedented",
+    "çok", "aşırı", "oldukça", "ciddi", "sert", "büyük", "keskin",
+    "önemli ölçüde", "belirgin şekilde", "tarihi",
 }
 
 
@@ -157,7 +210,7 @@ class NewsAnalysisResult:
 
 def _tokenize(text: str) -> List[str]:
     """Metni küçük harfe çevir, noktalama kaldır, tokenize et."""
-    return re.findall(r"[a-z0-9\-']+", text.lower())
+    return re.findall(r"[a-zçğıöşü0-9\-']+", text.lower())
 
 
 def analyze_sentiment(text: str) -> Tuple[float, List[str]]:
@@ -335,6 +388,214 @@ def _fetch_yfinance_news(symbol: str, max_news: int = 15) -> List[Dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# MARK: - Google News RSS (Türkçe + İngilizce, API key gerektirmez)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _query_for_symbol(symbol: str, market: str) -> str:
+    """Sembol için okunabilir arama sorgusu üret (şirket adı varsa onu kullan)."""
+    from core.market_config import BIST_SYMBOLS, US_SYMBOLS, CRYPTO_SYMBOLS
+    names = {**BIST_SYMBOLS, **US_SYMBOLS, **CRYPTO_SYMBOLS}
+    name = names.get(symbol.upper())
+    if name:
+        return name
+    return re.sub(r"\.(IS|T)$|-USD$", "", symbol.upper())
+
+
+def _fetch_google_news_rss(
+    query: str, hl: str, gl: str, ceid: str, max_news: int = 8,
+) -> List[Dict]:
+    """Google News RSS'ten haber çek (key gerekmez). Hata durumunda boş liste döner."""
+    try:
+        url = (
+            f"https://news.google.com/rss/search?q={quote_plus(query)}"
+            f"&hl={hl}&gl={gl}&ceid={ceid}"
+        )
+        resp = httpx.get(url, timeout=8.0, follow_redirects=True,
+                          headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        root = ET.fromstring(resp.text)
+
+        items = []
+        for item in root.findall("./channel/item")[:max_news]:
+            title_raw = (item.findtext("title") or "").strip()
+            source_el = item.find("source")
+            source = source_el.text.strip() if source_el is not None and source_el.text else "Google News"
+            # Google News başlıkları "Başlık - Kaynak" biçiminde gelir; kaynağı ayıkla.
+            title = title_raw
+            if source and title_raw.endswith(f" - {source}"):
+                title = title_raw[: -(len(source) + 3)].strip()
+
+            pub_str = (item.findtext("pubDate") or "").strip()
+            try:
+                pub_dt = parsedate_to_datetime(pub_str)
+                if pub_dt.tzinfo is None:
+                    pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                pub_dt = datetime.now(timezone.utc)
+
+            if title:
+                items.append({
+                    "title": title, "summary": "",
+                    "published_at": pub_dt, "source": source,
+                })
+        return items
+    except Exception as e:
+        logger.warning(f"Google News RSS hatası ({query}): {e}")
+        return []
+
+
+def _fetch_combined_news(symbol: str, market: str, max_news: int) -> List[Dict]:
+    """yfinance + Google News RSS (TR + EN) sonuçlarını birleştir, başlığa göre tekilleştir."""
+    query = _query_for_symbol(symbol, market)
+
+    combined = _fetch_yfinance_news(symbol, max_news=max_news)
+    combined += _fetch_google_news_rss(query, hl="tr", gl="TR", ceid="TR:tr", max_news=8)
+    combined += _fetch_google_news_rss(query, hl="en-US", gl="US", ceid="US:en", max_news=8)
+
+    seen = set()
+    deduped: List[Dict] = []
+    for item in combined:
+        key = re.sub(r"\s+", " ", item["title"].strip().lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped[: max(max_news, 15)]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MARK: - Başlık Çevirisi (ücretsiz, key gerektirmez)
+# ─────────────────────────────────────────────────────────────────────────────
+# Google News RSS gibi, bu proje boyunca zaten kullanılan "ücretsiz + resmi
+# olmayan ama pratikte güvenilir" yaklaşımla tutarlı: resmi olmayan Google
+# Translate endpoint'i, key/fatura gerektirmez. Hata durumunda orijinal metni
+# aynen döner — çeviri asla isteği başarısız kılmaz.
+
+def translate_text(text: str, target_lang: str) -> str:
+    if not text.strip():
+        return text
+    try:
+        resp = httpx.get(
+            "https://translate.googleapis.com/translate_a/single",
+            params={"client": "gtx", "sl": "auto", "tl": target_lang, "dt": "t", "q": text},
+            timeout=5.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return "".join(chunk[0] for chunk in data[0] if chunk and chunk[0])
+    except Exception as e:
+        logger.warning(f"Çeviri hatası ({target_lang}): {e}")
+        return text
+
+
+def _translate_headlines(headlines: List[Dict], target_lang: str) -> List[Dict]:
+    """Başlıkları paralel olarak hedef dile çevirir; sırayı ve diğer alanları korur."""
+    if not headlines:
+        return headlines
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        translated_titles = list(pool.map(
+            lambda h: translate_text(h["title"], target_lang), headlines
+        ))
+    result = []
+    for h, new_title in zip(headlines, translated_titles):
+        h2 = dict(h)
+        h2["title"] = new_title
+        result.append(h2)
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MARK: - Konu Bazlı Haberler (sembole bağlı değil — sektör / genel piyasa)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fetch_topic_headlines(query: str, max_news: int = 10) -> List[Dict]:
+    """Google News RSS TR+EN — herhangi bir arama sorgusu için, sembol gerektirmez."""
+    combined  = _fetch_google_news_rss(query, hl="tr", gl="TR", ceid="TR:tr", max_news=max_news)
+    combined += _fetch_google_news_rss(query, hl="en-US", gl="US", ceid="US:en", max_news=max_news)
+
+    seen = set()
+    deduped: List[Dict] = []
+    for item in combined:
+        key = re.sub(r"\s+", " ", item["title"].strip().lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    deduped.sort(key=lambda x: x["published_at"], reverse=True)
+    return deduped[:max_news]
+
+
+def _score_headlines(items: List[Dict]) -> List[Dict]:
+    headlines = []
+    for item in items:
+        text = f"{item['title']}. {item.get('summary', '')}"
+        sentiment, keywords = analyze_sentiment(text)
+        label = (
+            "POSITIVE"          if sentiment >  0.15 else
+            "SLIGHTLY_POSITIVE" if sentiment >  0.05 else
+            "SLIGHTLY_NEGATIVE" if sentiment > -0.15 else
+            "NEGATIVE"          if sentiment <= -0.15 else
+            "NEUTRAL"
+        )
+        headlines.append({
+            "title":        item["title"],
+            "source":       item["source"],
+            "sentiment":    label,
+            "score":        round(sentiment, 4),
+            "keywords":     keywords[:5],
+            "published_at": item["published_at"].isoformat(),
+        })
+    return headlines
+
+
+def get_topic_news(query: str, max_news: int = 12, lang: Optional[str] = None) -> Dict:
+    """Belirli bir konu/sektör için haber özeti (sembole bağlı değil). API'ye döner.
+    lang verilirse ("tr" | "en") başlıklar o dile çevrilir (orijinal dilden bağımsız)."""
+    raw = _fetch_topic_headlines(query, max_news=max_news)
+    headlines = _score_headlines(raw)
+    if lang:
+        headlines = _translate_headlines(headlines, lang)
+    return {
+        "query":      query,
+        "total":      len(raw),
+        "headlines":  headlines,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+_MARKET_NEWS_TOPICS = ["BIST borsa hisse", "Wall Street stock market", "kripto para piyasası"]
+
+
+def get_general_market_news(max_news: int = 18, lang: Optional[str] = None) -> Dict:
+    """BIST + ABD + kripto genelini kapsayan piyasa gündemi (sembole bağlı değil).
+    lang verilirse ("tr" | "en") başlıklar o dile çevrilir."""
+    raw: List[Dict] = []
+    for topic in _MARKET_NEWS_TOPICS:
+        raw += _fetch_topic_headlines(topic, max_news=8)
+
+    seen = set()
+    deduped: List[Dict] = []
+    for item in raw:
+        key = re.sub(r"\s+", " ", item["title"].strip().lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    deduped.sort(key=lambda x: x["published_at"], reverse=True)
+    deduped = deduped[:max_news]
+
+    headlines = _score_headlines(deduped)
+    if lang:
+        headlines = _translate_headlines(headlines, lang)
+
+    return {
+        "total":      len(deduped),
+        "headlines":  headlines,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # MARK: - Ana Analiz Fonksiyonu
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -382,7 +643,7 @@ def analyze_news(
     all_pos_kw = list(set(pos_kw + market_pos + macro_pos + geo_pos))
     all_neg_kw = list(set(neg_kw + market_neg + macro_neg + geo_neg))
 
-    raw_news = _fetch_yfinance_news(symbol, max_news=max_news)
+    raw_news = _fetch_combined_news(symbol, market, max_news=max_news)
 
     if not raw_news:
         result = NewsAnalysisResult(
@@ -589,9 +850,36 @@ def _find_sector_events(items: List[NewsItem]) -> List[str]:
     return msgs
 
 
-def get_news_summary(symbol: str, market: str = "AUTO") -> Dict:
-    """API endpoint için özet sözlük döndür."""
+def get_news_summary(symbol: str, market: str = "AUTO", lang: Optional[str] = None) -> Dict:
+    """API endpoint için özet sözlük döndür.
+    lang verilirse ("tr" | "en") başlıklar (ve öne çıkan başlıklar) o dile çevrilir."""
     result = analyze_news(symbol, market=market)
+
+    headlines = [
+        {
+            "title":        item.title,
+            "sentiment":    item.sentiment_label,
+            "score":        item.sentiment_score,
+            "age_weight":   item.age_weight,
+            "keywords":     item.matched_keywords[:5],
+            "published_at": item.published_at.isoformat(),
+        }
+        for item in sorted(
+            result.news_items,
+            key=lambda x: abs(x.weighted_score),
+            reverse=True,
+        )[:8]
+    ]
+    top_positive_title = result.top_positive_title
+    top_negative_title = result.top_negative_title
+
+    if lang:
+        headlines = _translate_headlines(headlines, lang)
+        if top_positive_title:
+            top_positive_title = translate_text(top_positive_title, lang)
+        if top_negative_title:
+            top_negative_title = translate_text(top_negative_title, lang)
+
     return {
         "symbol":            result.symbol,
         "sector":            result.sector,
@@ -605,23 +893,9 @@ def get_news_summary(symbol: str, market: str = "AUTO") -> Dict:
         "negative_count":    result.negative_count,
         "neutral_count":     result.neutral_count,
         "signals":           result.signals,
-        "top_positive_title": result.top_positive_title,
-        "top_negative_title": result.top_negative_title,
+        "top_positive_title": top_positive_title,
+        "top_negative_title": top_negative_title,
         "fetched_at":        result.fetched_at,
-        "headlines": [
-            {
-                "title":        item.title,
-                "sentiment":    item.sentiment_label,
-                "score":        item.sentiment_score,
-                "age_weight":   item.age_weight,
-                "keywords":     item.matched_keywords[:5],
-                "published_at": item.published_at.isoformat(),
-            }
-            for item in sorted(
-                result.news_items,
-                key=lambda x: abs(x.weighted_score),
-                reverse=True,
-            )[:8]
-        ],
-        "error": result.error,
+        "headlines":         headlines,
+        "error":             result.error,
     }

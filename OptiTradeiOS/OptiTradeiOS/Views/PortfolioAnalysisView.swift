@@ -7,6 +7,12 @@ import Charts
 
 struct PortfolioAnalysisView: View {
     @EnvironmentObject private var session: UserSession
+    @StateObject private var watchlistVM = WatchlistViewModel()
+    @State private var showWatchlistAddSheet = false
+    @State private var newWatchSymbol = ""
+    @State private var newWatchPotential = ""
+    @State private var newWatchAssetType = "stock"
+
     @State private var symbolInput = ""
     @State private var symbols: [String] = []
     @State private var riskTolerance: Double = 0.5
@@ -23,20 +29,153 @@ struct PortfolioAnalysisView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(hex: "0A0E1A").ignoresSafeArea()
+                Color(.systemBackground).ignoresSafeArea()
 
                 ScrollView {
                     VStack(spacing: 20) {
+                        PortfolioHoldingsSection()
+                        Divider().background(Color.primary.opacity(0.1))
+                        watchlistSection
+                        Divider().background(Color.primary.opacity(0.1))
                         portfolioSection
-                        Divider().background(Color.white.opacity(0.1))
+                        Divider().background(Color.primary.opacity(0.1))
                         monteCarloSection
                     }
                     .padding()
                 }
             }
-            .navigationTitle("Portfoy & Risk Analizi")
+            .navigationTitle(L("Portfoy & Risk Analizi"))
             .navigationBarTitleDisplayMode(.large)
+            .task { await watchlistVM.analyzeAll() }
         }
+    }
+
+    // ── Watchlist ("Takip") Section ───────────────────────────────────────────
+
+    private var watchlistSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                sectionHeader("Takip Listesi", icon: "star.fill", color: .yellow)
+                Spacer()
+                if watchlistVM.isAnalyzing {
+                    ProgressView().tint(.cyan)
+                } else {
+                    Button {
+                        Task { await watchlistVM.analyzeAll() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise").foregroundColor(.cyan)
+                    }
+                }
+                Button { showWatchlistAddSheet = true } label: {
+                    Image(systemName: "plus.circle.fill").foregroundColor(.cyan)
+                }
+            }
+
+            if watchlistVM.items.isEmpty {
+                Text(L("Takip listeniz boş. Sağ üstteki + ile hisse veya kripto ekleyin."))
+                    .font(.caption)
+                    .foregroundColor(.primary.opacity(0.5))
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(watchlistVM.sortedItems) { item in
+                        watchlistRow(item)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showWatchlistAddSheet) { watchlistAddSheet }
+    }
+
+    @ViewBuilder
+    private func watchlistRow(_ item: WatchlistItemData) -> some View {
+        HStack(spacing: 8) {
+            Group {
+                if let result = watchlistVM.results[item.id] {
+                    NavigationLink(destination: AnalysisDetailView(result: result)) {
+                        ResultCardView(result: result)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    watchlistPendingCard(item)
+                }
+            }
+            Button {
+                withAnimation { watchlistVM.removeItem(item) }
+            } label: {
+                Image(systemName: "trash.circle.fill")
+                    .foregroundColor(.red.opacity(0.7))
+            }
+        }
+    }
+
+    private func watchlistPendingCard(_ item: WatchlistItemData) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.symbol)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                Text(item.assetType == "stock" ? L("Hisse Senedi") : L("Kripto Para"))
+                    .font(.caption)
+                    .foregroundColor(.primary.opacity(0.5))
+            }
+            Spacer()
+            ProgressView().tint(.cyan)
+        }
+        .padding()
+        .background(Color.primary.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var watchlistAddSheet: some View {
+        NavigationStack {
+            Form {
+                Section(L("Varlık Tipi")) {
+                    Picker(L("Tip"), selection: $newWatchAssetType) {
+                        Text(L("Hisse Senedi")).tag("stock")
+                        Text(L("Kripto Para")).tag("crypto")
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
+
+                Section(L("Sembol")) {
+                    TextField(newWatchAssetType == "stock" ? "THYAO.IS" : "BTC-USD", text: $newWatchSymbol)
+                        .textInputAutocapitalization(.characters)
+                        .disableAutocorrection(true)
+                }
+
+                Section {
+                    TextField(L("Örn: 350 (opsiyonel)"), text: $newWatchPotential)
+                        .keyboardType(.decimalPad)
+                } header: {
+                    Text(L("Potansiyel Fiyat"))
+                } footer: {
+                    Text(L("Potansiyel fiyat girilirse ucuz/pahalı analizi yapılır."))
+                }
+            }
+            .navigationTitle(L("Sembol Ekle"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L("Vazgeç")) {
+                        showWatchlistAddSheet = false
+                        newWatchSymbol = ""
+                        newWatchPotential = ""
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L("Ekle")) {
+                        watchlistVM.addItem(newWatchSymbol, potential: Double(newWatchPotential), assetType: newWatchAssetType)
+                        newWatchSymbol = ""
+                        newWatchPotential = ""
+                        showWatchlistAddSheet = false
+                    }
+                    .disabled(newWatchSymbol.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 
     // ── Portfolio Optimization Section ────────────────────────────────────────
@@ -45,19 +184,19 @@ struct PortfolioAnalysisView: View {
         VStack(alignment: .leading, spacing: 14) {
             sectionHeader("Portfoy Optimizasyonu", icon: "chart.pie.fill", color: .blue)
 
-            Text("Markowitz Ortalama-Varyans modeli ile optimal agirliklar hesaplanir.")
+            Text(L("Markowitz Ortalama-Varyans modeli ile optimal agirliklar hesaplanir."))
                 .font(.caption)
-                .foregroundColor(.white.opacity(0.5))
+                .foregroundColor(.primary.opacity(0.5))
 
             // Symbol input
             HStack {
-                TextField("Sembol ekle (orn. THYAO.IS)", text: $symbolInput)
-                    .foregroundColor(.white)
+                TextField(L("Sembol ekle (orn. THYAO.IS)"), text: $symbolInput)
+                    .foregroundColor(.primary)
                     .tint(.cyan)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.characters)
                     .padding(10)
-                    .background(Color.white.opacity(0.07))
+                    .background(Color.primary.opacity(0.07))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
 
                 Button(action: addSymbol) {
@@ -93,9 +232,9 @@ struct PortfolioAnalysisView: View {
             // Risk slider
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("Risk Toleransi:")
+                    Text(L("Risk Toleransi:"))
                         .font(.caption)
-                        .foregroundColor(.white.opacity(0.6))
+                        .foregroundColor(.primary.opacity(0.6))
                     Spacer()
                     Text(riskLabel)
                         .font(.caption.bold())
@@ -104,9 +243,9 @@ struct PortfolioAnalysisView: View {
                 Slider(value: $riskTolerance, in: 0...1, step: 0.1)
                     .tint(.cyan)
                 HStack {
-                    Text("Min Varyans").font(.caption2).foregroundColor(.white.opacity(0.4))
+                    Text(L("Min Varyans")).font(.caption2).foregroundColor(.primary.opacity(0.4))
                     Spacer()
-                    Text("Max Sharpe").font(.caption2).foregroundColor(.white.opacity(0.4))
+                    Text(L("Max Sharpe")).font(.caption2).foregroundColor(.primary.opacity(0.4))
                 }
             }
 
@@ -114,7 +253,7 @@ struct PortfolioAnalysisView: View {
             Button(action: optimizePortfolio) {
                 HStack {
                     if isLoading { ProgressView().tint(.black) }
-                    else { Image(systemName: "wand.and.stars"); Text("Portfoyu Optimize Et") }
+                    else { Image(systemName: "wand.and.stars"); Text(L("Portfoyu Optimize Et")) }
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 46)
@@ -146,13 +285,13 @@ struct PortfolioAnalysisView: View {
                 metricCell(label: "Volatilite", value: String(format: "%.1f%%", result.annualVolatilityPct), color: .orange)
                 metricCell(label: "Sharpe", value: String(format: "%.2f", result.sharpeRatio), color: .cyan)
             }
-            .background(Color.white.opacity(0.05))
+            .background(Color.primary.opacity(0.05))
             .clipShape(RoundedRectangle(cornerRadius: 12))
 
             // Weight chart using Swift Charts
-            Text("Optimal Agirliklar")
+            Text(L("Optimal Agirliklar"))
                 .font(.caption.bold())
-                .foregroundColor(.white.opacity(0.7))
+                .foregroundColor(.primary.opacity(0.7))
 
             Chart(result.weightsList, id: \.symbol) { item in
                 SectorMark(
@@ -171,7 +310,7 @@ struct PortfolioAnalysisView: View {
                 HStack {
                     Text(item.symbol)
                         .font(.caption.bold())
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
                     Spacer()
                     Text("\(item.weight * 100, specifier: "%.1f")%")
                         .font(.caption.monospacedDigit())
@@ -181,7 +320,7 @@ struct PortfolioAnalysisView: View {
             }
         }
         .padding(16)
-        .background(Color.white.opacity(0.04))
+        .background(Color.primary.opacity(0.04))
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
@@ -191,18 +330,18 @@ struct PortfolioAnalysisView: View {
         VStack(alignment: .leading, spacing: 14) {
             sectionHeader("Monte Carlo Simülasyonu", icon: "waveform.path.ecg", color: .purple)
 
-            Text("Geometrik Brownian Motion ile 30 gunluk 500 fiyat yolu simüle edilir.")
+            Text(L("Geometrik Brownian Motion ile 30 gunluk 500 fiyat yolu simüle edilir."))
                 .font(.caption)
-                .foregroundColor(.white.opacity(0.5))
+                .foregroundColor(.primary.opacity(0.5))
 
             HStack {
-                TextField("Sembol (orn. GARAN.IS)", text: $mcSymbol)
-                    .foregroundColor(.white)
+                TextField(L("Sembol (orn. GARAN.IS)"), text: $mcSymbol)
+                    .foregroundColor(.primary)
                     .tint(.cyan)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.characters)
                     .padding(10)
-                    .background(Color.white.opacity(0.07))
+                    .background(Color.primary.opacity(0.07))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
 
                 Button(action: runMonteCarlo) {
@@ -233,25 +372,25 @@ struct PortfolioAnalysisView: View {
             // Price expectation
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Mevcut Fiyat")
-                        .font(.caption2).foregroundColor(.white.opacity(0.5))
+                    Text(L("Mevcut Fiyat"))
+                        .font(.caption2).foregroundColor(.primary.opacity(0.5))
                     Text("\(mc.currentPrice, specifier: "%.4f")")
-                        .font(.headline.monospacedDigit()).foregroundColor(.white)
+                        .font(.headline.monospacedDigit()).foregroundColor(.primary)
                 }
                 Spacer()
                 Image(systemName: "arrow.right")
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.primary.opacity(0.3))
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("30G Beklenti")
-                        .font(.caption2).foregroundColor(.white.opacity(0.5))
+                    Text(L("30G Beklenti"))
+                        .font(.caption2).foregroundColor(.primary.opacity(0.5))
                     Text("\(mc.expectedPrice30d, specifier: "%.4f")")
                         .font(.headline.monospacedDigit())
                         .foregroundColor(mc.expectedReturnPct >= 0 ? .green : .red)
                 }
             }
 
-            Divider().background(Color.white.opacity(0.1))
+            Divider().background(Color.primary.opacity(0.1))
 
             // Metrics grid
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 10) {
@@ -266,8 +405,8 @@ struct PortfolioAnalysisView: View {
 
             // Price range bar
             VStack(alignment: .leading, spacing: 6) {
-                Text("5.–95. Persentil Fiyat Araligi")
-                    .font(.caption2).foregroundColor(.white.opacity(0.5))
+                Text(L("5.–95. Persentil Fiyat Araligi"))
+                    .font(.caption2).foregroundColor(.primary.opacity(0.5))
                 HStack {
                     Text("\(mc.downside5Price, specifier: "%.2f")")
                         .font(.caption.monospacedDigit()).foregroundColor(.red)
@@ -296,16 +435,16 @@ struct PortfolioAnalysisView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Yapay Zeka Onerisi")
-                        .font(.caption).foregroundColor(.white.opacity(0.5))
-                    Text(rec.action)
+                    Text(L("Yapay Zeka Onerisi"))
+                        .font(.caption).foregroundColor(.primary.opacity(0.5))
+                    Text(L(rec.action))
                         .font(.title2.bold())
                         .foregroundColor(actionColor(rec.actionCode))
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text("Birlesik Skor")
-                        .font(.caption2).foregroundColor(.white.opacity(0.4))
+                    Text(L("Birlesik Skor"))
+                        .font(.caption2).foregroundColor(.primary.opacity(0.4))
                     Text("\(rec.compositeScore, specifier: "%.0f")/100")
                         .font(.headline.monospacedDigit())
                         .foregroundColor(.cyan)
@@ -315,7 +454,7 @@ struct PortfolioAnalysisView: View {
             // Progress bar
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.1))
+                    RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.1))
                     RoundedRectangle(cornerRadius: 4)
                         .fill(actionColor(rec.actionCode))
                         .frame(width: geo.size.width * CGFloat(rec.compositeScore / 100))
@@ -324,29 +463,29 @@ struct PortfolioAnalysisView: View {
             .frame(height: 8)
 
             HStack {
-                Label("Onerilen Pozisyon Buyuklugu: %\(rec.suggestedPositionPct, specifier: "%.0f")", systemImage: "scale.3d")
+                Label("\(L("Onerilen Pozisyon Buyuklugu")): %\(rec.suggestedPositionPct, specifier: "%.0f")", systemImage: "scale.3d")
                     .font(.caption)
-                    .foregroundColor(.white.opacity(0.6))
+                    .foregroundColor(.primary.opacity(0.6))
             }
 
             if !rec.reasons.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Gerekce:")
-                        .font(.caption.bold()).foregroundColor(.white.opacity(0.5))
+                    Text(L("Gerekce:"))
+                        .font(.caption.bold()).foregroundColor(.primary.opacity(0.5))
                     ForEach(rec.reasons, id: \.self) { reason in
                         HStack(alignment: .top, spacing: 6) {
                             Image(systemName: "circle.fill")
                                 .font(.system(size: 5))
                                 .foregroundColor(.cyan)
                                 .padding(.top, 5)
-                            Text(reason).font(.caption).foregroundColor(.white.opacity(0.7))
+                            Text(LD(reason)).font(.caption).foregroundColor(.primary.opacity(0.7))
                         }
                     }
                 }
             }
         }
         .padding(16)
-        .background(Color.white.opacity(0.05))
+        .background(Color.primary.opacity(0.05))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(actionColor(rec.actionCode).opacity(0.3), lineWidth: 1))
     }
@@ -404,7 +543,7 @@ struct PortfolioAnalysisView: View {
 
     @ViewBuilder
     private func sectionHeader(_ title: String, icon: String, color: Color) -> some View {
-        Label(title, systemImage: icon)
+        Label(L(title), systemImage: icon)
             .font(.headline.bold())
             .foregroundColor(color)
     }
@@ -413,7 +552,7 @@ struct PortfolioAnalysisView: View {
     private func metricCell(label: String, value: String, color: Color) -> some View {
         VStack(spacing: 4) {
             Text(value).font(.headline.monospacedDigit()).foregroundColor(color)
-            Text(label).font(.caption2).foregroundColor(.white.opacity(0.5))
+            Text(L(label)).font(.caption2).foregroundColor(.primary.opacity(0.5))
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
@@ -423,21 +562,21 @@ struct PortfolioAnalysisView: View {
     private func mcMetric(_ label: String, _ value: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(value).font(.subheadline.bold().monospacedDigit()).foregroundColor(color)
-            Text(label).font(.caption2).foregroundColor(.white.opacity(0.4))
+            Text(L(label)).font(.caption2).foregroundColor(.primary.opacity(0.4))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(Color.white.opacity(0.04))
+        .background(Color.primary.opacity(0.04))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var riskLabel: String {
         switch riskTolerance {
-        case 0..<0.2: return "Cok Dusuk"
-        case 0.2..<0.4: return "Dusuk"
-        case 0.4..<0.6: return "Orta"
-        case 0.6..<0.8: return "Yuksek"
-        default: return "Cok Yuksek"
+        case 0..<0.2: return L("Cok Dusuk")
+        case 0.2..<0.4: return L("Dusuk")
+        case 0.4..<0.6: return L("Orta")
+        case 0.6..<0.8: return L("Yuksek")
+        default: return L("Cok Yuksek")
         }
     }
 

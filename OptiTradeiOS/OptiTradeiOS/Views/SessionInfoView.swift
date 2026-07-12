@@ -27,13 +27,13 @@ struct SessionBannerCard: View {
                         if session.sessionCode == "OVERLAP" {
                             Text("⚡")
                         }
-                        Text(session.sessionName)
+                        Text(L(session.sessionName))
                             .font(.subheadline.bold())
-                            .foregroundColor(.white)
+                            .foregroundColor(.primary)
                     }
-                    Text(session.sessionDescription)
+                    Text(L(session.sessionDescription))
                         .font(.caption2)
-                        .foregroundColor(.white.opacity(0.5))
+                        .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
 
@@ -46,12 +46,12 @@ struct SessionBannerCard: View {
                         .foregroundColor(Color(hex: session.sessionColor))
                     Text("\(session.nextSessionMinutes)dk")
                         .font(.caption2.monospacedDigit())
-                        .foregroundColor(.white.opacity(0.4))
+                        .foregroundColor(.secondary)
                 }
 
                 Image(systemName: "chevron.right")
                     .font(.caption)
-                    .foregroundColor(.white.opacity(0.3))
+                    .foregroundColor(.secondary.opacity(0.6))
             }
             .padding(14)
             .background(
@@ -113,11 +113,11 @@ struct SessionDetailSheet: View {
                     .padding()
                 }
             }
-            .navigationTitle("Seans Analizi")
+            .navigationTitle(L("Seans Analizi"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Kapat") { dismiss() }
+                    Button(L("Kapat")) { dismiss() }
                         .foregroundColor(.cyan)
                 }
             }
@@ -137,11 +137,11 @@ struct SessionDetailSheet: View {
                     .foregroundColor(Color(hex: session.sessionColor))
             }
 
-            Text(session.sessionName)
+            Text(L(session.sessionName))
                 .font(.title2.bold())
                 .foregroundColor(.white)
 
-            Text(session.sessionDescription)
+            Text(L(session.sessionDescription))
                 .font(.subheadline)
                 .foregroundColor(.white.opacity(0.6))
                 .multilineTextAlignment(.center)
@@ -176,7 +176,7 @@ struct SessionDetailSheet: View {
 
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Birleşik Ham Sinyal")
+                    Text(L("Birleşik Ham Sinyal"))
                         .font(.caption).foregroundColor(.white.opacity(0.5))
                     Text("\(session.compositeRaw, specifier: "%+.3f")")
                         .font(.headline.monospacedDigit())
@@ -184,7 +184,7 @@ struct SessionDetailSheet: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text("Normalize [0–1]")
+                    Text(L("Normalize [0–1]"))
                         .font(.caption).foregroundColor(.white.opacity(0.5))
                     Text("\(session.compositeNorm, specifier: "%.3f")")
                         .font(.headline.monospacedDigit()).foregroundColor(.cyan)
@@ -200,7 +200,7 @@ struct SessionDetailSheet: View {
     private var weightsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Seans Sinyal Ağırlıkları")
-            Text("Bu seansta göstergeler aşağıdaki ağırlıklarla değerlendirilir:")
+            Text(L("Bu seansta göstergeler aşağıdaki ağırlıklarla değerlendirilir:"))
                 .font(.caption).foregroundColor(.white.opacity(0.45))
 
             HStack(spacing: 0) {
@@ -227,7 +227,7 @@ struct SessionDetailSheet: View {
                         .font(.system(size: 5))
                         .foregroundColor(Color(hex: session.sessionColor))
                         .padding(.top, 6)
-                    Text(signal)
+                    Text(LD(signal))
                         .font(.caption)
                         .foregroundColor(.white.opacity(0.75))
                 }
@@ -244,13 +244,13 @@ struct SessionDetailSheet: View {
             Image(systemName: "clock.arrow.circlepath")
                 .foregroundColor(.orange)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Sonraki Geçiş")
+                Text(L("Sonraki Geçiş"))
                     .font(.caption).foregroundColor(.white.opacity(0.5))
-                Text(session.nextSessionLabel)
+                Text(L(session.nextSessionLabel))
                     .font(.subheadline.bold()).foregroundColor(.white)
             }
             Spacer()
-            Text("\(session.nextSessionMinutes) dakika")
+            Text("\(session.nextSessionMinutes) \(L("dakika"))")
                 .font(.headline.monospacedDigit())
                 .foregroundColor(.orange)
         }
@@ -294,7 +294,7 @@ struct SessionDetailSheet: View {
                             .fill(Color(hex: row.color))
                             .frame(width: 8, height: 8)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(row.name).font(.caption.bold()).foregroundColor(.white)
+                            Text(L(row.name)).font(.caption.bold()).foregroundColor(.white)
                             Text(row.hours).font(.caption2.monospacedDigit()).foregroundColor(.white.opacity(0.4))
                         }
                         Spacer()
@@ -330,14 +330,14 @@ struct SessionDetailSheet: View {
 
     @ViewBuilder
     private func sectionTitle(_ text: String) -> some View {
-        Text(text).font(.subheadline.bold()).foregroundColor(.white.opacity(0.8))
+        Text(L(text)).font(.subheadline.bold()).foregroundColor(.white.opacity(0.8))
     }
 
     @ViewBuilder
     private func statBadge(label: String, value: String, color: Color) -> some View {
         VStack(spacing: 4) {
             Text(value).font(.subheadline.bold().monospacedDigit()).foregroundColor(color)
-            Text(label).font(.caption2).foregroundColor(.white.opacity(0.4))
+            Text(L(label)).font(.caption2).foregroundColor(.white.opacity(0.4))
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
@@ -352,7 +352,7 @@ struct SessionDetailSheet: View {
                 .font(.caption)
                 .frame(width: 16)
                 .foregroundColor(.white.opacity(0.5))
-            Text(label)
+            Text(L(label))
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.6))
                 .frame(width: 110, alignment: .leading)
@@ -381,7 +381,7 @@ struct SessionDetailSheet: View {
             Text("\(value * 100, specifier: "%.0f")%")
                 .font(.subheadline.bold().monospacedDigit())
                 .foregroundColor(.cyan)
-            Text(label)
+            Text(L(label))
                 .font(.caption2)
                 .foregroundColor(.white.opacity(0.5))
         }
@@ -423,7 +423,7 @@ struct SessionInfoView: View {
         ZStack {
             Color(hex: "0A0E1A").ignoresSafeArea()
             if isLoading && sessionInfo == nil {
-                ProgressView("Seans yükleniyor...")
+                ProgressView(L("Seans yükleniyor..."))
                     .foregroundColor(.white.opacity(0.6))
             } else if let info = sessionInfo {
                 SessionDetailSheet(session: info)

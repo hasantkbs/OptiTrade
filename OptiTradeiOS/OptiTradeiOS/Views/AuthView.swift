@@ -8,6 +8,7 @@ import FirebaseAuth
 
 struct AuthView: View {
     @EnvironmentObject private var firebase: FirebaseService
+    @EnvironmentObject private var session: UserSession
     @State private var isLogin = true
     @State private var email = ""
     @State private var password = ""
@@ -39,7 +40,7 @@ struct AuthView: View {
                         Text("OptiTrade")
                             .font(.system(size: 32, weight: .bold, design: .rounded))
                             .foregroundColor(.white)
-                        Text("Akilli Borsa Analiz Platformu")
+                        Text(L("Akilli Borsa Analiz Platformu"))
                             .font(.subheadline)
                             .foregroundColor(.white.opacity(0.5))
                     }
@@ -47,8 +48,8 @@ struct AuthView: View {
 
                     // Tab selector
                     HStack(spacing: 0) {
-                        tabButton(title: "Giris Yap", selected: isLogin) { isLogin = true }
-                        tabButton(title: "Kayit Ol", selected: !isLogin) { isLogin = false }
+                        tabButton(title: L("Giris Yap"), selected: isLogin) { isLogin = true }
+                        tabButton(title: L("Kayit Ol"), selected: !isLogin) { isLogin = false }
                     }
                     .background(Color.white.opacity(0.07))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -57,17 +58,17 @@ struct AuthView: View {
                     // Form card
                     VStack(spacing: 16) {
                         if !isLogin {
-                            authField(icon: "person.fill", placeholder: "Ad Soyad", text: $displayName)
+                            authField(icon: "person.fill", placeholder: L("Ad Soyad"), text: $displayName)
                         }
-                        authField(icon: "envelope.fill", placeholder: "E-posta", text: $email)
+                        authField(icon: "envelope.fill", placeholder: L("E-posta"), text: $email)
                             .keyboardType(.emailAddress)
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
 
-                        authSecureField(icon: "lock.fill", placeholder: "Sifre", text: $password)
+                        authSecureField(icon: "lock.fill", placeholder: L("Sifre"), text: $password)
 
                         if !isLogin {
-                            authSecureField(icon: "lock.shield.fill", placeholder: "Sifre Tekrar", text: $confirmPassword)
+                            authSecureField(icon: "lock.shield.fill", placeholder: L("Sifre Tekrar"), text: $confirmPassword)
                         }
 
                         if let err = errorMessage {
@@ -89,7 +90,7 @@ struct AuthView: View {
                                     ProgressView()
                                         .tint(.black)
                                 } else {
-                                    Text(isLogin ? "Giris Yap" : "Hesap Olustur")
+                                    Text(isLogin ? L("Giris Yap") : L("Hesap Olustur"))
                                         .fontWeight(.semibold)
                                 }
                             }
@@ -106,7 +107,7 @@ struct AuthView: View {
                         // OR Divider
                         HStack {
                             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-                            Text("VEYA").font(.caption2).foregroundColor(.white.opacity(0.3))
+                            Text(L("VEYA")).font(.caption2).foregroundColor(.white.opacity(0.3))
                             Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
                         }
                         .padding(.vertical, 8)
@@ -128,7 +129,7 @@ struct AuthView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 14))
 
                         if isLogin {
-                            Button("Sifremi Unuttum") { showResetAlert = true }
+                            Button(L("Sifremi Unuttum")) { showResetAlert = true }
                                 .font(.footnote)
                                 .foregroundColor(.cyan.opacity(0.8))
                         }
@@ -138,8 +139,16 @@ struct AuthView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     .padding(.horizontal)
 
+                    Button {
+                        session.isGuestMode = true
+                    } label: {
+                        Text(L("Misafir Olarak Devam Et"))
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+
                     // Disclaimer
-                    Text("OptiTrade yatirim tavsiyesi vermez. Butun kararlar kullaniciya aittir.")
+                    Text(L("OptiTrade yatirim tavsiyesi vermez. Butun kararlar kullaniciya aittir."))
                         .font(.caption2)
                         .foregroundColor(.white.opacity(0.3))
                         .multilineTextAlignment(.center)
@@ -148,11 +157,11 @@ struct AuthView: View {
                 }
             }
         }
-        .alert("Sifre Sifirlama", isPresented: $showResetAlert) {
-            Button("Gonder") { sendReset() }
-            Button("Iptal", role: .cancel) {}
+        .alert(L("Sifre Sifirlama"), isPresented: $showResetAlert) {
+            Button(L("Gonder")) { sendReset() }
+            Button(L("Iptal"), role: .cancel) {}
         } message: {
-            Text(resetSent ? "Sifre sifirlama maili gonderildi." : "\(email) adresine sifre sifirlama maili gonderilecek.")
+            Text(resetSent ? L("Sifre sifirlama maili gonderildi.") : "\(email) \(L("adresine sifre sifirlama maili gonderilecek."))")
         }
     }
 
@@ -188,16 +197,16 @@ struct AuthView: View {
     private func handleAuth() {
         errorMessage = nil
         if email.isEmpty || password.isEmpty {
-            errorMessage = "E-posta ve sifre bos birakilamaz."
+            errorMessage = L("E-posta ve sifre bos birakilamaz.")
             return
         }
         if !isLogin {
             guard password == confirmPassword else {
-                errorMessage = "Sifreler eslesmiyor."
+                errorMessage = L("Sifreler eslesmiyor.")
                 return
             }
             guard password.count >= 6 else {
-                errorMessage = "Sifre en az 6 karakter olmalidir."
+                errorMessage = L("Sifre en az 6 karakter olmalidir.")
                 return
             }
         }
@@ -220,7 +229,7 @@ struct AuthView: View {
                 try await firebase.sendPasswordReset(email: email)
                 resetSent = true
             } catch {
-                errorMessage = "Sifre sifirlama maili gonderilemedi."
+                errorMessage = L("Sifre sifirlama maili gonderilemedi.")
             }
         }
     }
@@ -228,10 +237,10 @@ struct AuthView: View {
     private func localizedAuthError(_ error: Error) -> String {
         let code = (error as NSError).code
         switch code {
-        case 17011: return "Bu e-posta ile kayitli hesap bulunamadi."
-        case 17009: return "Sifre yanlis. Lutfen tekrar deneyin."
-        case 17007: return "Bu e-posta zaten kullanilmaktadir."
-        case 17026: return "Sifre cok zayif. En az 6 karakter girin."
+        case 17011: return L("Bu e-posta ile kayitli hesap bulunamadi.")
+        case 17009: return L("Sifre yanlis. Lutfen tekrar deneyin.")
+        case 17007: return L("Bu e-posta zaten kullanilmaktadir.")
+        case 17026: return L("Sifre cok zayif. En az 6 karakter girin.")
         default: return error.localizedDescription
         }
     }

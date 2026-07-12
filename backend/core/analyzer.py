@@ -24,11 +24,19 @@ from core.pattern_recognition import (
     find_support_resistance,
     calculate_fibonacci,
     calculate_atr,
+    calculate_stochastic,
+    calculate_adx,
 )
 from core.scoring import compute_score, get_decision, get_risk_level
 from core.ml_predictor import get_ml_confidence
 from core.news_analyzer import analyze_news, NewsAnalysisResult
 from models.schemas import AnalysisResult, TechnicalIndicators
+from signals.technical import TechnicalSignalEngine
+from signals.fundamental import FundamentalSignalEngine
+from signals.news import NewsSignalEngine
+from signals.models import SignalCollection
+from data.fundamental import fetch_fundamental_data
+from news.pipeline import NewsPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +46,8 @@ def analyze(
     potential_price: Optional[float] = None,
     asset_type: str = "stock",
     include_news: bool = True,   # Haber analizini dahil et
+    news_pipeline: Optional[NewsPipeline] = None,
+    news_signal_engine: Optional[NewsSignalEngine] = None,
 ) -> Optional[AnalysisResult]:
 
     hist = fetch_history(symbol, period="6mo")   # 3mo→6mo: daha iyi Ichimoku/Fib
@@ -81,8 +91,14 @@ def analyze(
     atr_abs = calculate_atr(high, low, close)
     atr_pct = (atr_abs / current_price * 100) if (atr_abs and current_price) else None
 
+    # ── Stochastic + ADX (Step 0.2) ───────────────────────────────────────────
+    stoch     = calculate_stochastic(high, low, close)
+    stoch_k   = stoch.get("stoch_k")
+    stoch_d   = stoch.get("stoch_d")
+    adx       = calculate_adx(high, low, close)
+
     # ── Skor ─────────────────────────────────────────────────────────────────
-    score, long_signals, short_signals = compute_score(
+    score, long_signals, short_signals, scoring_breakdown = compute_score(
         current_price   = current_price,
         potential_price = potential_price,
         volume_ratio    = volume_ratio,
@@ -100,7 +116,48 @@ def analyze(
         divergence      = divergence,
         vwap            = vwap,
         roc             = roc,
+        adx             = adx,
+        stoch_k         = stoch_k,
+        stoch_d         = stoch_d,
     )
+
+    # ── Signal Engines (Phase A + B1 + B2.1) ─────────────────────────────────
+    # Non-blocking: any engine failure leaves that engine absent from
+    # signal_details. Engines are instantiated per-call (no module-level
+    # singletons) and, for News, are injectable for testing.
+    tech_result = fund_result = news_signal_result = None
+
+    # Phase A: Technical
+    try:
+        tech_result = TechnicalSignalEngine().generate(scoring_breakdown)
+    except Exception as _se:
+        logger.debug("TechnicalSignalEngine failed (non-blocking): %s", _se)
+
+    # Phase B1: Fundamental — equities only; skipped for crypto
+    if asset_type == "stock":
+        try:
+            fund_data = fetch_fundamental_data(symbol)
+            if fund_data is not None:
+                fund_result = FundamentalSignalEngine().generate(fund_data)
+        except Exception as _fe:
+            logger.debug("FundamentalSignalEngine failed (non-blocking): %s", _fe)
+
+    # Phase B2.1: News — fully additive. Any failure here (provider,
+    # normalization, entity extraction, sentiment, ...) is swallowed so it
+    # can never affect scoring, decision, or the legacy news_analysis block
+    # further below, which is entirely independent of this pipeline.
+    if include_news:
+        try:
+            pipeline = news_pipeline or NewsPipeline()
+            engine   = news_signal_engine or NewsSignalEngine()
+            news_signal_result = engine.generate(pipeline.run(symbol))
+        except Exception as _ne:
+            logger.debug("NewsSignalEngine failed (non-blocking): %s", _ne)
+
+    signal_collection = SignalCollection(
+        technical=tech_result, fundamental=fund_result, news=news_signal_result,
+    )
+    signal_details = signal_collection.to_dict() if signal_collection.has_data else None
 
     decision, decision_code = get_decision(score)
     risk_level              = get_risk_level(price_velocity, atr_pct=atr_pct)
@@ -184,6 +241,8 @@ def analyze(
         patterns        = pattern_result,
         support_resistance = sr_result,
         fibonacci       = fib_result,
+        scoring_breakdown = scoring_breakdown,
+        signal_details   = signal_details,
         extra_indicators = {
             "williams_r":   williams_r,
             "cci":          cci,
@@ -193,6 +252,9 @@ def analyze(
             "ichimoku":     ichimoku,
             "divergence":   divergence,
             "bb_bandwidth": bollinger.get("bandwidth") if bollinger else None,
+            "adx":          adx,
+            "stoch_k":      stoch_k,
+            "stoch_d":      stoch_d,
         },
         news_analysis = {
             "sentiment_score":    news_result.sentiment_score   if news_result else None,

@@ -24,7 +24,7 @@ struct ScoreMeter: View {
                     .foregroundColor(color)
                     .accessibilityElement(children: .ignore)
                     .accessibility(label: Text("Puan: \(score)"))
-                Text("puan")
+                Text(L("puan"))
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -59,7 +59,7 @@ struct DecisionBadge: View {
     }
 
     var body: some View {
-        Label(decision, systemImage: icon)
+        Label(L(decision), systemImage: icon)
             .font(.caption.weight(.semibold))
             .foregroundColor(badgeColor)
             .padding(.horizontal, 10)
@@ -84,7 +84,7 @@ struct RiskBadge: View {
     }
 
     var body: some View {
-        Text(config.text)
+        Text(L(config.text))
             .font(.caption2.weight(.medium))
             .foregroundColor(config.color)
             .padding(.horizontal, 8)
@@ -102,7 +102,7 @@ struct IndicatorRow: View {
 
     var body: some View {
         HStack {
-            Text(title)
+            Text(L(title))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .accessibilityLabel(title)
@@ -127,7 +127,7 @@ struct SignalRow: View {
                 .font(.caption)
                 .foregroundColor(isLong ? .green : .red)
                 .padding(.top, 2)
-            Text(text)
+            Text(LD(text))
                 .font(.caption)
                 .foregroundColor(.primary)
         }
@@ -146,10 +146,10 @@ struct EmptyStateView: View {
                 .font(.system(size: 52))
                 .foregroundColor(.secondary.opacity(0.6))
                 .accessibility(hidden: true)
-            Text(title)
+            Text(L(title))
                 .font(.headline)
                 .foregroundColor(.secondary)
-            Text(subtitle)
+            Text(L(subtitle))
                 .font(.caption)
                 .foregroundColor(.secondary.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -171,7 +171,7 @@ struct SectionHeaderView: View {
                 .fill(color)
                 .frame(width: 8, height: 8)
                 .accessibility(hidden: true)
-            Text(title)
+            Text(L(title))
                 .font(.title3.bold())
             Text("(\(count))")
                 .font(.subheadline)
@@ -179,7 +179,7 @@ struct SectionHeaderView: View {
             Spacer()
         }
         .padding(.top, 8)
-        .accessibility(label: Text("\(title) - \(count) öğe"))
+        .accessibility(label: Text("\(title) - \(count) \(L("öğe"))"))
     }
 }
 
@@ -246,7 +246,7 @@ struct QuickSymbolButton: View {
             .clipShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(ScaleButtonStyle())
-        .accessibility(label: Text("\(displayName) - \(symbol) sembolü"))
+        .accessibility(label: Text("\(displayName) - \(symbol) \(L("sembolü"))"))
     }
 }
 
@@ -325,7 +325,7 @@ struct ScanSummaryBanner: View {
                     Text(String(format: "%.0f", avgScore))
                         .font(.system(size: 18, weight: .bold, design: .rounded))
                         .foregroundColor(avgScore >= 63 ? .green : avgScore <= 37 ? .red : .orange)
-                    Text("Ort. Puan")
+                    Text(L("Ort. Puan"))
                         .font(.system(size: 9))
                         .foregroundColor(.secondary)
                 }
@@ -355,7 +355,7 @@ struct ScanSummaryBanner: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .cardShadow()
         .transition(.scale.combined(with: .opacity))
-        .accessibility(label: Text("Tarama özeti: \(buyCount) alım, \(sellCount) satım, \(neutralCount) nötr, ortalama puan \(String(format: "%.0f", avgScore))"))
+        .accessibility(label: Text("\(L("Tarama özeti")): \(buyCount) \(L("alım")), \(sellCount) \(L("satım")), \(neutralCount) \(L("nötr")), \(L("ortalama puan")) \(String(format: "%.0f", avgScore))"))
     }
 
     private func statPill(_ label: String, count: Int, color: Color) -> some View {
@@ -363,12 +363,12 @@ struct ScanSummaryBanner: View {
             Text("\(count)")
                 .font(.system(size: 18, weight: .bold, design: .rounded))
                 .foregroundColor(color)
-            Text(label)
+            Text(L(label))
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .accessibility(label: Text("\(label): \(count)"))
+        .accessibility(label: Text("\(L(label)): \(count)"))
     }
 }
 
@@ -379,7 +379,7 @@ struct SectorChip: View {
 
     var body: some View {
         Button(action: onTap) {
-            Text(title)
+            Text(L(title))
                 .font(.caption.weight(.semibold))
                 .foregroundColor(isSelected ? .white : .primary)
                 .padding(.horizontal, 14)
@@ -388,7 +388,7 @@ struct SectorChip: View {
                 .clipShape(Capsule())
         }
         .buttonStyle(ScaleButtonStyle())
-        .accessibility(label: Text("\(title) sektörü - \(isSelected ? "seçili" : "seçili değil")"))
+        .accessibility(label: Text("\(L(title)) \(L("sektörü")) - \(isSelected ? L("seçili") : L("seçili değil"))"))
     }
 }
 

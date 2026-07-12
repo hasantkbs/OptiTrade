@@ -56,7 +56,7 @@ struct PriceChart: View {
                         Text(String(format: "%.2f", sel.close))
                             .font(.title2.bold())
                     } else if let last = chart.points.last {
-                        Text("Güncel")
+                        Text(L("Güncel"))
                             .font(.caption)
                             .foregroundColor(.secondary)
                         Text(String(format: "%.2f", last.close))
@@ -141,9 +141,9 @@ struct RSIGauge: View {
         return .orange
     }
     private var label: String {
-        if value > 70 { return "Aşırı Alım" }
-        if value < 30 { return "Aşırı Satım" }
-        return "Normal"
+        if value > 70 { return L("Aşırı Alım") }
+        if value < 30 { return L("Aşırı Satım") }
+        return L("Normal")
     }
 
     var body: some View {
