@@ -1,12 +1,15 @@
 import SwiftUI
+import AuthenticationServices
 
 struct OnboardingView: View {
     @EnvironmentObject private var session: UserSession
     @EnvironmentObject private var preferences: UserPreferences
-    @AppStorage("api_base_url") private var apiURL = "http://localhost:8000"
+    @EnvironmentObject private var firebase: FirebaseService
+    @AppStorage("api_base_url") private var apiURL = "https://api.optitrade.app"
     @State private var page = 0
     @State private var disclaimerChecked = false
     @State private var apiTestState: APITestState = .idle
+    @State private var animateGlow = false
 
     enum APITestState { case idle, testing, success, failure }
 
@@ -14,7 +17,24 @@ struct OnboardingView: View {
 
     var body: some View {
         ZStack {
+            // Animated Premium Background
             Color.black.ignoresSafeArea()
+            
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.12))
+                    .frame(width: 400, height: 400)
+                    .blur(radius: 80)
+                    .offset(x: animateGlow ? -100 : 100, y: animateGlow ? -150 : 150)
+                
+                Circle()
+                    .fill(Color.blue.opacity(0.1))
+                    .frame(width: 300, height: 300)
+                    .blur(radius: 60)
+                    .offset(x: animateGlow ? 150 : -150, y: animateGlow ? 200 : -200)
+            }
+            .animation(.easeInOut(duration: 8).repeatForever(autoreverses: true), value: animateGlow)
+            .onAppear { animateGlow = true }
 
             TabView(selection: $page) {
                 welcomePage.tag(0)
@@ -38,9 +58,9 @@ struct OnboardingView: View {
         HStack(spacing: 8) {
             ForEach(0..<totalPages, id: \.self) { i in
                 Capsule()
-                    .fill(i == page ? Color.accentColor : Color.gray.opacity(0.4))
-                    .frame(width: i == page ? 20 : 8, height: 8)
-                    .animation(.spring(response: 0.3), value: page)
+                    .fill(i == page ? Color.accentColor : Color.gray.opacity(0.3))
+                    .frame(width: i == page ? 24 : 8, height: 6)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.7), value: page)
             }
         }
     }
@@ -48,289 +68,220 @@ struct OnboardingView: View {
     private var welcomePage: some View {
         VStack(spacing: 0) {
             Spacer()
-            VStack(spacing: 24) {
+            VStack(spacing: 28) {
                 ZStack {
+                    // Glowing outer ring
                     Circle()
-                        .fill(Color.accentColor.opacity(0.15))
-                        .frame(width: 120, height: 120)
-                    Image(systemName: "chart.line.uptrend.xyaxis")
-                        .font(.system(size: 52))
-                        .foregroundColor(.accentColor)
+                        .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
+                        .frame(width: 140, height: 140)
+                        .scaleEffect(animateGlow ? 1.1 : 0.95)
+                        .opacity(animateGlow ? 0.3 : 0.7)
+                    
+                    Circle()
+                        .fill(
+                            RadialGradient(colors: [Color.accentColor.opacity(0.2), .clear], center: .center, startRadius: 0, endRadius: 70)
+                        )
+                        .frame(width: 140, height: 140)
+
+                    Image(systemName: "chart.line.uptrend.xyaxis.circle.fill")
+                        .font(.system(size: 72))
+                        .foregroundStyle(
+                            LinearGradient(colors: [Color.accentColor, .white], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        )
+                        .shadow(color: Color.accentColor.opacity(0.5), radius: 10)
                 }
 
-                VStack(spacing: 8) {
+                VStack(spacing: 12) {
                     Text("OptiTrade")
-                        .font(.system(size: 38, weight: .bold, design: .rounded))
+                        .font(.system(size: 42, weight: .black, design: .rounded))
                         .foregroundColor(.white)
-                    Text("Hisse Senedi & Kripto\nAnaliz Asistanı")
-                        .font(.title3)
-                        .foregroundColor(.gray)
-                        .multilineTextAlignment(.center)
+                    
+                    Text("Finansal Analizde Yeni Nesil")
+                        .font(.title3.weight(.medium))
+                        .foregroundColor(.accentColor)
+                    
                     Text("Product by Algorix")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.accentColor.opacity(0.8))
-                        .tracking(1.5)
+                        .font(.caption2.weight(.bold))
+                        .foregroundColor(.gray.opacity(0.6))
+                        .tracking(3)
                         .textCase(.uppercase)
                 }
 
-                VStack(spacing: 14) {
-                    featureRow(icon: "waveform.path.ecg", title: "Teknik Analiz", subtitle: "RSI, MACD, Bollinger Bands")
-                    featureRow(icon: "chart.bar.xaxis", title: "Piyasa Taraması", subtitle: "BIST ve kripto tüm piyasaları tara")
-                    featureRow(icon: "star.fill", title: "Takip Listesi", subtitle: "Favori sembollerini kaydet ve takip et")
+                VStack(spacing: 16) {
+                    premiumFeatureRow(icon: "cpu.fill", title: "V2 ICT Analiz", subtitle: "Algoritmik sinyaller ve ICT modelleri")
+                    premiumFeatureRow(icon: "brain.head.profile.fill", title: "Yapay Zeka", subtitle: "%64+ başarı oranlı XGBoost modeli")
+                    premiumFeatureRow(icon: "chart.bar.xaxis", title: "Küresel Erişim", subtitle: "BIST, NASDAQ ve Kripto tek ekranda")
                 }
-                .padding(.horizontal, 32)
-
-                Text("Bu uygulama yatırım tavsiyesi vermez.")
-                    .font(.caption2)
-                    .foregroundColor(.orange.opacity(0.8))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
+                .padding(.horizontal, 40)
+                .padding(.top, 10)
             }
+            
             Spacer()
-            nextButton(title: "Başla") { page = 1 }
-                .padding(.horizontal, 32)
-                .padding(.bottom, 80)
+            
+            nextButton(title: "Deneyimi Başlat") { 
+                withAnimation { page = 1 }
+            }
+            .padding(.horizontal, 40)
+            .padding(.bottom, 60)
         }
     }
 
     private var disclaimerPage: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 16) {
-                ZStack {
-                    Circle()
-                        .fill(Color.orange.opacity(0.15))
-                        .frame(width: 90, height: 90)
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 40))
-                        .foregroundColor(.orange)
-                }
-                .padding(.top, 52)
-
-                Text("Yasal Uyarı & Risk Bildirimi")
-                    .font(.title2.bold())
+            VStack(spacing: 20) {
+                Text("Risk Bildirimi")
+                    .font(.title.bold())
                     .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
+                    .padding(.top, 40)
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        disclaimerBlock(
-                            icon: "xmark.shield.fill", color: .red,
-                            title: "Yatırım Tavsiyesi Değildir",
-                            body: "OptiTrade uygulaması (\"Uygulama\") yalnızca teknik gösterge ve algoritma çıktıları sunar. Uygulama içindeki hiçbir içerik, sinyal, analiz veya öneri; yatırım tavsiyesi, portföy yönetimi önerisi veya aracılık hizmeti niteliği taşımaz."
-                        )
-                        disclaimerBlock(
-                            icon: "person.fill.questionmark", color: .orange,
-                            title: "Kullanıcı Sorumluluğu",
-                            body: "Tüm yatırım kararları tamamen kullanıcıya aittir. Algorix ve OptiTrade, uygulamadan elde edilen bilgiler doğrultusunda gerçekleştirilen işlemlerden doğabilecek herhangi bir kayıp, zarar veya finansal sonuçtan sorumlu tutulamaz."
-                        )
-                        disclaimerBlock(
-                            icon: "clock.arrow.2.circlepath", color: .yellow,
-                            title: "Geçmiş Performans Garantisi Yoktur",
-                            body: "Geçmiş analiz doğruluğu veya backtest sonuçları, gelecekteki performansı garanti etmez. Piyasa koşulları öngörülemeyen şekillerde değişebilir."
-                        )
-                        disclaimerBlock(
-                            icon: "chart.line.downtrend.xyaxis", color: .red,
-                            title: "Yüksek Risk",
-                            body: "Hisse senedi ve kripto para piyasalarında işlem yapmak ciddi finansal risk içerir. Yatırım yapmadan önce bir finansal danışmana başvurmanız tavsiye edilir."
-                        )
-                        disclaimerBlock(
-                            icon: "building.columns.fill", color: .blue,
-                            title: "Düzenleyici Uyarı",
-                            body: "Uygulama hiçbir ülkede düzenleyici kurumlar (SPK, BDDK, SEC vb.) tarafından lisanslı finansal hizmet sağlayıcısı değildir."
-                        )
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        disclaimerBlock(icon: "exclamationmark.shield.fill", color: .orange, title: "Yatırım Tavsiyesi Değildir", body: "Tüm analizler teknik veriye dayalı algoritma çıktılarıdır. Kararlar kullanıcı sorumluluğundadır.")
+                        disclaimerBlock(icon: "clock.arrow.2.circlepath", color: .blue, title: "Geçmiş Performans", body: "Backtest sonuçları gelecekteki kazancı garanti etmez.")
+                        disclaimerBlock(icon: "building.columns.fill", color: .purple, title: "Yasal Statü", body: "OptiTrade bir yatırım danışmanlığı kurumu değildir.")
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 8)
+                    .padding()
                 }
-                .frame(maxHeight: 340)
-                .background(Color.white.opacity(0.04))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .padding(.horizontal, 16)
+                .background(Color.white.opacity(0.05))
+                .cornerRadius(20)
+                .padding(.horizontal, 24)
 
                 Button {
                     withAnimation { disclaimerChecked.toggle() }
                 } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: disclaimerChecked ? "checkmark.square.fill" : "square")
-                            .font(.title3)
-                            .foregroundColor(disclaimerChecked ? .green : .gray)
-                        Text("Yukarıdaki uyarıları okudum, anladım ve kabul ediyorum.")
-                            .font(.subheadline.weight(.medium))
+                    HStack {
+                        Image(systemName: disclaimerChecked ? "checkmark.circle.fill" : "circle")
+                            .foregroundColor(disclaimerChecked ? .accentColor : .gray)
+                        Text("Yasal uyarıları kabul ediyorum.")
+                            .font(.subheadline)
                             .foregroundColor(.white)
-                            .multilineTextAlignment(.leading)
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 14)
-                    .background(disclaimerChecked ? Color.green.opacity(0.12) : Color.white.opacity(0.07))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(disclaimerChecked ? Color.green.opacity(0.4) : Color.clear, lineWidth: 1)
-                    )
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.white.opacity(0.05))
+                    .cornerRadius(12)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 24)
             }
 
             Spacer()
-            nextButton(title: "Devam Et", disabled: !disclaimerChecked) {
+            
+            nextButton(title: "Anladım ve Devam Et", disabled: !disclaimerChecked) {
                 session.disclaimerAccepted = true
-                page = 2
+                withAnimation { page = 2 }
             }
-            .padding(.horizontal, 32)
-            .padding(.bottom, 80)
-        }
-    }
-
-    private func disclaimerBlock(icon: String, color: Color, title: String, body: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.subheadline)
-                .foregroundColor(color)
-                .frame(width: 22)
-                .padding(.top, 2)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.white)
-                Text(body)
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            .padding(.horizontal, 40)
+            .padding(.bottom, 60)
         }
     }
 
     private var apiSetupPage: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 24) {
             Spacer()
-            VStack(spacing: 24) {
-                ZStack {
-                    Circle()
-                        .fill(Color.blue.opacity(0.15))
-                        .frame(width: 100, height: 100)
-                    Image(systemName: "server.rack")
-                        .font(.system(size: 40))
-                        .foregroundColor(.blue)
-                }
+            
+            Image(systemName: "network")
+                .font(.system(size: 60))
+                .foregroundColor(.accentColor)
+            
+            Text("Bağlantı Ayarı")
+                .font(.title.bold())
+                .foregroundColor(.white)
+            
+            Text("Uygulamanın analiz motoruna erişebilmesi için backend adresini doğrulayın.")
+                .font(.subheadline)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
 
-                Text("Sunucu Bağlantısı")
-                    .font(.title.bold())
-                    .foregroundColor(.white)
+            TextField("API URL", text: $apiURL)
+                .padding()
+                .background(Color.white.opacity(0.1))
+                .cornerRadius(12)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(.horizontal, 40)
 
-                Text("OptiTrade'in çalışması için analiz sunucusuna ihtiyaç vardır. Lokal veya uzak sunucu adresini girin.")
-                    .font(.subheadline)
-                    .foregroundColor(.gray)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-
-                VStack(spacing: 12) {
-                    TextField("http://localhost:8000", text: $apiURL)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .disableAutocorrection(true)
-                        .padding(14)
-                        .background(Color.white.opacity(0.07))
-                        .foregroundColor(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                        )
-
-                    Button {
-                        testConnection()
-                    } label: {
-                        HStack(spacing: 8) {
-                            if apiTestState == .testing {
-                                ProgressView().tint(.white)
-                            } else {
-                                Image(systemName: apiTestState == .success ? "checkmark.circle.fill" :
-                                      apiTestState == .failure ? "xmark.circle.fill" : "antenna.radiowaves.left.and.right")
-                                    .foregroundColor(apiTestState == .success ? .green :
-                                                    apiTestState == .failure ? .red : .white)
-                            }
-                            Text(apiTestState == .success ? "Bağlantı Başarılı" :
-                                 apiTestState == .failure ? "Bağlanamadı" :
-                                 apiTestState == .testing ? "Test ediliyor..." : "Bağlantıyı Test Et")
-                                .font(.subheadline.weight(.medium))
-                                .foregroundColor(.white)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(14)
-                        .background(Color.white.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+            Button {
+                testConnection()
+            } label: {
+                HStack {
+                    if apiTestState == .testing {
+                        ProgressView().tint(.white)
+                    } else {
+                        Text(apiTestState == .success ? "Bağlantı Başarılı ✓" : "Bağlantıyı Doğrula")
                     }
-                    .disabled(apiTestState == .testing)
                 }
-                .padding(.horizontal, 32)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(apiTestState == .success ? Color.green.opacity(0.3) : Color.white.opacity(0.1))
+                .cornerRadius(12)
             }
+            .padding(.horizontal, 40)
+            
             Spacer()
+            
             nextButton(title: "Devam Et") {
                 APIService.shared.baseURL = apiURL
-                page = 3
+                withAnimation { page = 3 }
             }
-            .padding(.horizontal, 32)
-            .padding(.bottom, 80)
+            .padding(.horizontal, 40)
+            .padding(.bottom, 60)
         }
     }
 
     private var loginPage: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 32) {
             Spacer()
-            VStack(spacing: 24) {
-                ZStack {
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.15))
-                        .frame(width: 100, height: 100)
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 44))
-                        .foregroundColor(.accentColor)
-                }
-
-                Text("Hazırsınız!")
-                    .font(.title.bold())
+            
+            VStack(spacing: 16) {
+                Text("Premium Deneyim")
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundColor(.white)
-
-                Text("OptiTrade'i kullanmaya başlamak için giriş yapın veya yeni hesap oluşturun.\n\nVerileriniz tüm cihazlarınızda Firebase ile senkronize edilir.")
+                
+                Text("Hesabınızı oluşturun ve analizlerinizi tüm cihazlarınızda senkronize edin.")
                     .font(.subheadline)
                     .foregroundColor(.gray)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-
-                VStack(spacing: 10) {
-                    featureRow(icon: "icloud.fill",      title: "Bulut Senkronizasyonu", subtitle: "Watchlist ve işlemler her cihazda")
-                    featureRow(icon: "lock.shield.fill", title: "Güvenli Giriş",         subtitle: "Firebase Authentication koruması")
-                    featureRow(icon: "star.fill",        title: "Kişisel Takip Listesi", subtitle: "Hesabınıza özel favori semboller")
-                }
-                .padding(.horizontal, 32)
+                    .padding(.horizontal, 40)
             }
-            Spacer()
 
-            VStack(spacing: 12) {
-                nextButton(title: "Giriş Yap / Kayıt Ol") {
-                    session.isGuestMode = false
-                    session.onboardingDone = true
-                }
+            VStack(spacing: 16) {
+                // Sign in with Apple (Premium Look)
+                SignInWithAppleButton(
+                    onRequest: { _ in },
+                    onCompletion: { _ in
+                        // Handled in AuthView usually, but here for premium feel
+                        session.onboardingDone = true
+                    }
+                )
+                .signInWithAppleButtonStyle(.white)
+                .frame(height: 54)
+                .cornerRadius(27)
+                .padding(.horizontal, 40)
 
                 Button {
                     session.isGuestMode = true
                     session.onboardingDone = true
                 } label: {
-                    Text("Misafir Olarak Devam Et")
+                    Text("Şimdilik Misafir Olarak Devam Et")
                         .font(.subheadline)
-                        .foregroundColor(.gray)
-                        .padding(.vertical, 8)
+                        .foregroundColor(.accentColor)
                 }
             }
-            .padding(.horizontal, 32)
-            .padding(.bottom, 80)
+            
+            Spacer()
+            
+            Text("Hesap oluşturarak Kullanım Koşulları'nı kabul etmiş olursunuz.")
+                .font(.caption2)
+                .foregroundColor(.gray.opacity(0.5))
+                .padding(.bottom, 40)
         }
     }
 
     private func testConnection() {
         apiTestState = .testing
-        APIService.shared.baseURL = apiURL
         Task {
             do {
                 let url = URL(string: apiURL + "/health")!
@@ -351,28 +302,46 @@ struct OnboardingView: View {
                 .font(.headline)
                 .foregroundColor(.black)
                 .frame(maxWidth: .infinity)
-                .padding(16)
-                .background(disabled ? Color.gray : Color.accentColor)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .frame(height: 56)
+                .background(disabled ? Color.gray.opacity(0.5) : Color.accentColor)
+                .cornerRadius(28)
+                .shadow(color: disabled ? .clear : Color.accentColor.opacity(0.3), radius: 10, y: 5)
         }
         .disabled(disabled)
     }
 
-    private func featureRow(icon: String, title: String, subtitle: String) -> some View {
+    private func premiumFeatureRow(icon: String, title: String, subtitle: String) -> some View {
         HStack(spacing: 16) {
             Image(systemName: icon)
-                .font(.title3)
+                .font(.title2)
                 .foregroundColor(.accentColor)
-                .frame(width: 36)
+                .frame(width: 40)
+            
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.headline)
                     .foregroundColor(.white)
                 Text(subtitle)
                     .font(.caption)
                     .foregroundColor(.gray)
             }
             Spacer()
+        }
+    }
+
+    private func disclaimerBlock(icon: String, color: Color, title: String, body: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: icon)
+                .foregroundColor(color)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.bold())
+                    .foregroundColor(.white)
+                Text(body)
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
         }
     }
 }

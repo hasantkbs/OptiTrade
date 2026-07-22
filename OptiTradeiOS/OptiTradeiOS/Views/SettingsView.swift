@@ -4,7 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject private var session:     UserSession
     @EnvironmentObject private var firebase:    FirebaseService
     @EnvironmentObject private var preferences: UserPreferences
-    @AppStorage("api_base_url") private var apiURL = "http://localhost:8000"
+    @AppStorage("api_base_url") private var apiURL = "https://api.optitrade.app"
     @State private var connectionState: ConnectionState = .idle
     @State private var showResetAlert = false
     @State private var showClearHistoryAlert = false
@@ -62,19 +62,13 @@ struct SettingsView: View {
         }
     }
 
+    @State private var showPremiumSheet = false
+
     // MARK: - Premium Section
 
     private var premiumSection: some View {
         Section {
-            if session.subscriptionLevel == .trade {
-                HStack {
-                    Label("Trader Paketi Aktif", systemImage: "bolt.crown.fill")
-                        .foregroundColor(.orange)
-                    Spacer()
-                    Image(systemName: "checkmark.seal.fill")
-                        .foregroundColor(.orange)
-                }
-            } else if session.isPremium {
+            if session.subscriptionLevel == .premium {
                 HStack {
                     Label("Premium Üyelik Aktif", systemImage: "crown.fill")
                         .foregroundColor(.yellow)
@@ -88,7 +82,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("OptiTrade Pro'ya Geç")
                                 .font(.headline)
-                            Text("Reklamsız deneyim, sınırsız analiz ve derinlemesine piyasa raporları.")
+                            Text("V2 Analiz Motoru, ICT göstergeleri ve reklamsız deneyim.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -98,36 +92,25 @@ struct SettingsView: View {
                             .foregroundColor(.yellow)
                     }
                     
-                    HStack {
-                        Button {
-                            // Satın alma işlemi
-                        } label: {
-                            Text("Premium Al")
-                                .font(.subheadline.weight(.bold))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 38)
-                                .background(Color.yellow)
-                                .foregroundColor(.black)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        
-                        Button {
-                            // Trader paketi
-                        } label: {
-                            Text("Trader Ol")
-                                .font(.subheadline.weight(.bold))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 38)
-                                .background(Color.orange)
-                                .foregroundColor(.black)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                        }
+                    Button {
+                        showPremiumSheet = true
+                    } label: {
+                        Text("Avantajları Gör ve Yükselt")
+                            .font(.subheadline.weight(.bold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Color.accentColor)
+                            .foregroundColor(.black)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                 }
                 .padding(.vertical, 4)
             }
         } header: {
             Text("Üyelik Durumu")
+        }
+        .sheet(isPresented: $showPremiumSheet) {
+            PremiumUpgradeView()
         }
     }
 
@@ -388,7 +371,7 @@ struct SettingsView: View {
             HStack {
                 Text("Versiyon")
                 Spacer()
-                Text("3.1.0 (Build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))")
+                Text("\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "3.1.0") (Build \(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))")
                     .foregroundColor(.secondary)
             }
             HStack {

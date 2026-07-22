@@ -23,11 +23,18 @@
 		A10014 /* ChartComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10014 /* ChartComponents.swift */; };
 		A10015 /* HapticService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10015 /* HapticService.swift */; };
 		A10016 /* PaperTradeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10016 /* PaperTradeView.swift */; };
+		A10017 /* PremiumUpgradeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017 /* PremiumUpgradeView.swift */; };
+		A10018 /* TradingViewChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018 /* TradingViewChart.swift */; };
+		A10019 /* BacktestPerformanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* BacktestPerformanceView.swift */; };
 		A10017 /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10017 /* AuthView.swift */; };
 		A10018 /* FirebaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10018 /* FirebaseService.swift */; };
 		A10019 /* PortfolioAnalysisView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10019 /* PortfolioAnalysisView.swift */; };
 		A10020 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10020 /* Extensions.swift */; };
 		A10023 /* SessionInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10023 /* SessionInfoView.swift */; };
+		A10024 /* StoreKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10021 /* StoreKitManager.swift */; };
+		A10025 /* PremiumUpgradeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10025 /* PremiumUpgradeView.swift */; };
+		A10026 /* TradingViewChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10026 /* TradingViewChart.swift */; };
+		A10027 /* BacktestPerformanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10027 /* BacktestPerformanceView.swift */; };
 		A10021 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = P10001 /* FirebaseAuth */; };
 		A10022 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = P10002 /* FirebaseFirestore */; };
 		A12E47062F9589AE00417CBD /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A12E47052F9589AE00417CBD /* GoogleService-Info.plist */; };
@@ -56,6 +63,10 @@
 		B10019 /* PortfolioAnalysisView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioAnalysisView.swift; sourceTree = "<group>"; };
 		B10020 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
 		B10023 /* SessionInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionInfoView.swift; sourceTree = "<group>"; };
+		B10025 /* PremiumUpgradeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumUpgradeView.swift; sourceTree = "<group>"; };
+		B10026 /* TradingViewChart.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradingViewChart.swift; sourceTree = "<group>"; };
+		B10027 /* BacktestPerformanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BacktestPerformanceView.swift; sourceTree = "<group>"; };
+		B10050 /* OptiTradeiOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OptiTradeiOS.entitlements; sourceTree = "<group>"; };
 		C10001 /* OptiTradeiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OptiTradeiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -84,6 +95,7 @@
 			isa = PBXGroup;
 			children = (
 				A12E47052F9589AE00417CBD /* GoogleService-Info.plist */,
+				B10050 /* OptiTradeiOS.entitlements */,
 				B10001 /* OptiTradeApp.swift */,
 				B10020 /* Extensions.swift */,
 				E10003 /* Views */,
@@ -110,6 +122,9 @@
 				B10017 /* AuthView.swift */,
 				B10019 /* PortfolioAnalysisView.swift */,
 				B10023 /* SessionInfoView.swift */,
+				B10025 /* PremiumUpgradeView.swift */,
+				B10026 /* TradingViewChart.swift */,
+				B10027 /* BacktestPerformanceView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -128,6 +143,7 @@
 				B10010 /* APIService.swift */,
 				B10015 /* HapticService.swift */,
 				B10018 /* FirebaseService.swift */,
+				B10021 /* StoreKitManager.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -246,6 +262,10 @@
 				A10019 /* PortfolioAnalysisView.swift in Sources */,
 				A10020 /* Extensions.swift in Sources */,
 				A10023 /* SessionInfoView.swift in Sources */,
+				A10024 /* StoreKitManager.swift in Sources */,
+				A10025 /* PremiumUpgradeView.swift in Sources */,
+				A10026 /* TradingViewChart.swift in Sources */,
+				A10027 /* BacktestPerformanceView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -362,6 +382,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = OptiTradeiOS/OptiTradeiOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -373,11 +394,12 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.0.0;
+				MARKETING_VERSION = 3.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.algorix.optitrade;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -391,6 +413,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = OptiTradeiOS/OptiTradeiOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -402,11 +425,12 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.0.0;
+				MARKETING_VERSION = 3.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.algorix.optitrade;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;

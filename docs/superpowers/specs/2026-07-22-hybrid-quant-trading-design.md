@@ -75,3 +75,93 @@ layers end-to-end.
 - FastAPI endpoint wiring in `main.py`.
 - Reusing/removing existing `core/analyzer.py`, `core/scoring.py`, or `v2/`.
 - Live news sentiment adapter.
+
+## Revision (2026-07-22): LLM provider swapped to Groq
+
+`AITraderPersona` now calls Groq's free-tier, OpenAI-compatible Chat
+Completions API (`groq` SDK, `GROQ_API_KEY` / `GROQ_MODEL` env vars,
+default model `llama-3.3-70b-versatile`) instead of Anthropic. Structured
+output is enforced via forced tool-calling against a hand-written JSON
+schema (not Pydantic's `model_json_schema()`, to avoid `$ref`/`$defs`
+resolution issues some providers have with tool parameters), then
+validated into the same `TradeRecommendation` Pydantic model. `anthropic`
+was dropped from `requirements.txt` in favor of `groq`.
+
+## Revision (2026-07-22): production readiness — cache, news adapter, dashboard
+
+- **`core/cache_manager.py`** — no shared cache utility existed in the repo
+  (checked: `news_analyzer.py`/`sector_intelligence.py` each have their own
+  ad-hoc module-level dict+timestamp cache). Added a small generic
+  `TTLCache[V]` (thread-safe, in-memory, no persistence) following that same
+  established pattern, for reuse beyond this one call site.
+- **`HybridTradingEngine`** now caches each symbol's `TradeRecommendation`
+  for 15 minutes (`recommendation_cache_ttl_seconds`, constructor-overridable).
+  On a cache hit, `_process_symbol` returns the cached object directly and
+  skips `MultiTimeframeAnalyzer.analyze`, `DynamicRiskManager.calculate`, and
+  the Groq call entirely — only `MarketRegimeScanner.scan_and_filter` (cheap,
+  batched) still runs every `run()` call, so regime/price context stays
+  reasonably fresh even under a 60s dashboard refresh loop.
+- **`core/news_adapter.py`** (`NewsSentimentAdapter`) — thin wrapper around
+  the existing `core/news_analyzer.analyze_news`, converting its
+  `NewsAnalysisResult` into the compact dict `AITraderPersona` already
+  accepted via `news_sentiment`. Deliberately drops the verbose per-headline
+  `news_items` list to keep the LLM prompt small — only aggregate
+  score/label/counts + top headlines are passed through. No extra caching
+  layer added since `analyze_news` already caches internally (30 min).
+  `HybridTradingEngine` now wires this in by default.
+- **`dashboard.py`** — full-screen `rich.live.Live` terminal dashboard,
+  polling `HybridTradingEngine.run()` every 60s (cheap thanks to the cache
+  above). Left panel: summary table of all scanned symbols. Right panel:
+  full AI commentary + risk levels for a "selected" symbol, changeable via
+  number keys (1-9) read from a background thread that puts terminal stdin
+  into cbreak mode (falls back to read-only, no-selection mode when stdin
+  isn't a tty). Verified via a `timeout`-bounded smoke run that it survives
+  per-symbol AI failures without crashing the display loop.
+
+## Revision (2026-07-22): REST API for mobile clients
+
+- **`backend/api/v1/`** — new package (`endpoints/signals.py` + `router.py`),
+  mirroring the FastAPI `api/v1/endpoints/` convention the user expected
+  (this tree did not exist before — only `v2/api/router.py`, a flat
+  single-file router, existed). `POST /api/v1/signals/analyze` takes
+  `{"symbols": [...]}` (`SignalsAnalyzeRequest`, 1-20 items) and returns
+  `List[TradeRecommendation]` directly (reusing the existing Pydantic model
+  for Swagger/OpenAPI docs, no duplication).
+- **Engine singleton**: `get_engine()` in `signals.py` uses
+  `functools.lru_cache()` as the standard FastAPI singleton-dependency
+  pattern. This is load-bearing, not cosmetic — `HybridTradingEngine`'s
+  15-minute recommendation cache only provides cross-request value if the
+  same engine instance (and thus the same cache) is reused across requests;
+  a fresh instance per request would silently defeat it. Verified via a real
+  HTTP round-trip: first call ~4.8s, identical second call ~0.35s.
+- **`core/rate_limiter.py`** — extracted the `slowapi.Limiter` instance
+  `main.py` already had inline into its own module so `signals.py` can apply
+  `@limiter.limit("20/minute")` without a circular import (`main.py` → `api/v1/router.py`
+  → `signals.py` → back to `main.py` would otherwise be required to reach
+  the limiter). `main.py` now imports `limiter` from there instead of
+  constructing it inline; behavior is unchanged for existing endpoints.
+- **`from __future__ import annotations` removed from `signals.py`**:
+  combined with `@limiter.limit(...)`, deferred/stringified annotations
+  broke FastAPI's runtime type resolution (`PydanticUndefinedAnnotation:
+  name 'SignalsAnalyzeRequest' is not defined`) because slowapi's wrapper
+  function's `__globals__` points at slowapi's own module, not `signals.py`'s.
+  Removing the future-import makes annotations evaluate eagerly at
+  definition time, sidestepping the lookup entirely. Class ordering in the
+  file was already safe for this (no forward references).
+- **Two unrelated pre-existing bugs fixed to unblock testing** (`main.py`
+  could not start at all before this): (1) every file under `v2/` imported
+  itself as `from backend.v2....`, which only resolves if the process is
+  run with the *parent* of `backend/` on the path — but the `Dockerfile`
+  (`WORKDIR /app`, `COPY . .` from within `backend/`) and every manual
+  invocation this session run with `backend/` itself as the root, matching
+  `main.py`'s own bare `core.*`/`v2.*` imports. Stripped the `backend.`
+  prefix across all 10 affected files. (2) `v2/core/engine.py` had a
+  leftover duplicated tail fragment after `TradingEngineV2.analyze`'s
+  `return` (stray `risk_score=risk_score, timestamp=..., )` after the
+  function already returned) causing an `IndentationError`— deleted the
+  dead fragment. Neither fix touches `v2/` behavior, only makes it importable.
+- **`backend/.env` format bug**: the user's existing `.env` contained the
+  raw key value with no `GROQ_API_KEY=` prefix (not a `KEY=VALUE` line), so
+  `python-dotenv` couldn't load it. Fixed in place. Also added
+  `load_dotenv()` to `main.py` (already present in `test_engine.py` /
+  `dashboard.py`) so the API server picks up `backend/.env` the same way.

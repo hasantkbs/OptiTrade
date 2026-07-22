@@ -8,6 +8,7 @@ import FirebaseAuth
 
 struct AuthView: View {
     @EnvironmentObject private var firebase: FirebaseService
+    @EnvironmentObject private var session: UserSession
     @State private var isLogin = true
     @State private var email = ""
     @State private var password = ""
@@ -137,6 +138,18 @@ struct AuthView: View {
                     .background(Color.white.opacity(0.05))
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     .padding(.horizontal)
+
+                    // Guest mode button
+                    Button {
+                        withAnimation {
+                            session.isGuestMode = true
+                        }
+                    } label: {
+                        Text("Misafir Olarak Devam Et")
+                            .font(.subheadline)
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+                    .padding(.top, 4)
 
                     // Disclaimer
                     Text("OptiTrade yatirim tavsiyesi vermez. Butun kararlar kullaniciya aittir.")

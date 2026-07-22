@@ -1,13 +1,16 @@
 from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from typing import List, Optional
 import logging
 import os
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+
+from dotenv import load_dotenv
+
+load_dotenv()  # backend/.env varsa (ör. GROQ_API_KEY) burada yüklenir
 
 from models.schemas import (
     AnalysisRequest, AnalysisResult, ScanRequest, ScanResult,
@@ -18,6 +21,8 @@ from models.schemas import (
 )
 from core.analyzer import analyze
 from core.ml_predictor import get_model_info
+from core.monitoring import init_db, log_prediction, validate_predictions, get_performance_stats
+from ml_trainer import train as train_model
 from core.advanced_analysis import run_monte_carlo, optimize_portfolio, compute_recommendation
 from core.session_analysis import compute_session_score, get_current_session, SESSIONS
 from core.news_analyzer import get_news_summary, analyze_news
@@ -27,6 +32,9 @@ from core.sector_intelligence import (
     SECTOR_DEFINITIONS,
 )
 from data.fetcher import fetch_history
+from v2.api.router import router as v2_router
+from api.v1.router import api_v1_router
+from core.rate_limiter import limiter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,8 +55,7 @@ try:
 except ImportError:
     logger.warning("firebase-admin paketi kurulu degil. Auth devre disi.")
 
-# ── Rate Limiter ───────────────────────────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address)
+# ── Rate Limiter (bkz. core/rate_limiter.py — api/ router'larıyla paylaşılır) ───
 
 # ── FastAPI App ────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -75,6 +82,43 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+app.include_router(v2_router)
+app.include_router(api_v1_router)
+
+# ── Background Tasks ──────────────────────────────────────────────────────────
+
+async def self_evolution_loop():
+    """Günlük doğrulama ve haftalık eğitim yapan arka plan döngüsü."""
+    while True:
+        try:
+            logger.info("Kendi kendini geliştirme döngüsü çalışıyor...")
+            # 1. Tahminleri doğrula
+            validated = validate_predictions()
+            if validated > 0:
+                logger.info(f"{validated} tahmin doğrulandı.")
+            
+            # 2. Haftalık eğitimi kontrol et (Her Pazar gecesi gibi basit bir mantık veya her 7 günde bir)
+            # Şimdilik basitçe her gün bir kez kontrol edip haftalık tetikleme yapabiliriz
+            # Ya da doğrudan her gün eğitimi yenileyebiliriz (veri seti küçükse)
+            # Kullanıcının isteği üzerine günlük ve haftalık test/eğitim:
+            train_model()
+            logger.info("Model güncel verilerle yeniden eğitildi.")
+            
+        except Exception as e:
+            logger.error(f"Self-evolution döngüsünde hata: {e}")
+        
+        # 24 saat bekle (86400 saniye)
+        await asyncio.sleep(86400)
+
+@app.on_event("startup")
+async def startup_event():
+    init_db()
+    asyncio.create_task(self_evolution_loop())
+
+@app.get("/ml/performance")
+def get_ml_performance(days: int = 30):
+    return get_performance_stats(days=days)
 
 # ── Symbol Lists ───────────────────────────────────────────────────────────────
 BIST_SYMBOLS = [
