@@ -93,3 +93,6 @@ backend/firebase-credentials.json
 # Local git worktrees (superpowers:using-git-worktrees)
 .worktrees/
 
+# Subagent-driven-development scratch (progress ledger, task briefs, review packages)
+.superpowers/
+
