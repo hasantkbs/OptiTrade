@@ -53,15 +53,6 @@ struct DashboardView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Seans banner — her zaman üstte görünür
-                if let info = sessionInfo {
-                    SessionBannerCard(session: info)
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
-                }
-                MarketNewsTicker()
-
                 Picker(L("Görünüm"), selection: $mode) {
                     Text(L("Piyasa Taraması")).tag(DashboardMode.scan)
                     Text(L("AI Önerileri")).tag(DashboardMode.aiHub)
@@ -136,133 +127,140 @@ struct DashboardView: View {
         .background(Color(.systemBackground))
     }
 
-    @ViewBuilder
     private var content: some View {
-        if vm.isLoading {
-            ScrollView {
-                LazyVStack(spacing: 10) {
+        ScrollView {
+            LazyVStack(spacing: 10) {
+                if let info = sessionInfo {
+                    SessionBannerCard(session: info)
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                }
+                MarketNewsTicker()
+
+                if vm.isLoading {
                     ForEach(0..<5, id: \.self) { _ in
                         SkeletonResultCard()
                             .padding(.horizontal)
                     }
-                }
-                .padding(.vertical, 8)
-            }
-        } else if let error = vm.errorMessage {
-            Spacer()
-            VStack(spacing: 12) {
-                Image(systemName: "wifi.exclamationmark")
-                    .font(.system(size: 44))
-                    .foregroundColor(.orange)
-                Text(error)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-                Button(L("Tekrar Dene")) { Task { await vm.scan() } }
-                    .foregroundColor(.accentColor)
-            }
-            Spacer()
-        } else if let scan = vm.scanResult {
-            resultsView(scan)
-        } else {
-            Spacer()
-            EmptyStateView(
-                icon: "chart.bar.xaxis",
-                title: "Tarama Başlatılıyor",
-                subtitle: "Veriler yükleniyor..."
-            )
-            Spacer()
-        }
-    }
-
-    private func resultsView(_ scan: ScanResult) -> some View {
-        ScrollView {
-            LazyVStack(spacing: 10) {
-                ScanSummaryBanner(scan: scan)
-                    .padding(.horizontal)
-                    .padding(.top, 4)
-
-                // Sektör Fırsat Kartı
-                NavigationLink(destination: SectorOpportunityView()
-                    .environmentObject(preferences)) {
-                    SectorOpportunityMiniCard()
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal)
-
-                if !scan.topBuys.isEmpty {
-                    SectionHeaderView(title: "AL Sinyalleri", count: scan.topBuys.count, color: .green)
-                        .padding(.horizontal)
-                    ForEach(vm.sorted(scan.topBuys)) { r in
-                        NavigationLink(destination: AnalysisDetailView(result: r)) {
-                            ResultCardView(result: r)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal)
-                    }
-                }
-
-                if !scan.topSells.isEmpty {
-                    SectionHeaderView(title: "SAT Sinyalleri", count: scan.topSells.count, color: .red)
-                        .padding(.horizontal)
-                    ForEach(vm.sorted(scan.topSells)) { r in
-                        NavigationLink(destination: AnalysisDetailView(result: r)) {
-                            ResultCardView(result: r)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal)
-                    }
-                }
-
-                let showNeutral = session.showNeutralInScan || (scan.topBuys.isEmpty && scan.topSells.isEmpty)
-                if showNeutral && !scan.neutral.isEmpty {
-                    let title = (scan.topBuys.isEmpty && scan.topSells.isEmpty)
-                        ? L("En Yüksek Puanlı Hisseler") : L("Nötr")
-                    let color: Color = (scan.topBuys.isEmpty && scan.topSells.isEmpty) ? .blue : .orange
-                    let neutralSorted = scan.neutral.sorted { $0.score > $1.score }
-                    let displayed = (scan.topBuys.isEmpty && scan.topSells.isEmpty)
-                        ? Array(neutralSorted.prefix(8)) : neutralSorted
-                    SectionHeaderView(title: title, count: displayed.count, color: color)
-                        .padding(.horizontal)
-                    ForEach(displayed) { r in
-                        NavigationLink(destination: AnalysisDetailView(result: r)) {
-                            ResultCardView(result: r)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal)
-                    }
-                }
-
-                Text("\(scan.totalScanned) \(L("sembol tarandı"))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.vertical, 4)
-
-                VStack(spacing: 4) {
-                    Divider()
-                    HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption2)
+                } else if let error = vm.errorMessage {
+                    VStack(spacing: 12) {
+                        Image(systemName: "wifi.exclamationmark")
+                            .font(.system(size: 44))
                             .foregroundColor(.orange)
-                        Text(L("Gösterilen sinyaller yatırım tavsiyesi değildir."))
-                            .font(.caption2)
+                        Text(error)
+                            .font(.subheadline)
                             .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                        Button(L("Tekrar Dene")) { Task { await vm.scan() } }
+                            .foregroundColor(.accentColor)
                     }
-                    HStack(spacing: 4) {
-                        Text("Product by AlgorixStudio  •")
-                            .foregroundColor(.secondary.opacity(0.5))
-                        Link("algorixstudio.com", destination: URL(string: "https://algorixstudio.com")!)
-                            .foregroundColor(.secondary.opacity(0.8))
-                    }
-                    .font(.caption2)
-                    .tracking(0.5)
+                    .padding(.top, 60)
+                } else if let scan = vm.scanResult {
+                    resultsContent(scan)
+                } else {
+                    EmptyStateView(
+                        icon: "chart.bar.xaxis",
+                        title: "Tarama Başlatılıyor",
+                        subtitle: "Veriler yükleniyor..."
+                    )
+                    .padding(.top, 60)
                 }
-                .padding(.bottom, 16)
             }
             .padding(.vertical, 8)
         }
         .refreshable { await vm.scan() }
+    }
+
+    @ViewBuilder
+    private func resultsContent(_ scan: ScanResult) -> some View {
+        ScanSummaryBanner(scan: scan)
+            .padding(.horizontal)
+            .padding(.top, 4)
+
+        if let t = vm.lastScanned {
+            Text("\(L("Son tarama")): \(t, style: .time)")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .padding(.horizontal)
+        }
+
+        // Sektör Fırsat Kartı
+        NavigationLink(destination: SectorOpportunityView()
+            .environmentObject(preferences)) {
+            SectorOpportunityMiniCard()
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal)
+
+        if !scan.topBuys.isEmpty {
+            SectionHeaderView(title: "AL Sinyalleri", count: scan.topBuys.count, color: .green)
+                .padding(.horizontal)
+            ForEach(vm.sorted(scan.topBuys)) { r in
+                NavigationLink(destination: AnalysisDetailView(result: r)) {
+                    ResultCardView(result: r)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal)
+            }
+        }
+
+        if !scan.topSells.isEmpty {
+            SectionHeaderView(title: "SAT Sinyalleri", count: scan.topSells.count, color: .red)
+                .padding(.horizontal)
+            ForEach(vm.sorted(scan.topSells)) { r in
+                NavigationLink(destination: AnalysisDetailView(result: r)) {
+                    ResultCardView(result: r)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal)
+            }
+        }
+
+        let showNeutral = session.showNeutralInScan || (scan.topBuys.isEmpty && scan.topSells.isEmpty)
+        if showNeutral && !scan.neutral.isEmpty {
+            let title = (scan.topBuys.isEmpty && scan.topSells.isEmpty)
+                ? L("En Yüksek Puanlı Hisseler") : L("Nötr")
+            let color: Color = (scan.topBuys.isEmpty && scan.topSells.isEmpty) ? .blue : .orange
+            let neutralSorted = scan.neutral.sorted { $0.score > $1.score }
+            let displayed = (scan.topBuys.isEmpty && scan.topSells.isEmpty)
+                ? Array(neutralSorted.prefix(8)) : neutralSorted
+            SectionHeaderView(title: title, count: displayed.count, color: color)
+                .padding(.horizontal)
+            ForEach(displayed) { r in
+                NavigationLink(destination: AnalysisDetailView(result: r)) {
+                    ResultCardView(result: r)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal)
+            }
+        }
+
+        Text("\(scan.totalScanned) \(L("sembol tarandı"))")
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .padding(.vertical, 4)
+
+        VStack(spacing: 4) {
+            Divider()
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.caption2)
+                    .foregroundColor(.orange)
+                Text(L("Gösterilen sinyaller yatırım tavsiyesi değildir."))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            HStack(spacing: 4) {
+                Text("Product by AlgorixStudio  •")
+                    .foregroundColor(.secondary.opacity(0.5))
+                Link("algorixstudio.com", destination: URL(string: "https://algorixstudio.com")!)
+                    .foregroundColor(.secondary.opacity(0.8))
+            }
+            .font(.caption2)
+            .tracking(0.5)
+        }
+        .padding(.bottom, 16)
     }
 
     // MARK: - SectorOpportunityMiniCard
