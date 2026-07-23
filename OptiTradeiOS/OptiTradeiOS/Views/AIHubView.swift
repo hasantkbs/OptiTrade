@@ -35,43 +35,29 @@ final class AIHubViewModel: ObservableObject {
 }
 
 struct AIHubView: View {
-    @StateObject private var vm = AIHubViewModel()
+    @ObservedObject var vm: AIHubViewModel
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    if vm.isLoading && vm.recommendations.isEmpty {
-                        loadingState
-                    } else if let error = vm.errorMessage, vm.recommendations.isEmpty {
-                        errorState(error)
-                    } else {
-                        ForEach(vm.recommendations) { rec in
-                            TradeRecommendationCard(recommendation: rec)
-                        }
+        ScrollView {
+            VStack(spacing: 16) {
+                if vm.isLoading && vm.recommendations.isEmpty {
+                    loadingState
+                } else if let error = vm.errorMessage, vm.recommendations.isEmpty {
+                    errorState(error)
+                } else {
+                    ForEach(vm.recommendations) { rec in
+                        TradeRecommendationCard(recommendation: rec)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 24)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
-            .navigationTitle("AI Hub")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        Task { await vm.analyze() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .disabled(vm.isLoading)
-                }
-            }
-            .refreshable { await vm.analyze() }
-            .task {
-                if vm.recommendations.isEmpty { await vm.analyze() }
-            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+        }
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .refreshable { await vm.analyze() }
+        .task {
+            if vm.recommendations.isEmpty { await vm.analyze() }
         }
     }
 
@@ -274,5 +260,5 @@ private struct ShimmerCardPlaceholder: View {
 }
 
 #Preview {
-    AIHubView()
+    AIHubView(vm: AIHubViewModel())
 }
