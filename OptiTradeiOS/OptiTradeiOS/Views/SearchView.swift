@@ -350,6 +350,11 @@ struct SearchView: View {
             }
             .background(Color(.secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.accentColor.opacity(0.12), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
         }
     }
 
