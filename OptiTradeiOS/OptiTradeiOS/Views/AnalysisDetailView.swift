@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AnalysisDetailView: View {
+    @EnvironmentObject private var session: UserSession
     let result: AnalysisResult
     @State private var chart: ChartResponse?
     @State private var chartPeriod = "3mo"
@@ -9,6 +10,9 @@ struct AnalysisDetailView: View {
     @State private var isLoadingEnhanced = false
     @State private var newsAnalysis: NewsAnalysis?
     @State private var isLoadingNews = false
+    @State private var v2Result: EngineResultV2?
+    @State private var isLoadingV2 = false
+    @State private var showFullChart = false
 
     private var displayResult: AnalysisResult { enhancedResult ?? result }
 
@@ -25,6 +29,12 @@ struct AnalysisDetailView: View {
             VStack(spacing: 14) {
                 headerCard
                 newsCard
+
+                if session.isPremium {
+                    v2AnalysisSection
+                    BacktestPerformanceView(symbol: result.symbol)
+                }
+
                 if isLoadingEnhanced {
                     HStack {
                         ProgressView()
@@ -39,9 +49,41 @@ struct AnalysisDetailView: View {
                 if let rec = displayResult.recommendation { recommendationCard(rec) }
                 if let mc  = displayResult.monteCarlo     { monteCarloCard(mc)     }
                 chartSection
+                
+                Button {
+                    showFullChart = true
+                } label: {
+                    HStack {
+                        Image(systemName: "chart.bar.xaxis")
+                        Text("Gelişmiş Etkileşimli Grafiği Aç")
+                    }
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color.blue)
+                    .cornerRadius(12)
+                }
+                .sheet(isPresented: $showFullChart) {
+                    NavigationStack {
+                        TradingViewChart(symbol: result.symbol, theme: session.appTheme == .light ? "light" : "dark")
+                            .navigationTitle("\(result.symbol) Canlı Grafik")
+                            .navigationBarTitleDisplayMode(.inline)
+                            .toolbar {
+                                ToolbarItem(placement: .navigationBarTrailing) {
+                                    Button("Kapat") { showFullChart = false }
+                                }
+                            }
+                            .ignoresSafeArea(edges: .bottom)
+                    }
+                }
+
                 indicatorsCard
                 if result.assetType == "stock" { fundamentalsCard }
                 signalsCard
+                if !session.isPremium {
+                    AdBannerPlaceholder()
+                }
                 disclaimerFooter
             }
             .padding()
@@ -53,6 +95,7 @@ struct AnalysisDetailView: View {
             await loadChart()
             await loadEnhanced()
             await loadNews()
+            if session.isPremium { await loadV2() }
         }
         .onChange(of: chartPeriod) { Task { await loadChart() } }
         .onAppear { HapticService.shared.signalFeedback(decisionCode: result.decisionCode) }
@@ -512,6 +555,110 @@ struct AnalysisDetailView: View {
         isLoadingNews = true
         newsAnalysis = try? await APIService.shared.fetchNews(symbol: result.symbol)
         isLoadingNews = false
+    }
+
+    private func loadV2() async {
+        isLoadingV2 = true
+        v2Result = try? await APIService.shared.analyzeV2(symbol: result.symbol)
+        isLoadingV2 = false
+    }
+
+    @ViewBuilder
+    private var v2AnalysisSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("V2 ICT Engine", systemImage: "cpu.fill")
+                    .font(.headline)
+                    .foregroundColor(.accentColor)
+                Spacer()
+                if isLoadingV2 {
+                    ProgressView().scaleEffect(0.8)
+                } else if v2Result != nil {
+                    Text("Canlı")
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.green.opacity(0.2))
+                        .foregroundColor(.green)
+                        .cornerRadius(4)
+                }
+            }
+
+            if let v2 = v2Result {
+                VStack(spacing: 12) {
+                    // Aggregated Score V2
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Gelişmiş Skor")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(String(format: "%.1f", v2.aggregatedScore * 100))
+                                .font(.title3.bold())
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text("Güven")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(String(format: "%%%.1f", v2.confidence * 100))
+                                .font(.body.bold())
+                        }
+                    }
+
+                    Divider()
+
+                    // Signals List
+                    ForEach(v2.signals) { signal in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(signal.indicatorName.replacingOccurrences(of: "Indicator", with: ""))
+                                    .font(.subheadline.weight(.medium))
+                                if case .string(let desc) = signal.metadata["description"] {
+                                    Text(desc)
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Text(signal.side.rawValue)
+                                .font(.caption.bold())
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(signal.side.color.opacity(0.15))
+                                .foregroundColor(signal.side.color)
+                                .cornerRadius(6)
+                        }
+                    }
+                    
+                    if let ml = v2.mlPrediction {
+                        Divider()
+                        HStack {
+                            Label("V2 ML Tahmini", systemImage: "brain.head.profile.fill")
+                                .font(.caption)
+                                .foregroundColor(.purple)
+                            Spacer()
+                            Text(ml.isBullish ? "YÜKSELİŞ" : "DÜŞÜŞ")
+                                .font(.caption.bold())
+                                .foregroundColor(ml.isBullish ? .green : .red)
+                            Text(String(format: "%%%.1f", ml.confidence * 100))
+                                .font(.caption.monospacedDigit())
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            } else if !isLoadingV2 {
+                Text("V2 analiz verisi alınamadı.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .background(Color.accentColor.opacity(0.05))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.accentColor.opacity(0.2), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private func formatPrice(_ v: Double) -> String {

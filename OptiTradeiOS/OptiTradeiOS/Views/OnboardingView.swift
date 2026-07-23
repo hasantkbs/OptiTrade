@@ -3,10 +3,11 @@ import SwiftUI
 struct OnboardingView: View {
     @EnvironmentObject private var session: UserSession
     @EnvironmentObject private var preferences: UserPreferences
-    @AppStorage("api_base_url") private var apiURL = "http://localhost:8000"
+    @AppStorage("api_base_url") private var apiURL = "https://api.optitrade.app"
     @State private var page = 0
     @State private var disclaimerChecked = false
     @State private var apiTestState: APITestState = .idle
+    @State private var animateGlow = false
 
     enum APITestState { case idle, testing, success, failure }
 
@@ -15,6 +16,22 @@ struct OnboardingView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.12))
+                    .frame(width: 400, height: 400)
+                    .blur(radius: 80)
+                    .offset(x: animateGlow ? -100 : 100, y: animateGlow ? -150 : 150)
+
+                Circle()
+                    .fill(Color.blue.opacity(0.1))
+                    .frame(width: 300, height: 300)
+                    .blur(radius: 60)
+                    .offset(x: animateGlow ? 150 : -150, y: animateGlow ? 200 : -200)
+            }
+            .animation(.easeInOut(duration: 8).repeatForever(autoreverses: true), value: animateGlow)
+            .onAppear { animateGlow = true }
 
             TabView(selection: $page) {
                 welcomePage.tag(0)
@@ -38,9 +55,9 @@ struct OnboardingView: View {
         HStack(spacing: 8) {
             ForEach(0..<totalPages, id: \.self) { i in
                 Capsule()
-                    .fill(i == page ? Color.accentColor : Color.gray.opacity(0.4))
-                    .frame(width: i == page ? 20 : 8, height: 8)
-                    .animation(.spring(response: 0.3), value: page)
+                    .fill(i == page ? Color.accentColor : Color.gray.opacity(0.3))
+                    .frame(width: i == page ? 24 : 8, height: 6)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.7), value: page)
             }
         }
     }
@@ -48,19 +65,31 @@ struct OnboardingView: View {
     private var welcomePage: some View {
         VStack(spacing: 0) {
             Spacer()
-            VStack(spacing: 24) {
+            VStack(spacing: 28) {
                 ZStack {
                     Circle()
-                        .fill(Color.accentColor.opacity(0.15))
-                        .frame(width: 120, height: 120)
-                    Image(systemName: "chart.line.uptrend.xyaxis")
-                        .font(.system(size: 52))
-                        .foregroundColor(.accentColor)
+                        .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
+                        .frame(width: 140, height: 140)
+                        .scaleEffect(animateGlow ? 1.1 : 0.95)
+                        .opacity(animateGlow ? 0.3 : 0.7)
+
+                    Circle()
+                        .fill(
+                            RadialGradient(colors: [Color.accentColor.opacity(0.2), .clear], center: .center, startRadius: 0, endRadius: 70)
+                        )
+                        .frame(width: 140, height: 140)
+
+                    Image(systemName: "chart.line.uptrend.xyaxis.circle.fill")
+                        .font(.system(size: 72))
+                        .foregroundStyle(
+                            LinearGradient(colors: [Color.accentColor, .white], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        )
+                        .shadow(color: Color.accentColor.opacity(0.5), radius: 10)
                 }
 
-                VStack(spacing: 8) {
+                VStack(spacing: 12) {
                     Text("OptiTrade")
-                        .font(.system(size: 38, weight: .bold, design: .rounded))
+                        .font(.system(size: 42, weight: .black, design: .rounded))
                         .foregroundColor(.white)
                     Text(L("Hisse Senedi & Kripto\nAnaliz Asistanı"))
                         .font(.title3)
@@ -73,10 +102,10 @@ struct OnboardingView: View {
                         .textCase(.uppercase)
                 }
 
-                VStack(spacing: 14) {
-                    featureRow(icon: "waveform.path.ecg", title: "Teknik Analiz", subtitle: "RSI, MACD, Bollinger Bands")
-                    featureRow(icon: "chart.bar.xaxis", title: "Piyasa Taraması", subtitle: "BIST ve kripto tüm piyasaları tara")
-                    featureRow(icon: "star.fill", title: "Takip Listesi", subtitle: "Favori sembollerini kaydet ve takip et")
+                VStack(spacing: 16) {
+                    premiumFeatureRow(icon: "cpu.fill", title: "V2 ICT Analiz", subtitle: "Algoritmik sinyaller ve ICT modelleri")
+                    premiumFeatureRow(icon: "brain.head.profile.fill", title: "Yapay Zeka", subtitle: "%64+ başarı oranlı XGBoost modeli")
+                    premiumFeatureRow(icon: "chart.bar.xaxis", title: "Küresel Erişim", subtitle: "BIST, NASDAQ ve Kripto tek ekranda")
                 }
                 .padding(.horizontal, 32)
 
@@ -86,10 +115,14 @@ struct OnboardingView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
             }
+
             Spacer()
-            nextButton(title: "Başla") { page = 1 }
-                .padding(.horizontal, 32)
-                .padding(.bottom, 80)
+
+            nextButton(title: "Deneyimi Başlat") {
+                withAnimation { page = 1 }
+            }
+            .padding(.horizontal, 40)
+            .padding(.bottom, 60)
         }
     }
 
@@ -173,31 +206,12 @@ struct OnboardingView: View {
             }
 
             Spacer()
-            nextButton(title: "Devam Et", disabled: !disclaimerChecked) {
+            nextButton(title: "Anladım ve Devam Et", disabled: !disclaimerChecked) {
                 session.disclaimerAccepted = true
-                page = 2
+                withAnimation { page = 2 }
             }
             .padding(.horizontal, 32)
             .padding(.bottom, 80)
-        }
-    }
-
-    private func disclaimerBlock(icon: String, color: Color, title: String, body: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.subheadline)
-                .foregroundColor(color)
-                .frame(width: 22)
-                .padding(.top, 2)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L(title))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.white)
-                Text(L(body))
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 
@@ -268,7 +282,7 @@ struct OnboardingView: View {
             Spacer()
             nextButton(title: "Devam Et") {
                 APIService.shared.baseURL = apiURL
-                page = 3
+                withAnimation { page = 3 }
             }
             .padding(.horizontal, 32)
             .padding(.bottom, 80)
@@ -338,9 +352,10 @@ struct OnboardingView: View {
                 .font(.headline)
                 .foregroundColor(.black)
                 .frame(maxWidth: .infinity)
-                .padding(16)
-                .background(disabled ? Color.gray : Color.accentColor)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .frame(height: 56)
+                .background(disabled ? Color.gray.opacity(0.5) : Color.accentColor)
+                .cornerRadius(28)
+                .shadow(color: disabled ? .clear : Color.accentColor.opacity(0.3), radius: 10, y: 5)
         }
         .disabled(disabled)
     }
@@ -360,6 +375,44 @@ struct OnboardingView: View {
                     .foregroundColor(.gray)
             }
             Spacer()
+        }
+    }
+
+    private func premiumFeatureRow(icon: String, title: String, subtitle: String) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundColor(.accentColor)
+                .frame(width: 40)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L(title))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white)
+                Text(L(subtitle))
+                    .font(.caption)
+                    .foregroundColor(.gray)
+            }
+            Spacer()
+        }
+    }
+
+    private func disclaimerBlock(icon: String, color: Color, title: String, body: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.subheadline)
+                .foregroundColor(color)
+                .frame(width: 22)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L(title))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white)
+                Text(L(body))
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

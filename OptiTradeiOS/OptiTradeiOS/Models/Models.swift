@@ -590,6 +590,108 @@ struct SessionDefinition: Decodable, Identifiable {
     }
 }
 
+// ── V2 Engine Models ─────────────────────────────────────────────────────────
+
+enum SignalSideV2: String, Codable {
+    case buy = "BUY"
+    case sell = "SELL"
+    case neutral = "NEUTRAL"
+    
+    var color: Color {
+        switch self {
+        case .buy: return .green
+        case .sell: return .red
+        case .neutral: return .gray
+        }
+    }
+}
+
+struct IndicatorOutputV2: Decodable, Identifiable {
+    var id: String { indicatorName }
+    let indicatorName: String
+    let score: Double
+    let confidence: Double
+    let side: SignalSideV2
+    let metadata: [String: JSONValue]
+
+    enum CodingKeys: String, CodingKey {
+        case score, confidence, side, metadata
+        case indicatorName = "indicator_name"
+    }
+}
+
+struct EngineResultV2: Decodable, Identifiable {
+    var id: String { symbol + timestamp }
+    let symbol: String
+    let aggregatedScore: Double
+    let confidence: Double
+    let signals: [IndicatorOutputV2]
+    let mlPrediction: MLPredictionV2?
+    let riskScore: Double
+    let timestamp: String
+
+    enum CodingKeys: String, CodingKey {
+        case symbol, confidence, signals, timestamp
+        case aggregatedScore = "aggregated_score"
+        case mlPrediction = "ml_prediction"
+        case riskScore = "risk_score"
+    }
+}
+
+struct MLPredictionV2: Decodable {
+    let probability: Double
+    let isBullish: Bool
+    let confidence: Double
+
+    enum CodingKeys: String, CodingKey {
+        case probability, confidence
+        case isBullish = "is_bullish"
+    }
+}
+
+enum JSONValue: Decodable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case dictionary([String: JSONValue])
+    case array([JSONValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let x = try? container.decode(String.self) {
+            self = .string(x)
+            return
+        }
+        if let x = try? container.decode(Double.self) {
+            self = .number(x)
+            return
+        }
+        if let x = try? container.decode(Bool.self) {
+            self = .bool(x)
+            return
+        }
+        if let x = try? container.decode([String: JSONValue].self) {
+            self = .dictionary(x)
+            return
+        }
+        if let x = try? container.decode([JSONValue].self) {
+            self = .array(x)
+            return
+        }
+        self = .null
+    }
+}
+
+struct BacktestPointV2: Decodable, Identifiable {
+    var id: String { timestamp }
+    let timestamp: String
+    let price: Double
+    let score: Double
+    let signal: String
+    let equity: Double
+}
+
 // ── Persistence Models ────────────────────────────────────────────────────────
 
 struct SearchHistoryItem: Codable, Identifiable {

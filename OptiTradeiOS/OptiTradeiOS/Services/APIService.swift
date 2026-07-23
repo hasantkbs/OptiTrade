@@ -6,6 +6,9 @@ enum APIError: LocalizedError {
     case decodingError(String)
     case serverError(Int)
     case networkError(String)
+    case timeout
+    case rateLimited
+    case noRecommendations
 
     var errorDescription: String? {
         switch self {
@@ -14,6 +17,9 @@ enum APIError: LocalizedError {
         case .decodingError(let m):  return "Ayristirma hatasi: \(m)"
         case .serverError(let c):    return "Sunucu hatasi: \(c)"
         case .networkError(let m):   return "Ag hatasi: \(m)"
+        case .timeout:               return "Istek zaman asimina ugradi. AI analizi ilk seferde biraz surebilir, lutfen tekrar deneyin."
+        case .rateLimited:           return "Cok fazla istek gonderildi. Lutfen bir dakika sonra tekrar deneyin."
+        case .noRecommendations:     return "Secili semboller icin su anda bir AI onerisi uretilemedi."
         }
     }
 }
@@ -212,6 +218,45 @@ final class APIService {
         try await get(url: makeURL(path: "/price/\(symbol)"))
     }
 
+    // ── AI Hub (Hybrid Trading Engine) ───────────────────────────────────────────
+
+    /// Sembol listesi için ``HybridTradingEngine`` tabanlı hibrit AI ticaret
+    /// önerilerini getirir. Backend'de sembol başına 15 dakikalık bir cache
+    /// var; cache miss durumunda (yfinance + Groq LLM çağrısı yapıldığından)
+    /// ilk istek ~5 saniye sürebilir — bu yüzden varsayılan session
+    /// timeout'undan bağımsız, bilinçli olarak 30 saniyelik bir timeout
+    /// kullanılıyor. Piyasa rejimi filtresini geçemeyen veya veri
+    /// sağlanamayan semboller yanıtta yer almaz.
+    func analyzeSignals(symbols: [String]) async throws -> [TradeRecommendation] {
+        guard !symbols.isEmpty else { return [] }
+        let url = try makeURL(path: "/api/v1/signals/analyze")
+        let body = SignalsAnalyzeRequest(symbols: symbols)
+        do {
+            return try await post(url: url, body: body, timeout: 30)
+        } catch APIError.serverError(404) {
+            throw APIError.noRecommendations
+        } catch let urlError as URLError {
+            throw urlError.code == .timedOut
+                ? APIError.timeout
+                : APIError.networkError(urlError.localizedDescription)
+        }
+    }
+
+    // ── V2 Engine ─────────────────────────────────────────────────────────────
+
+    func analyzeV2(symbol: String) async throws -> EngineResultV2 {
+        try await get(url: makeURL(path: "/v2/analyze/\(symbol)"))
+    }
+
+    func scanV2(symbols: [String]) async throws -> [EngineResultV2] {
+        let url = try makeURL(path: "/v2/scan")
+        return try await post(url: url, body: symbols)
+    }
+
+    func getBacktestV2(symbol: String, days: Int = 30) async throws -> [BacktestPointV2] {
+        try await get(url: makeURL(path: "/v2/backtest/\(symbol)?days=\(days)"))
+    }
+
     // ── Internals ─────────────────────────────────────────────────────────────
 
     private func makeURL(path: String) throws -> URL {
@@ -233,11 +278,12 @@ final class APIService {
         return try decode(data)
     }
 
-    private func post<Body: Encodable, T: Decodable>(url: URL, body: Body) async throws -> T {
+    private func post<Body: Encodable, T: Decodable>(url: URL, body: Body, timeout: TimeInterval? = nil) async throws -> T {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
+        if let timeout { request.timeoutInterval = timeout }
         let headers = await authHeaders()
         headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -247,6 +293,9 @@ final class APIService {
 
     private func validateResponse(_ response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else { return }
+        if http.statusCode == 429 {
+            throw APIError.rateLimited
+        }
         guard (200...299).contains(http.statusCode) else {
             throw APIError.serverError(http.statusCode)
         }

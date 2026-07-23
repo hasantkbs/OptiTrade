@@ -7,14 +7,12 @@ struct OptiTradeApp: App {
     @StateObject private var firebase    = FirebaseService.shared
     @StateObject private var preferences = UserPreferences()
     @StateObject private var localization = LocalizationManager.shared
+    @StateObject private var storeKit    = StoreKitManager.shared
 
     init() {
         FirebaseApp.configure()
-        let savedURL = UserDefaults.standard.string(forKey: "api_base_url") ?? "http://localhost:8000"
+        let savedURL = UserDefaults.standard.string(forKey: "api_base_url") ?? "https://api.optitrade.app"
         APIService.shared.baseURL = savedURL
-
-        // Google Ads Başlatma (SDK eklendiğinde açılacak)
-        // GADMobileAds.sharedInstance().start(completionHandler: nil)
     }
 
     var body: some Scene {
@@ -24,13 +22,10 @@ struct OptiTradeApp: App {
                 .environmentObject(firebase)
                 .environmentObject(preferences)
                 .environmentObject(localization)
+                .environmentObject(storeKit)
         }
     }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MARK: - RootView — Onboarding akışı burada yönetilir
-// ─────────────────────────────────────────────────────────────────────────────
 
 struct RootView: View {
     @EnvironmentObject var preferences: UserPreferences
@@ -41,9 +36,7 @@ struct RootView: View {
     var body: some View {
         Group {
             if !preferences.hasCompletedOnboarding {
-                // İlk açılışta piyasa seçimi
                 MarketSelectionView(isOnboarding: true) {
-                    // Onboarding tamamlandı → ana ekrana geç
                 }
             } else {
                 ContentView()
@@ -52,7 +45,6 @@ struct RootView: View {
         // Dil değiştiğinde tüm ağacı yeniden oluştur (L(...) çağrıları anında güncellensin).
         .id(localization.language)
         .onAppear {
-            // Giriş yapılmışsa Firebase'den tercihi çek
             Task { await preferences.fetchFromFirebase() }
         }
     }

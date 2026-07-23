@@ -8,11 +8,13 @@ This file is responsible for:
   • Mounting the versioned v1 router at both:
       /api/v1  — new versioned path (future clients)
       /        — legacy path (iOS backward compatibility)
+  • Mounting the v2 Hybrid Quant Trading engine at /v2
   • Exposing /  and /health as bare infrastructure endpoints
 
 Business logic lives in api/v1/router.py and the core/ package.
 To add a new endpoint, add it to api/v1/router.py.
 """
+import asyncio
 import logging
 import os
 from typing import Optional
@@ -20,14 +22,17 @@ from typing import Optional
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from cache_manager import get_cache_manager
 from core.errors import OptiTradeError
 from core.logging_config import setup_logging
+from core.monitoring import init_db, validate_predictions, get_performance_stats
+from core.rate_limiter import limiter
+from ml_trainer import train as train_model
 from middleware.request_logging import RequestLoggingMiddleware
+from v2.api.router import router as v2_router
 
 # ── Logging (must be first) ────────────────────────────────────────────────────
 _debug     = os.getenv("DEBUG", "False").lower() == "true"
@@ -52,8 +57,7 @@ try:
 except ImportError:
     logger.warning("firebase-admin not installed — auth disabled.")
 
-# ── Rate Limiter ───────────────────────────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address)
+# ── Rate Limiter (bkz. core/rate_limiter.py — api/ router'larıyla paylaşılır) ───
 
 # ── FastAPI App ────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -85,6 +89,43 @@ app.add_middleware(
 
 # ── Request Logging Middleware ────────────────────────────────────────────────
 app.add_middleware(RequestLoggingMiddleware)
+
+# ── v2 Hybrid Quant Trading Engine ─────────────────────────────────────────────
+app.include_router(v2_router)
+
+# ── Background Tasks ──────────────────────────────────────────────────────────
+
+async def self_evolution_loop():
+    """Günlük doğrulama ve haftalık eğitim yapan arka plan döngüsü."""
+    while True:
+        try:
+            logger.info("Kendi kendini geliştirme döngüsü çalışıyor...")
+            # 1. Tahminleri doğrula
+            validated = validate_predictions()
+            if validated > 0:
+                logger.info(f"{validated} tahmin doğrulandı.")
+            
+            # 2. Haftalık eğitimi kontrol et (Her Pazar gecesi gibi basit bir mantık veya her 7 günde bir)
+            # Şimdilik basitçe her gün bir kez kontrol edip haftalık tetikleme yapabiliriz
+            # Ya da doğrudan her gün eğitimi yenileyebiliriz (veri seti küçükse)
+            # Kullanıcının isteği üzerine günlük ve haftalık test/eğitim:
+            train_model()
+            logger.info("Model güncel verilerle yeniden eğitildi.")
+            
+        except Exception as e:
+            logger.error(f"Self-evolution döngüsünde hata: {e}")
+        
+        # 24 saat bekle (86400 saniye)
+        await asyncio.sleep(86400)
+
+@app.on_event("startup")
+async def startup_event():
+    init_db()
+    asyncio.create_task(self_evolution_loop())
+
+@app.get("/ml/performance")
+def get_ml_performance(days: int = 30):
+    return get_performance_stats(days=days)
 
 
 # ── Auth Dependency ────────────────────────────────────────────────────────────

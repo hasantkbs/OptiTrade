@@ -691,3 +691,9 @@ def get_chart(
     )
     cache.set(cache_key, chart_response, ttl=300)
     return chart_response
+
+
+# ── v2 modular endpoints (api/v1/endpoints/) ──────────────────────────────────
+from api.v1.endpoints import signals  # noqa: E402
+
+router.include_router(signals.router)

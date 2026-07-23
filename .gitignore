@@ -48,6 +48,14 @@ env.bak/
 venv.bak/
 __pypackages__/
 
+# Runtime databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Claude Code local settings
+.claude/
+
 # Logs
 *.log
 

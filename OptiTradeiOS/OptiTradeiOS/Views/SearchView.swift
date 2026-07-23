@@ -46,22 +46,20 @@ private let cryptoQuickSymbols: [(symbol: String, name: String)] = [
 final class SearchViewModel: ObservableObject {
     @Published var symbol: String = ""
     @Published var potentialPrice: String = ""
-    @Published var assetType: String = "stock"
     @Published var result: AnalysisResult?
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published var searchHistory: [SearchHistoryItem] = []
-    @Published var navigateToDetail = false
+    @Published var assetType: String = "stock" // Kept for default/metadata
 
     private let session = UserSession.shared
 
     init() {
         searchHistory = session.searchHistory()
-        assetType = session.defaultAssetType
     }
 
     var suggestions: [(symbol: String, name: String)] {
-        let pool = assetType == "stock" ? bistQuickSymbols : cryptoQuickSymbols
+        let pool = bistQuickSymbols + cryptoQuickSymbols
         guard !symbol.isEmpty else { return [] }
         let q = symbol.uppercased()
         return pool.filter { $0.symbol.contains(q) || $0.name.contains(q) }
@@ -85,10 +83,12 @@ final class SearchViewModel: ObservableObject {
             ? TradingMarket.tr.normalizeSymbol(trimmed)
             : trimmed.uppercased()
         do {
+            // Determine asset type roughly for legacy API or just use a default
+            let inferredType = (trimmed.hasSuffix(".IS") || !trimmed.contains("-")) ? "stock" : "crypto"
             let r = try await APIService.shared.analyze(
                 symbol: normalized,
                 potentialPrice: Double(potentialPrice),
-                assetType: assetType
+                assetType: inferredType
             )
             result = r
             session.addSearchHistory(SearchHistoryItem(from: r))
@@ -181,9 +181,9 @@ struct SearchView: View {
 
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.accentColor)
                 TextField(
-                    vm.assetType == "stock" ? "THYAO.IS, GARAN.IS..." : "BTC-USD, ETH-USD...",
+                    "Sembol girin (örn: THYAO, BTC, AAPL...)",
                     text: $vm.symbol
                 )
                 .textInputAutocapitalization(.characters)
@@ -203,19 +203,31 @@ struct SearchView: View {
                     }
                 }
             }
-            .padding(12)
+            .padding(14)
             .background(Color(.tertiarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(fieldFocused ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+            )
 
             HStack(spacing: 10) {
                 Image(systemName: "target")
                     .foregroundColor(.secondary)
                 TextField(L("Potansiyel fiyat (opsiyonel)"), text: $vm.potentialPrice)
                     .keyboardType(.decimalPad)
+                Spacer()
+                Text("V2")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.1))
+                    .foregroundColor(.accentColor)
+                    .cornerRadius(4)
             }
-            .padding(12)
+            .padding(14)
             .background(Color(.tertiarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
 
             Button {
                 fieldFocused = false
@@ -225,22 +237,23 @@ struct SearchView: View {
                     if vm.isLoading {
                         ProgressView().tint(.white)
                     } else {
-                        Image(systemName: "chart.xyaxis.line")
+                        Image(systemName: "sparkles")
                     }
                     Text(vm.isLoading ? L("Analiz ediliyor...") : L("Analiz Et"))
                         .fontWeight(.semibold)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(14)
-                .background(vm.symbol.isEmpty ? Color.gray : Color.accentColor)
-                .foregroundColor(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .frame(height: 52)
+                .background(vm.symbol.isEmpty ? Color.gray.opacity(0.3) : Color.accentColor)
+                .foregroundColor(vm.symbol.isEmpty ? .secondary : .white)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .shadow(color: vm.symbol.isEmpty ? .clear : Color.accentColor.opacity(0.3), radius: 8, y: 4)
             }
             .disabled(vm.symbol.isEmpty)
         }
         .padding()
         .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 
     private var loadingView: some View {

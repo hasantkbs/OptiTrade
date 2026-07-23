@@ -139,13 +139,17 @@ struct AuthView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     .padding(.horizontal)
 
+                    // Guest mode button
                     Button {
-                        session.isGuestMode = true
+                        withAnimation {
+                            session.isGuestMode = true
+                        }
                     } label: {
                         Text(L("Misafir Olarak Devam Et"))
                             .font(.subheadline)
                             .foregroundColor(.white.opacity(0.6))
                     }
+                    .padding(.top, 4)
 
                     // Disclaimer
                     Text(L("OptiTrade yatirim tavsiyesi vermez. Butun kararlar kullaniciya aittir."))
