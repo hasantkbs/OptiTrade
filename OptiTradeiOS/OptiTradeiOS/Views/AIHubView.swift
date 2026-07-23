@@ -36,8 +36,23 @@ final class AIHubViewModel: ObservableObject {
 
 struct AIHubView: View {
     @ObservedObject var vm: AIHubViewModel
+    @EnvironmentObject private var session: UserSession
+    @State private var showPremiumSheet = false
 
     var body: some View {
+        Group {
+            if session.isPremium {
+                content
+            } else {
+                upgradePrompt
+            }
+        }
+        .sheet(isPresented: $showPremiumSheet) {
+            PremiumUpgradeView()
+        }
+    }
+
+    private var content: some View {
         ScrollView {
             VStack(spacing: 16) {
                 if vm.isLoading && vm.recommendations.isEmpty {
@@ -59,6 +74,35 @@ struct AIHubView: View {
         .task {
             if vm.recommendations.isEmpty { await vm.analyze() }
         }
+    }
+
+    private var upgradePrompt: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 40))
+                .foregroundColor(.yellow)
+            Text(L("AI Önerileri Premium Özelliktir"))
+                .font(.headline)
+                .multilineTextAlignment(.center)
+            Text(L("Takip listenizdeki semboller için giriş, stop-loss ve take-profit seviyeleriyle AI destekli ticaret önerileri alın."))
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            Button {
+                showPremiumSheet = true
+            } label: {
+                Text(L("Avantajları Gör ve Yükselt"))
+                    .font(.subheadline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(Color.accentColor)
+                    .foregroundColor(.black)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .padding(.horizontal, 40)
+        }
+        .padding(.top, 60)
     }
 
     // MARK: - Loading
