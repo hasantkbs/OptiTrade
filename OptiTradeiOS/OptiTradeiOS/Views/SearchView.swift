@@ -139,6 +139,7 @@ struct SearchView: View {
                     } else if !vm.symbol.isEmpty && !vm.suggestions.isEmpty {
                         suggestionsSection
                     } else if vm.symbol.isEmpty {
+                        MarketNewsTicker()
                         if !vm.searchHistory.isEmpty {
                             historySection
                         }
