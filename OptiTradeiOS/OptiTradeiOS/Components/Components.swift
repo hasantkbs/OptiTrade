@@ -219,6 +219,10 @@ struct SearchHistoryTag: View {
         .padding(.vertical, 6)
         .background(Color(.tertiarySystemBackground))
         .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(color.opacity(0.25), lineWidth: 1)
+        )
         .onTapGesture(perform: onTap)
         .animation(.spring(response: 0.3), value: item.id)
         .accessibility(label: Text("\(item.symbol) - Puan: \(item.score)"))
@@ -244,6 +248,11 @@ struct QuickSymbolButton: View {
             .padding(.vertical, 10)
             .background(Color(.tertiarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color.accentColor.opacity(0.15), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.08), radius: 4, y: 2)
         }
         .buttonStyle(ScaleButtonStyle())
         .accessibility(label: Text("\(displayName) - \(symbol) \(L("sembolü"))"))
@@ -386,6 +395,7 @@ struct SectorChip: View {
                 .padding(.vertical, 7)
                 .background(isSelected ? Color.accentColor : Color(.tertiarySystemBackground))
                 .clipShape(Capsule())
+                .shadow(color: isSelected ? Color.accentColor.opacity(0.3) : .clear, radius: 6, y: 3)
         }
         .buttonStyle(ScaleButtonStyle())
         .accessibility(label: Text("\(L(title)) \(L("sektörü")) - \(isSelected ? L("seçili") : L("seçili değil"))"))
