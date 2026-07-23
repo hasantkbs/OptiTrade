@@ -1,5 +1,9 @@
 import SwiftUI
 
+enum DashboardMode {
+    case scan, aiHub
+}
+
 enum ScanSort: String, CaseIterable {
     case score = "Puana Göre"
     case velocity = "Değişime Göre"
@@ -40,9 +44,11 @@ final class DashboardViewModel: ObservableObject {
 
 struct DashboardView: View {
     @StateObject private var vm = DashboardViewModel()
+    @StateObject private var aiHubVM = AIHubViewModel()
     @EnvironmentObject private var session: UserSession
     @EnvironmentObject private var preferences: UserPreferences
     @State private var sessionInfo: SessionInfo?
+    @State private var mode: DashboardMode = .scan
 
     var body: some View {
         NavigationStack {
@@ -55,15 +61,29 @@ struct DashboardView: View {
                         .padding(.bottom, 4)
                 }
                 MarketNewsTicker()
-                headerControls
-                Divider()
-                content
-                
-                if !session.isPremium {
-                    AdBannerPlaceholder()
+
+                Picker(L("Görünüm"), selection: $mode) {
+                    Text(L("Piyasa Taraması")).tag(DashboardMode.scan)
+                    Text(L("AI Önerileri")).tag(DashboardMode.aiHub)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(Color(.systemBackground))
+
+                if mode == .scan {
+                    headerControls
+                    Divider()
+                    content
+
+                    if !session.isPremium {
+                        AdBannerPlaceholder()
+                    }
+                } else {
+                    AIHubView(vm: aiHubVM)
                 }
             }
-            .navigationTitle(L("Piyasa Taraması"))
+            .navigationTitle(mode == .scan ? L("Piyasa Taraması") : L("AI Önerileri"))
             .navigationBarTitleDisplayMode(.large)
             .toolbar { toolbarItems }
             .task {
@@ -290,11 +310,21 @@ struct DashboardView: View {
     @ToolbarContentBuilder
     private var toolbarItems: some ToolbarContent {
         ToolbarItem(placement: .navigationBarTrailing) {
-            if vm.isLoading {
-                ProgressView().tint(.accentColor)
+            if mode == .scan {
+                if vm.isLoading {
+                    ProgressView().tint(.accentColor)
+                } else {
+                    Button { Task { await vm.scan() } } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
             } else {
-                Button { Task { await vm.scan() } } label: {
-                    Image(systemName: "arrow.clockwise")
+                if aiHubVM.isLoading {
+                    ProgressView().tint(.accentColor)
+                } else {
+                    Button { Task { await aiHubVM.analyze() } } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
                 }
             }
         }

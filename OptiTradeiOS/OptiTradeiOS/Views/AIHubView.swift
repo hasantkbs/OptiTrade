@@ -8,13 +8,22 @@ final class AIHubViewModel: ObservableObject {
     @Published var recommendations: [TradeRecommendation] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
-    @Published var symbols: [String] = ["BTC-USD", "AAPL", "THYAO.IS"]
+
+    private let fallbackSymbols = ["BTC-USD", "AAPL", "THYAO.IS"]
+    private let maxSymbols = 10
+
+    /// Re-read on every `analyze()` call so a symbol added to the watchlist
+    /// mid-session shows up on the next refresh without recreating the view.
+    private var watchlistSymbols: [String] {
+        let symbols = UserSession.shared.watchlist().map(\.symbol)
+        return symbols.isEmpty ? fallbackSymbols : Array(symbols.prefix(maxSymbols))
+    }
 
     func analyze() async {
         isLoading = true
         errorMessage = nil
         do {
-            recommendations = try await APIService.shared.analyzeSignals(symbols: symbols)
+            recommendations = try await APIService.shared.analyzeSignals(symbols: watchlistSymbols)
             if recommendations.isEmpty {
                 errorMessage = APIError.noRecommendations.localizedDescription
             }
@@ -26,44 +35,74 @@ final class AIHubViewModel: ObservableObject {
 }
 
 struct AIHubView: View {
-    @StateObject private var vm = AIHubViewModel()
+    @ObservedObject var vm: AIHubViewModel
+    @EnvironmentObject private var session: UserSession
+    @State private var showPremiumSheet = false
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    if vm.isLoading && vm.recommendations.isEmpty {
-                        loadingState
-                    } else if let error = vm.errorMessage, vm.recommendations.isEmpty {
-                        errorState(error)
-                    } else {
-                        ForEach(vm.recommendations) { rec in
-                            TradeRecommendationCard(recommendation: rec)
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 24)
-            }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
-            .navigationTitle("AI Hub")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        Task { await vm.analyze() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .disabled(vm.isLoading)
-                }
-            }
-            .refreshable { await vm.analyze() }
-            .task {
-                if vm.recommendations.isEmpty { await vm.analyze() }
+        Group {
+            if session.isPremium {
+                content
+            } else {
+                upgradePrompt
             }
         }
+        .sheet(isPresented: $showPremiumSheet) {
+            PremiumUpgradeView()
+        }
+    }
+
+    private var content: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                if vm.isLoading && vm.recommendations.isEmpty {
+                    loadingState
+                } else if let error = vm.errorMessage, vm.recommendations.isEmpty {
+                    errorState(error)
+                } else {
+                    ForEach(vm.recommendations) { rec in
+                        TradeRecommendationCard(recommendation: rec)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+        }
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .refreshable { await vm.analyze() }
+        .task {
+            if vm.recommendations.isEmpty { await vm.analyze() }
+        }
+    }
+
+    private var upgradePrompt: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 40))
+                .foregroundColor(.yellow)
+            Text(L("AI Önerileri Premium Özelliktir"))
+                .font(.headline)
+                .multilineTextAlignment(.center)
+            Text(L("Takip listenizdeki semboller için giriş, stop-loss ve take-profit seviyeleriyle AI destekli ticaret önerileri alın."))
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            Button {
+                showPremiumSheet = true
+            } label: {
+                Text(L("Avantajları Gör ve Yükselt"))
+                    .font(.subheadline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(Color.accentColor)
+                    .foregroundColor(.black)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .padding(.horizontal, 40)
+        }
+        .padding(.top, 60)
     }
 
     // MARK: - Loading
@@ -73,10 +112,10 @@ struct AIHubView: View {
             VStack(spacing: 8) {
                 ProgressView()
                     .scaleEffect(1.2)
-                Text("AI piyasayı analiz ediyor...")
+                Text(L("AI piyasayı analiz ediyor..."))
                     .font(.subheadline.weight(.medium))
                     .foregroundColor(.secondary)
-                Text("İlk analiz birkaç saniye sürebilir")
+                Text(L("İlk analiz birkaç saniye sürebilir"))
                     .font(.caption)
                     .foregroundColor(.secondary.opacity(0.7))
             }
@@ -103,7 +142,7 @@ struct AIHubView: View {
             Button {
                 Task { await vm.analyze() }
             } label: {
-                Label("Tekrar Dene", systemImage: "arrow.clockwise")
+                Label(L("Tekrar Dene"), systemImage: "arrow.clockwise")
                     .font(.subheadline.weight(.semibold))
             }
             .buttonStyle(.borderedProminent)
@@ -164,13 +203,13 @@ struct TradeRecommendationCard: View {
 
     private var priceRiskBand: some View {
         VStack(spacing: 10) {
-            priceRow(label: "Take-Profit 2", value: recommendation.takeProfit2,
+            priceRow(label: L("Take-Profit 2"), value: recommendation.takeProfit2,
                      color: .green, icon: "arrow.up.circle.fill", emphasis: true)
-            priceRow(label: "Take-Profit 1", value: recommendation.takeProfit1,
+            priceRow(label: L("Take-Profit 1"), value: recommendation.takeProfit1,
                      color: Color(red: 0.2, green: 0.8, blue: 0.4), icon: "arrow.up.circle")
-            priceRow(label: "Giriş Fiyatı", value: recommendation.entryPrice,
+            priceRow(label: L("Giriş Fiyatı"), value: recommendation.entryPrice,
                      color: .primary, icon: "scope", emphasis: true)
-            priceRow(label: "Stop-Loss", value: recommendation.stopLoss,
+            priceRow(label: L("Stop-Loss"), value: recommendation.stopLoss,
                      color: .red, icon: "arrow.down.circle.fill", emphasis: true)
         }
         .padding(16)
@@ -265,5 +304,5 @@ private struct ShimmerCardPlaceholder: View {
 }
 
 #Preview {
-    AIHubView()
+    AIHubView(vm: AIHubViewModel())
 }
