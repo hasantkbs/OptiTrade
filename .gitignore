@@ -90,3 +90,6 @@ backend/firebase-credentials.json
 **/GoogleService-Info.plist
 .firebaserc
 
+# Local git worktrees (superpowers:using-git-worktrees)
+.worktrees/
+
