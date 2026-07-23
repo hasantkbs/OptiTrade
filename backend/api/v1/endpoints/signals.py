@@ -95,7 +95,7 @@ def analyze_signals(
     request: Request,
     body: SignalsAnalyzeRequest,
     engine: HybridTradingEngine = Depends(get_engine),
-):
+) -> List[Union[TradeRecommendation, InvestorRecommendation]]:
     recommendations = engine.run(body.symbols, profile=body.profile)
     if not recommendations:
         raise HTTPException(

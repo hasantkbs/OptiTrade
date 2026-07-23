@@ -10,8 +10,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from core.ai_trader_persona import TradeRecommendation, TradeSignal
 from core.hybrid_engine import HybridTradingEngine
 from core.investor_persona import HorizonView, InvestorRecommendation

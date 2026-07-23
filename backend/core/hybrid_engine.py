@@ -22,7 +22,7 @@ uçtan uca bağlayan ana motor. Ayrıca:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from core.ai_trader_persona import AITraderPersona, TradeRecommendation
 from core.cache_manager import TTLCache
@@ -78,7 +78,7 @@ class HybridTradingEngine:
         self._alert_cache: TTLCache = TTLCache(ttl_seconds=alert_cache_ttl_seconds)
 
     def run(
-        self, symbols: List[str], profile: str = "trader"
+        self, symbols: List[str], profile: Literal["trader", "investor"] = "trader"
     ) -> Union[List[TradeRecommendation], List[InvestorRecommendation]]:
         """Sembol listesini uçtan uca işleyip AI tarafından üretilmiş önerileri döner.
 
@@ -117,7 +117,7 @@ class HybridTradingEngine:
         return alerts
 
     def _process_symbol(
-        self, scanned: ScannedSymbol, profile: str
+        self, scanned: ScannedSymbol, profile: Literal["trader", "investor"]
     ) -> Optional[Union[TradeRecommendation, InvestorRecommendation]]:
         symbol = scanned.symbol
         cache = self._recommendation_cache if profile == "trader" else self._investor_cache
