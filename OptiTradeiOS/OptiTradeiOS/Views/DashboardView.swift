@@ -94,54 +94,45 @@ struct DashboardView: View {
     }
 
     private var headerControls: some View {
-        VStack(spacing: 8) {
+        HStack(spacing: 12) {
             Picker(L("Piyasa"), selection: $vm.selectedMarket) {
                 Text(L("Hisse")).tag("bist")
                 Text(L("Kripto")).tag("crypto")
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal)
+            .frame(width: 160)
             .onChange(of: vm.selectedMarket) { Task { await vm.scan() } }
 
-            HStack {
-                Menu {
-                    ForEach(ScanSort.allCases, id: \.self) { s in
-                        Button {
-                            vm.sortBy = s
-                        } label: {
-                            if vm.sortBy == s {
-                                Label(L(s.rawValue), systemImage: "checkmark")
-                            } else {
-                                Text(L(s.rawValue))
-                            }
+            Menu {
+                ForEach(ScanSort.allCases, id: \.self) { s in
+                    Button {
+                        vm.sortBy = s
+                    } label: {
+                        if vm.sortBy == s {
+                            Label(L(s.rawValue), systemImage: "checkmark")
+                        } else {
+                            Text(L(s.rawValue))
                         }
                     }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .font(.caption)
-                        Text(L(vm.sortBy.rawValue))
-                            .font(.caption)
-                    }
-                    .foregroundColor(.accentColor)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Color.accentColor.opacity(0.1))
-                    .clipShape(Capsule())
                 }
-
-                Spacer()
-
-                if let t = vm.lastScanned {
-                    Text("\(L("Son tarama")): \(t, style: .time)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.caption)
+                    Text(L(vm.sortBy.rawValue))
+                        .font(.caption)
                 }
+                .foregroundColor(.accentColor)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.accentColor.opacity(0.1))
+                .clipShape(Capsule())
             }
-            .padding(.horizontal)
-            .padding(.bottom, 8)
+
+            Spacer()
         }
-        .padding(.top, 8)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
         .background(Color(.systemBackground))
     }
 
