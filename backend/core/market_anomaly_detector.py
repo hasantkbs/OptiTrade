@@ -8,12 +8,15 @@ saf, deterministik eşik kontrolü.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
 from core.regime_scanner import MarketRegime
+
+logger = logging.getLogger(__name__)
 
 
 class MarketAlert(BaseModel):
@@ -81,8 +84,9 @@ class MarketAnomalyDetector:
                 message=message,
                 details=details,
             )
-        except Exception:
+        except Exception as exc:
             # Degrade to no alert on any malformed input (None, type mismatch, etc.)
+            logger.debug(f"{symbol}: anomali tespiti hatası: {exc}")
             return None
 
     def _check_price_volume(self, analysis: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
