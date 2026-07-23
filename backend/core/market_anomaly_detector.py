@@ -46,45 +46,58 @@ class MarketAnomalyDetector:
         analysis: Dict[str, Any],
         news_sentiment: Optional[Dict[str, Any]],
     ) -> Optional[MarketAlert]:
-        """Verilen analiz/haber verisinden bir MarketAlert üretir; şok yoksa None döner."""
-        price_volume_triggered, price_direction, pv_details = self._check_price_volume(analysis)
-        news_triggered, news_direction, news_details = self._check_news(news_sentiment)
+        """Verilen analiz/haber verisinden bir MarketAlert üretir; şok yoksa None döner.
 
-        if not price_volume_triggered and not news_triggered:
+        Malformed inputs (None, non-dict, explicitly-None field values) degrade safely to None.
+        """
+        try:
+            price_volume_triggered, price_direction, pv_details = self._check_price_volume(analysis)
+            news_triggered, news_direction, news_details = self._check_news(news_sentiment)
+
+            if not price_volume_triggered and not news_triggered:
+                return None
+
+            if price_volume_triggered and news_triggered:
+                alert_type = "COMBINED"
+                severity = "HIGH"
+                direction = price_direction if price_direction == news_direction else "NEUTRAL"
+            elif price_volume_triggered:
+                alert_type = "PRICE_VOLUME_SHOCK"
+                severity = "MEDIUM"
+                direction = price_direction
+            else:
+                alert_type = "NEWS_SHOCK"
+                severity = "MEDIUM"
+                direction = news_direction
+
+            details = {"market_regime": regime.value, **pv_details, **news_details}
+            message = self._build_message(alert_type, direction, details)
+
+            return MarketAlert(
+                symbol=symbol,
+                alert_type=alert_type,
+                severity=severity,
+                direction=direction,
+                message=message,
+                details=details,
+            )
+        except Exception:
+            # Degrade to no alert on any malformed input (None, type mismatch, etc.)
             return None
-
-        if price_volume_triggered and news_triggered:
-            alert_type = "COMBINED"
-            severity = "HIGH"
-            direction = price_direction if price_direction == news_direction else "NEUTRAL"
-        elif price_volume_triggered:
-            alert_type = "PRICE_VOLUME_SHOCK"
-            severity = "MEDIUM"
-            direction = price_direction
-        else:
-            alert_type = "NEWS_SHOCK"
-            severity = "MEDIUM"
-            direction = news_direction
-
-        details = {"market_regime": regime.value, **pv_details, **news_details}
-        message = self._build_message(alert_type, direction, details)
-
-        return MarketAlert(
-            symbol=symbol,
-            alert_type=alert_type,
-            severity=severity,
-            direction=direction,
-            message=message,
-            details=details,
-        )
 
     def _check_price_volume(self, analysis: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:
         micro = analysis.get("micro", {}) or {}
         macro = analysis.get("macro", {}) or {}
 
-        volume_ratio = float(micro.get("volume_ratio", 0.0))
-        price_move_atr_multiple = float(macro.get("price_move_atr_multiple", 0.0))
-        daily_return_pct = float(macro.get("daily_return_pct", 0.0))
+        # Handle both absent keys and explicitly-None values
+        volume_ratio_val = micro.get("volume_ratio")
+        volume_ratio = float(volume_ratio_val) if volume_ratio_val is not None else 0.0
+
+        price_move_atr_multiple_val = macro.get("price_move_atr_multiple")
+        price_move_atr_multiple = float(price_move_atr_multiple_val) if price_move_atr_multiple_val is not None else 0.0
+
+        daily_return_pct_val = macro.get("daily_return_pct")
+        daily_return_pct = float(daily_return_pct_val) if daily_return_pct_val is not None else 0.0
 
         triggered = (
             volume_ratio >= self.volume_ratio_threshold
@@ -103,7 +116,11 @@ class MarketAnomalyDetector:
             return False, "NEUTRAL", {}
 
         impact_level = news_sentiment.get("impact_level")
-        sentiment_score = float(news_sentiment.get("sentiment_score", 0.0))
+
+        # Handle both absent keys and explicitly-None values
+        sentiment_score_val = news_sentiment.get("sentiment_score")
+        sentiment_score = float(sentiment_score_val) if sentiment_score_val is not None else 0.0
+
         sentiment_label = news_sentiment.get("sentiment_label", "NEUTRAL")
 
         triggered = impact_level == "HIGH"
