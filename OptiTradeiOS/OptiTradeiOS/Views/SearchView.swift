@@ -180,8 +180,17 @@ struct SearchView: View {
             }
 
             HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.accentColor)
+                ZStack {
+                    Circle()
+                        .fill(
+                            RadialGradient(colors: [Color.accentColor.opacity(0.15), .clear], center: .center, startRadius: 0, endRadius: 18)
+                        )
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(
+                            LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        )
+                }
                 TextField(
                     "Sembol girin (örn: THYAO, BTC, AAPL...)",
                     text: $vm.symbol
@@ -244,10 +253,14 @@ struct SearchView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
-                .background(vm.symbol.isEmpty ? Color.gray.opacity(0.3) : Color.accentColor)
+                .background(
+                    vm.symbol.isEmpty
+                        ? AnyShapeStyle(Color.gray.opacity(0.3))
+                        : AnyShapeStyle(LinearGradient(colors: [Color.accentColor, Color.accentColor.opacity(0.8)], startPoint: .leading, endPoint: .trailing))
+                )
                 .foregroundColor(vm.symbol.isEmpty ? .secondary : .white)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
-                .shadow(color: vm.symbol.isEmpty ? .clear : Color.accentColor.opacity(0.3), radius: 8, y: 4)
+                .shadow(color: vm.symbol.isEmpty ? .clear : Color.accentColor.opacity(0.3), radius: 10, y: 5)
             }
             .disabled(vm.symbol.isEmpty)
         }
