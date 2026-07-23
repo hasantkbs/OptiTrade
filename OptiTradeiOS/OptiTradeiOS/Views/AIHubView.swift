@@ -82,10 +82,10 @@ struct AIHubView: View {
             VStack(spacing: 8) {
                 ProgressView()
                     .scaleEffect(1.2)
-                Text("AI piyasayı analiz ediyor...")
+                Text(L("AI piyasayı analiz ediyor..."))
                     .font(.subheadline.weight(.medium))
                     .foregroundColor(.secondary)
-                Text("İlk analiz birkaç saniye sürebilir")
+                Text(L("İlk analiz birkaç saniye sürebilir"))
                     .font(.caption)
                     .foregroundColor(.secondary.opacity(0.7))
             }
@@ -112,7 +112,7 @@ struct AIHubView: View {
             Button {
                 Task { await vm.analyze() }
             } label: {
-                Label("Tekrar Dene", systemImage: "arrow.clockwise")
+                Label(L("Tekrar Dene"), systemImage: "arrow.clockwise")
                     .font(.subheadline.weight(.semibold))
             }
             .buttonStyle(.borderedProminent)
@@ -173,13 +173,13 @@ struct TradeRecommendationCard: View {
 
     private var priceRiskBand: some View {
         VStack(spacing: 10) {
-            priceRow(label: "Take-Profit 2", value: recommendation.takeProfit2,
+            priceRow(label: L("Take-Profit 2"), value: recommendation.takeProfit2,
                      color: .green, icon: "arrow.up.circle.fill", emphasis: true)
-            priceRow(label: "Take-Profit 1", value: recommendation.takeProfit1,
+            priceRow(label: L("Take-Profit 1"), value: recommendation.takeProfit1,
                      color: Color(red: 0.2, green: 0.8, blue: 0.4), icon: "arrow.up.circle")
-            priceRow(label: "Giriş Fiyatı", value: recommendation.entryPrice,
+            priceRow(label: L("Giriş Fiyatı"), value: recommendation.entryPrice,
                      color: .primary, icon: "scope", emphasis: true)
-            priceRow(label: "Stop-Loss", value: recommendation.stopLoss,
+            priceRow(label: L("Stop-Loss"), value: recommendation.stopLoss,
                      color: .red, icon: "arrow.down.circle.fill", emphasis: true)
         }
         .padding(16)
