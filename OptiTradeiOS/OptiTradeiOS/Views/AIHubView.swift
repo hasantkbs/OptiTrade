@@ -8,13 +8,22 @@ final class AIHubViewModel: ObservableObject {
     @Published var recommendations: [TradeRecommendation] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
-    @Published var symbols: [String] = ["BTC-USD", "AAPL", "THYAO.IS"]
+
+    private let fallbackSymbols = ["BTC-USD", "AAPL", "THYAO.IS"]
+    private let maxSymbols = 10
+
+    /// Re-read on every `analyze()` call so a symbol added to the watchlist
+    /// mid-session shows up on the next refresh without recreating the view.
+    private var watchlistSymbols: [String] {
+        let symbols = UserSession.shared.watchlist().map(\.symbol)
+        return symbols.isEmpty ? fallbackSymbols : Array(symbols.prefix(maxSymbols))
+    }
 
     func analyze() async {
         isLoading = true
         errorMessage = nil
         do {
-            recommendations = try await APIService.shared.analyzeSignals(symbols: symbols)
+            recommendations = try await APIService.shared.analyzeSignals(symbols: watchlistSymbols)
             if recommendations.isEmpty {
                 errorMessage = APIError.noRecommendations.localizedDescription
             }
