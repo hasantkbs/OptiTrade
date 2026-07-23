@@ -108,6 +108,16 @@ class MultiTimeframeAnalyzer:
         weekly_close = close.resample("W").last().dropna()
         weekly_trend_up = bool(len(weekly_close) >= 2 and weekly_close.iloc[-1] > weekly_close.iloc[-2])
 
+        atr_daily = float(atr.iloc[-1])
+        daily_return_pct = (
+            float((close.iloc[-1] / close.iloc[-2] - 1.0) * 100) if len(close) >= 2 else 0.0
+        )
+        price_move_atr_multiple = (
+            float(abs(close.iloc[-1] - close.iloc[-2]) / atr_daily)
+            if len(close) >= 2 and atr_daily > 0
+            else 0.0
+        )
+
         return {
             "trend_direction": trend_direction,
             "ema50": float(ema50.iloc[-1]),
@@ -115,7 +125,9 @@ class MultiTimeframeAnalyzer:
             "ema_bullish_crossover": ema_bullish_crossover,
             "supertrend_bullish": supertrend_bullish,
             "weekly_trend_up": weekly_trend_up,
-            "atr_daily": float(atr.iloc[-1]),
+            "atr_daily": atr_daily,
+            "daily_return_pct": daily_return_pct,
+            "price_move_atr_multiple": price_move_atr_multiple,
         }
 
     def _analyze_micro(self, df: pd.DataFrame) -> Dict[str, Any]:
