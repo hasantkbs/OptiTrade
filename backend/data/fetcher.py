@@ -1,5 +1,6 @@
 import yfinance as yf
 import pandas as pd
+from datetime import datetime
 from typing import Optional, Tuple
 import logging
 
@@ -82,4 +83,21 @@ def fetch_cashflow_statement(symbol: str) -> Optional[pd.DataFrame]:
         return cashflow
     except Exception as e:
         logger.error(f"Error fetching cash flow statement for {symbol}: {e}")
+        return None
+
+
+def fetch_price_history_range(symbol: str, start: datetime, end: datetime) -> Optional[pd.DataFrame]:
+    """Daily OHLCV history for an arbitrary `[start, end)` date range (as
+    opposed to `fetch_history`'s relative `period` window) - used by the
+    Continuous Learning system to look up prices as of an arbitrary past
+    decision timestamp."""
+    try:
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(start=start, end=end)
+        if hist is None or hist.empty:
+            logger.warning(f"No price history returned for {symbol} in range {start}..{end}")
+            return None
+        return hist
+    except Exception as e:
+        logger.error(f"Error fetching price history range for {symbol}: {e}")
         return None
