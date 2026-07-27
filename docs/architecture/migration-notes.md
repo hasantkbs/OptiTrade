@@ -520,3 +520,82 @@ package).
   unrelated to the move itself. Nothing in this repository's production
   path imports `train_v2.py`, so this does not affect any running
   application.
+
+## main.py typing improvements
+
+Sprint 1, Task 9 — final task of the sprint. Pure static-typing pass over
+`backend/main.py`; zero business logic, runtime behavior, API contracts,
+or response schemas changed. Verified via `py_compile`, a fresh
+`import main` (33 routes, same as every prior task's baseline),
+`app.openapi()` succeeding (28 HTTP paths), and the full test suite.
+
+**Typing improvements made**
+- Added explicit `-> ReturnType` annotations to all 27 previously-untyped
+  functions in the file: every FastAPI endpoint, both lifecycle hooks
+  (`startup_event`, `self_evolution_loop`), and both private helpers that
+  lacked one. Where an endpoint already declared `response_model=X` in
+  its decorator (e.g. `SessionInfo`, `AnalysisResult`, `PortfolioOptResult`,
+  `ScanResult`, `ChartResponse`, `List[str]`), the new Python-level return
+  annotation now mirrors that `X` exactly — previously FastAPI enforced
+  the shape at runtime via `response_model` while the function itself was
+  typed as returning nothing in particular (implicit `Any`), which meant
+  static tools (mypy/pyright) and IDEs had no way to catch a return-value
+  mismatch before FastAPI's own runtime validation would. Endpoints
+  without a `response_model` (returning ad-hoc dicts) are now typed
+  `-> Dict[str, Any]` / `-> List[Dict[str, Any]]` instead of bare/implicit.
+- Replaced bare, unparameterized `dict` parameter annotations
+  (`news_for_sector`, `save_user_preferences`) with `Dict[str, Any]` —
+  behaviorally identical to FastAPI/Pydantic (a bare `dict` and
+  `Dict[str, Any]` are treated the same for request-body parsing) but
+  more explicit for strict type checkers, which can flag bare generics.
+- Added explicit local-variable annotations at a handful of assignment
+  sites where the value's eventual type isn't obvious from a bare
+  `= None` or `= []`/`= {}` literal: `mc_data: Optional[Dict[str, Any]]`,
+  `price_data: Dict[str, Any]`, `results: List[Dict[str, Any]]`,
+  `symbols: List[str]`, `points: List[ChartPoint]`, `is_trader: bool`.
+- `_enrich_result`'s `mc_data: Optional[dict]` parameter is now
+  `Optional[Dict[str, Any]]`, matching the endpoint-level annotations
+  above.
+
+**Remaining typing debt** (not addressed — out of scope for "main.py
+endpoints" without touching other modules or introducing new schemas)
+- Several `core/` helpers `main.py` calls into still return bare,
+  unparameterized `Dict`/`List[Dict]` themselves (`get_news_summary`,
+  `sector_overview_to_dict`, `sector_detail_to_dict`, `run_monte_carlo`,
+  `optimize_portfolio`, `compute_recommendation`) — `main.py`'s new
+  `Dict[str, Any]` annotations are only as precise as what these
+  functions actually declare; a fully precise typing pass would need to
+  extend into `core/news_analyzer.py`, `core/sector_intelligence.py`, and
+  `core/advanced_analysis.py` as well.
+- `news_for_sector` and `save_user_preferences` still accept free-form
+  `Dict[str, Any]` request bodies rather than proper Pydantic request
+  models like every other POST endpoint in this file (`AnalysisRequest`,
+  `ScanRequest`, `PortfolioOptRequest`, etc.) — introducing real schemas
+  for these was explicitly out of scope this task ("do not introduce new
+  abstractions or redesign"), since it would change the API's declared
+  request contract (OpenAPI schema, validation errors on malformed
+  bodies), not just its typing.
+- A few pandas-derived local variables (`rsi_series` in `get_chart`,
+  the per-symbol `hist` variables throughout) remain implicitly typed,
+  since `main.py` does not import `pandas` directly anywhere today (it
+  only receives already-constructed `DataFrame`/`Series` objects back
+  from `data/fetcher.py` and treats them duck-typed); adding a
+  `pandas`-only import purely for local-variable annotations was judged
+  outside this task's minimal-diff intent.
+- No `mypy`/`pyright` configuration exists anywhere in this repository,
+  and no type checker runs in CI — these annotations improve IDE
+  support and make a future type-checking pass more tractable, but
+  nothing currently enforces or verifies them automatically.
+
+**Future opportunities** (observations only, no implementation proposed
+here)
+- Extend the same typing pass to the `core/` helper functions listed
+  above, so `main.py`'s `Dict[str, Any]` return types could tighten
+  further once their sources are more precise.
+- If/when `news_for_sector` and `save_user_preferences` are revisited for
+  other reasons, replacing their free-form dict bodies with real Pydantic
+  request models would be a natural next step (a schema change, not a
+  typing-only one).
+- Add a `mypy` or `pyright` configuration and run it in CI once typing
+  coverage is broad enough across `core/`, `v2/`, and `api/` to make the
+  signal worthwhile.

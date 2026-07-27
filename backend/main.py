@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 import logging
 import os
 import asyncio
@@ -88,7 +88,7 @@ app.include_router(api_v1_router)
 
 # ── Background Tasks ──────────────────────────────────────────────────────────
 
-async def self_evolution_loop():
+async def self_evolution_loop() -> None:
     """Günlük doğrulama ve haftalık eğitim yapan arka plan döngüsü."""
     while True:
         try:
@@ -112,12 +112,12 @@ async def self_evolution_loop():
         await asyncio.sleep(86400)
 
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
     init_db()
     asyncio.create_task(self_evolution_loop())
 
 @app.get("/ml/performance")
-def get_ml_performance(days: int = 30):
+def get_ml_performance(days: int = 30) -> Dict[str, Any]:
     return get_performance_stats(days=days)
 
 # ── Symbol Lists ───────────────────────────────────────────────────────────────
@@ -167,7 +167,7 @@ def categorize(results: List[AnalysisResult]) -> ScanResult:
         neutral=neutral, total_scanned=len(results),
     )
 
-def _enrich_result(result: AnalysisResult, mc_data: Optional[dict]) -> AnalysisResult:
+def _enrich_result(result: AnalysisResult, mc_data: Optional[Dict[str, Any]]) -> AnalysisResult:
     mc_model = None
     if mc_data and mc_data.get("n_simulations", 0) > 0:
         mc_model = MonteCarloResult(**mc_data)
@@ -216,15 +216,15 @@ async def _parallel_scan(symbols: List[str], asset_type: str) -> List[AnalysisRe
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.get("/")
-def root():
+def root() -> Dict[str, str]:
     return {"status": "ok", "message": "OptiTrade API v3.2"}
 
 @app.get("/health")
-def health():
+def health() -> Dict[str, str]:
     return {"status": "healthy"}
 
 @app.get("/ml/status")
-def ml_status():
+def ml_status() -> Dict[str, Any]:
     return get_model_info()
 
 # ── News ──────────────────────────────────────────────────────────────────────
@@ -236,7 +236,7 @@ def news_for_symbol(
     symbol: str,
     market: str = "AUTO",   # TR | US | CRYPTO | AUTO
     uid: Optional[str] = Depends(verify_firebase_token),
-):
+) -> Dict[str, Any]:
     """Sembol için haber duygu analizini döndür. market=TR|US|CRYPTO|AUTO"""
     return get_news_summary(symbol.upper(), market=market.upper())
 
@@ -244,19 +244,19 @@ def news_for_symbol(
 @limiter.limit("10/minute")
 def news_for_sector(
     request: Request,
-    body: dict,
+    body: Dict[str, Any],
     uid: Optional[str] = Depends(verify_firebase_token),
-):
+) -> Dict[str, Any]:
     """
     Piyasa/sektöre göre birden fazla sembol için haberler.
     Body: {"symbols": ["GARAN.IS","THYAO.IS"], "market": "TR"}
     """
-    symbols = body.get("symbols", [])[:10]
+    symbols: List[str] = body.get("symbols", [])[:10]
     market  = body.get("market", "AUTO").upper()
     if not symbols:
         raise HTTPException(status_code=400, detail="symbols listesi gerekli")
 
-    results = []
+    results: List[Dict[str, Any]] = []
     for sym in symbols:
         try:
             summary = get_news_summary(sym.upper(), market=market)
@@ -291,7 +291,7 @@ def news_for_sector(
 def market_watchlist(
     market: str,
     uid: Optional[str] = Depends(verify_firebase_token),
-):
+) -> Dict[str, Any]:
     """Piyasa için varsayılan izleme listesi döndür."""
     from core.market_config import get_default_watchlist, get_symbols_for_market, MARKETS
     market = market.upper()
@@ -305,7 +305,7 @@ def market_watchlist(
     }
 
 @app.get("/market/list")
-def market_list():
+def market_list() -> Dict[str, Any]:
     """Desteklenen piyasaları listele."""
     from core.market_config import MARKETS
     return {"markets": MARKETS}
@@ -320,7 +320,7 @@ def sectors_overview(
     request: Request,
     market: str = "US",   # TR | US
     uid: Optional[str] = Depends(verify_firebase_token),
-):
+) -> Dict[str, Any]:
     """
     Piyasadaki tüm sektörleri fırsat skoruna göre sıralı döndür.
     Kullanıcıya hangi sektörde ilerleyeceğini söyler.
@@ -349,7 +349,7 @@ def sector_detail(
     sector_key: str,
     market: str = "US",
     uid: Optional[str] = Depends(verify_firebase_token),
-):
+) -> Dict[str, Any]:
     """
     Belirli bir sektörün detaylı analizi — tüm semboller + fırsat tavsiyesi.
     """
@@ -365,7 +365,7 @@ def sector_detail(
 
 
 @app.get("/sectors/list/all")
-def sectors_list():
+def sectors_list() -> Dict[str, Any]:
     """Tanımlı tüm sektörlerin listesini döndür."""
     return {
         "sectors": [
@@ -386,9 +386,9 @@ def sectors_list():
 @limiter.limit("30/minute")
 def save_user_preferences(
     request: Request,
-    body: dict,
+    body: Dict[str, Any],
     uid: Optional[str] = Depends(verify_firebase_token),
-):
+) -> Dict[str, Any]:
     """
     Kullanıcı piyasa tercihini Firebase'e kaydet.
     Body: {"market": "TR", "uid": "..."}
@@ -416,7 +416,7 @@ def save_user_preferences(
 
 @app.get("/session/info", response_model=SessionInfo)
 @limiter.limit("60/minute")
-def session_info(request: Request):
+def session_info(request: Request) -> SessionInfo:
     data = compute_session_score(
         rsi=50, macd=0, macd_signal_val=0,
         macd_hist=0, volume_ratio=1.0, base_score=50,
@@ -424,7 +424,7 @@ def session_info(request: Request):
     return SessionInfo(**data)
 
 @app.get("/session/all")
-def all_sessions():
+def all_sessions() -> List[Dict[str, Any]]:
     return [
         {
             "code": s.code, "name": s.name,
@@ -440,7 +440,7 @@ def all_sessions():
 @app.post("/session/analyze", response_model=SessionInfo)
 @limiter.limit("30/minute")
 def session_analyze(request: Request, body: AnalysisRequest,
-                    uid: Optional[str] = Depends(verify_firebase_token)):
+                    uid: Optional[str] = Depends(verify_firebase_token)) -> SessionInfo:
     result = analyze(symbol=body.symbol, potential_price=body.potential_price,
                      asset_type=body.asset_type)
     if result is None:
@@ -457,7 +457,7 @@ def session_analyze(request: Request, body: AnalysisRequest,
 
 @app.get("/price/{symbol}")
 @limiter.limit("60/minute")
-def get_current_price(request: Request, symbol: str):
+def get_current_price(request: Request, symbol: str) -> Dict[str, Any]:
     hist = fetch_history(symbol.upper(), period="5d")
     if hist is None or hist.empty:
         raise HTTPException(status_code=404, detail=f"{symbol} fiyati bulunamadi.")
@@ -476,7 +476,7 @@ def get_current_price(request: Request, symbol: str):
 @app.post("/analyze", response_model=AnalysisResult)
 @limiter.limit("30/minute")
 def analyze_symbol(request: Request, body: AnalysisRequest,
-                   uid: Optional[str] = Depends(verify_firebase_token)):
+                   uid: Optional[str] = Depends(verify_firebase_token)) -> AnalysisResult:
     result = analyze(symbol=body.symbol, potential_price=body.potential_price,
                      asset_type=body.asset_type)
     if result is None:
@@ -490,10 +490,10 @@ def analyze_symbol(request: Request, body: AnalysisRequest,
 @app.post("/analyze/enhanced", response_model=AnalysisResult)
 @limiter.limit("10/minute")
 def analyze_enhanced(request: Request, body: EnhancedAnalysisRequest,
-                     uid: Optional[str] = Depends(verify_firebase_token)):
-    
+                     uid: Optional[str] = Depends(verify_firebase_token)) -> AnalysisResult:
+
     # Trader check (Basitleştirilmiş mantık - Firebase'den çekilebilir)
-    is_trader = False
+    is_trader: bool = False
     if uid:
         try:
             from firebase_admin import firestore
@@ -508,7 +508,7 @@ def analyze_enhanced(request: Request, body: EnhancedAnalysisRequest,
     if result is None:
         raise HTTPException(status_code=404, detail=f"{body.symbol} icin veri bulunamadi.")
     
-    mc_data = None
+    mc_data: Optional[Dict[str, Any]] = None
     if body.run_monte_carlo or is_trader:
         # Trader'lar için simülasyon sayısını 2 katına çıkarıyoruz
         n_sims = body.n_simulations * 2 if is_trader else body.n_simulations
@@ -526,12 +526,12 @@ def analyze_enhanced(request: Request, body: EnhancedAnalysisRequest,
 @app.post("/portfolio/optimize", response_model=PortfolioOptResult)
 @limiter.limit("5/minute")
 def portfolio_optimize(request: Request, body: PortfolioOptRequest,
-                       uid: Optional[str] = Depends(verify_firebase_token)):
+                       uid: Optional[str] = Depends(verify_firebase_token)) -> PortfolioOptResult:
     if len(body.symbols) < 2:
         raise HTTPException(status_code=400, detail="En az 2 sembol gereklidir.")
     if len(body.symbols) > 20:
         raise HTTPException(status_code=400, detail="En fazla 20 sembol desteklenmektedir.")
-    price_data = {}
+    price_data: Dict[str, Any] = {}
     for sym in body.symbols:
         hist = fetch_history(sym.upper(), period="1y")
         if hist is not None and not hist.empty:
@@ -548,31 +548,31 @@ def portfolio_optimize(request: Request, body: PortfolioOptRequest,
 @app.post("/scan", response_model=ScanResult)
 @limiter.limit("5/minute")
 async def scan_symbols(request: Request, body: ScanRequest,
-                       uid: Optional[str] = Depends(verify_firebase_token)):
+                       uid: Optional[str] = Depends(verify_firebase_token)) -> ScanResult:
     results = await _parallel_scan(body.symbols, body.asset_type)
     return categorize(results)
 
 @app.get("/scan/bist", response_model=ScanResult)
 @limiter.limit("5/minute")
 async def scan_bist(request: Request,
-                    uid: Optional[str] = Depends(verify_firebase_token)):
+                    uid: Optional[str] = Depends(verify_firebase_token)) -> ScanResult:
     results = await _parallel_scan(BIST_SYMBOLS, "stock")
     return categorize(results)
 
 @app.get("/scan/crypto", response_model=ScanResult)
 @limiter.limit("5/minute")
 async def scan_crypto(request: Request,
-                      uid: Optional[str] = Depends(verify_firebase_token)):
+                      uid: Optional[str] = Depends(verify_firebase_token)) -> ScanResult:
     results = await _parallel_scan(CRYPTO_SYMBOLS, "crypto")
     return categorize(results)
 
 # ── Symbols ────────────────────────────────────────────────────────────────────
 
 @app.get("/symbols/bist",   response_model=List[str])
-def get_bist_symbols():   return BIST_SYMBOLS
+def get_bist_symbols() -> List[str]:   return BIST_SYMBOLS
 
 @app.get("/symbols/crypto", response_model=List[str])
-def get_crypto_symbols(): return CRYPTO_SYMBOLS
+def get_crypto_symbols() -> List[str]: return CRYPTO_SYMBOLS
 
 # ── Chart ──────────────────────────────────────────────────────────────────────
 
@@ -582,7 +582,7 @@ def get_chart(
     request: Request,
     symbol: str,
     period: str = Query(default="3mo", pattern="^(1mo|3mo|6mo|1y)$"),
-):
+) -> ChartResponse:
     import numpy as np
     hist = fetch_history(symbol.upper(), period=period)
     if hist is None or hist.empty:
@@ -599,7 +599,7 @@ def get_chart(
         rs       = avg_gain / avg_loss.replace(0, np.nan)
         rsi_series = 100 - (100 / (1 + rs))
 
-    points = []
+    points: List[ChartPoint] = []
     for i, (idx, row) in enumerate(hist.iterrows()):
         rsi_val = None
         if rsi_series is not None:
