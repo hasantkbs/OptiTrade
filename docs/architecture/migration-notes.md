@@ -334,3 +334,96 @@ exercised).
   artifacts with identical metadata field values (or missing ones,
   defaulted silently) are indistinguishable from `get_model_info()`'s
   output alone.
+
+## HybridTradingEngine DI
+
+Source: `backend/core/hybrid_engine.py` (`HybridTradingEngine`), new
+`backend/core/interfaces.py`. Characterized in
+`backend/tests/test_hybrid_engine.py` (11 tests: 4 behavioral — proving
+`run()`'s caching, regime-filtered iteration, and per-symbol error
+isolation are unchanged — plus 7 backward-compatibility checks). This is
+Sprint 1's first production-code change: a structural retyping only, no
+business logic touched.
+
+**Existing dependencies (before this task)**
+`HybridTradingEngine.__init__` already accepted its five collaborators as
+constructor parameters with `Optional[ConcreteClass] = None` defaults,
+falling back to `ConcreteClass()` when not supplied — i.e. constructor
+-based dependency injection already existed, just typed against concrete
+classes:
+- `scanner: Optional[MarketRegimeScanner]`
+- `analyzer: Optional[MultiTimeframeAnalyzer]`
+- `risk_manager: Optional[DynamicRiskManager]`
+- `ai_persona: Optional[AITraderPersona]`
+- `news_adapter: Optional[NewsSentimentAdapter]`
+
+**Newly introduced interfaces**
+`backend/core/interfaces.py` adds five `typing.Protocol` classes
+(`@runtime_checkable`), one per collaborator, each declaring only the
+single method `HybridTradingEngine` actually calls on it:
+- `RegimeScannerProtocol.scan_and_filter(symbols: List[str]) -> List[ScannedSymbol]`
+- `TimeframeAnalyzerProtocol.analyze(symbol: str) -> Optional[Dict[str, Any]]`
+- `RiskManagerProtocol.calculate(entry_price: float, atr: float) -> RiskLevels`
+- `NewsSentimentProtocol.get_sentiment(symbol: str) -> Optional[Dict[str, Any]]`
+- `TraderPersonaProtocol.generate_recommendation(symbol, market_regime, analysis, risk, news_sentiment=None) -> TradeRecommendation`
+
+`HybridTradingEngine.__init__`'s five parameters are now typed against
+these Protocols instead of the concrete classes. Parameter names, order,
+and defaults are all unchanged; only the type annotation changed on each
+of the 5 parameters (a 12-line insertion / 5-line-touched diff in total —
+see the diff for the exact minimal change). The constructor body (the
+`self.x = x or ConcreteClass()` fallback lines) was not modified at all.
+
+**Injection boundary**
+The boundary is exactly where it already was: `HybridTradingEngine`'s
+constructor. Nothing upstream or downstream of the engine changed —
+`api/v1/endpoints/signals.py`'s `get_engine()` singleton,
+`backend/test_engine.py`, and `backend/dashboard.py` all continue
+constructing `HybridTradingEngine()` (or with explicit real collaborators)
+exactly as before, since Python does not enforce type hints at runtime —
+passing a concrete instance where a Protocol is now declared works
+identically to before this change.
+
+**Remaining coupling**
+- The constructor's fallback expressions (`scanner or MarketRegimeScanner()`,
+  etc.) still hard-code the concrete classes directly — the *interfaces*
+  are now explicit, but the *default wiring* is not yet inverted through
+  any container or factory. This was intentional: introducing a DI
+  container/factory was out of scope for "minimize the diff, preserve
+  backward compatibility."
+- `core/ai_trader_persona.py`, `core/regime_scanner.py`,
+  `core/mtf_analyzer.py`, `core/risk_manager.py`, and
+  `core/news_adapter.py` are unchanged — they satisfy the new Protocols
+  structurally (verified via `issubclass()` against each class, with no
+  changes needed on their side) but do not explicitly declare or import
+  the Protocols themselves. There is no `Protocol`-side enforcement that a
+  future change to one of these classes' method signatures would be
+  caught by a type checker pointing at the Protocol — only duck-typing
+  compatibility, same as before.
+- The other two engines this repo runs concurrently
+  (`core/analyzer.py`/`core/scoring.py` and `v2/core/engine.py`, per
+  `docs/architecture/gap-analysis.md` section 1) are untouched by this
+  task and still have no interface layer of their own — this Protocol set
+  only covers `HybridTradingEngine`'s collaborators, not a
+  cross-engine abstraction.
+
+**Technical debt left intentionally**
+- No DI container/registry — collaborators are still wired via
+  constructor-default fallbacks to hardcoded concrete classes, not
+  resolved through any central registration mechanism.
+- The Protocols are not yet used anywhere else in the codebase (e.g. the
+  `v2` engine's `SignalFusion`/`RiskManager` classes have no equivalent
+  Protocol, despite playing structurally similar roles).
+- `TraderPersonaProtocol` covers only `generate_recommendation` — the
+  actual `AITraderPersona` class also has constructor parameters
+  (`api_key`, `model`) that are entirely outside any interface; only the
+  one method the engine calls is captured.
+
+**Future migration opportunities** (observations only, no implementation
+proposed here)
+- These same five Protocols are natural candidates to become the
+  Decision Engine's own collaborator contracts once that consolidation
+  work begins, rather than being redefined from scratch.
+- If `core/analyzer.py`/`v2/core/engine.py` are ever folded into a single
+  engine, a shared Protocol set spanning all three current engines' scoring
+  logic could replace today's per-engine duck typing.

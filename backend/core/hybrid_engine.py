@@ -20,6 +20,13 @@ from typing import List, Optional
 
 from core.ai_trader_persona import AITraderPersona, TradeRecommendation
 from core.cache_manager import TTLCache
+from core.interfaces import (
+    NewsSentimentProtocol,
+    RegimeScannerProtocol,
+    RiskManagerProtocol,
+    TimeframeAnalyzerProtocol,
+    TraderPersonaProtocol,
+)
 from core.mtf_analyzer import MultiTimeframeAnalyzer
 from core.news_adapter import NewsSentimentAdapter
 from core.regime_scanner import MarketRegimeScanner, ScannedSymbol
@@ -39,11 +46,11 @@ class HybridTradingEngine:
 
     def __init__(
         self,
-        scanner: Optional[MarketRegimeScanner] = None,
-        analyzer: Optional[MultiTimeframeAnalyzer] = None,
-        risk_manager: Optional[DynamicRiskManager] = None,
-        ai_persona: Optional[AITraderPersona] = None,
-        news_adapter: Optional[NewsSentimentAdapter] = None,
+        scanner: Optional[RegimeScannerProtocol] = None,
+        analyzer: Optional[TimeframeAnalyzerProtocol] = None,
+        risk_manager: Optional[RiskManagerProtocol] = None,
+        ai_persona: Optional[TraderPersonaProtocol] = None,
+        news_adapter: Optional[NewsSentimentProtocol] = None,
         recommendation_cache_ttl_seconds: float = DEFAULT_RECOMMENDATION_CACHE_TTL_SECONDS,
     ) -> None:
         self.scanner = scanner or MarketRegimeScanner()
