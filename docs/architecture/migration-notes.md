@@ -427,3 +427,96 @@ proposed here)
 - If `core/analyzer.py`/`v2/core/engine.py` are ever folded into a single
   engine, a shared Protocol set spanning all three current engines' scoring
   logic could replace today's per-engine duck typing.
+
+## Production vs Research Separation
+
+Sprint 1, Task 7. Enforced by `backend/tests/test_research_isolation.py`
+(3 tests: an AST-based scan proving no file under `core/`, `v2/`,
+`models/`, `data/`, or `api/` imports `research`; the `research/` package
+contains the 5 expected moved scripts; research code is free to import
+production code).
+
+**Files moved** (via `git mv`, history preserved — confirmed by git's own
+rename detection on each):
+- `backend/backtest.py` → `backend/research/backtest.py`
+- `backend/backtest_advanced.py` → `backend/research/backtest_advanced.py`
+- `backend/ml_trainer.py` → `backend/research/ml_trainer.py`
+- `backend/v2/ml/train_v2.py` → `backend/research/train_v2.py`
+- `backend/ml/train_chart_model.py` → `backend/research/train_chart_model.py`
+
+New file: `backend/research/__init__.py` (empty, makes `research` a
+package).
+
+**Imports updated**
+- `backend/main.py`: `from ml_trainer import train as train_model` →
+  `from research.ml_trainer import train as train_model` (this import
+  feeds `self_evolution_loop()`'s daily background retraining call — the
+  only production call site for any moved script).
+- `backend/admin_terminal.py`: `from ml.train_chart_model import train` →
+  `from research.train_chart_model import train` (inside the `model
+  train` CLI command body — a lazy, function-local import, not a
+  module-level one).
+- `backend/research/backtest_advanced.py` and
+  `backend/research/ml_trainer.py`: each had a `sys.path.insert(0,
+  os.path.dirname(__file__))` line that resolved to `backend/` at their
+  *old*, one-level-deep location; fixed to
+  `os.path.dirname(os.path.dirname(os.path.abspath(__file__)))` so it
+  still resolves to `backend/` from their new location (also one level
+  deep, but under `research/` instead of directly under `backend/` —
+  same nesting depth, but the fix makes the path absolute rather than
+  relying on `__file__` already being absolute, which is not guaranteed).
+  Docstring usage banners updated to match (`python
+  research/backtest_advanced.py`, `python research/ml_trainer.py`).
+- `backend/research/train_chart_model.py`: its `sys.path` line
+  (`dirname(dirname(__file__))`) already resolved to `backend/` correctly
+  at the new location without modification, since both the old
+  (`backend/ml/`) and new (`backend/research/`) locations are exactly one
+  directory under `backend/`; only its docstring usage banner was updated
+  (`python -m research.train_chart_model`).
+- `backend/research/backtest.py`: uses `sys.path.insert(0, ".")`, which is
+  relative to the *current working directory* the script is invoked from,
+  not to `__file__` — unaffected by the move as long as it's still run
+  from `backend/` (as its neighbors already require).
+- `backend/research/train_v2.py`: has no internal (`core.*`/`v2.*`)
+  imports at all, so no path fix was needed.
+
+**Architectural boundaries enforced**
+- One-directional: `research/` may import from `core/`/`v2/`/`models/`/
+  `data/`/`api/` (already does, e.g. `ml_trainer.py` imports
+  `core.indicators`); nothing under `core/`, `v2/`, `models/`, `data/`, or
+  `api/` may import from `research/`. Enforced by an automated AST-based
+  test rather than a manual convention, so a future accidental
+  `import research...` inside production code fails the test suite.
+
+**Remaining coupling**
+- `main.py`'s `self_evolution_loop()` background task still calls
+  `research.ml_trainer.train()` directly, in-process, on a schedule — the
+  *code* now lives in an isolated package, but production still executes
+  research code as part of its own runtime process. Per the gap analysis
+  (`docs/architecture/gap-analysis.md`, section 4), this is an existing,
+  known coupling this task deliberately did not resolve — moving the
+  training call to run out-of-process (a separate job/worker) is future
+  work, not part of "move the files without changing behavior."
+- `research/ml_trainer.py`, `research/backtest.py`, and
+  `research/backtest_advanced.py` still import `core.scoring.compute_score`
+  and `core.indicators` directly — i.e. research code depends on the exact
+  same modules the live decision paths use. This is the *allowed*
+  direction of coupling per the boundary rule above, but it's still a real
+  coupling: a future change to `core/scoring.py` for production reasons
+  will simultaneously change what these research scripts compute, with no
+  isolation between "production's copy" and "research's copy" of that
+  logic, because there is only one copy.
+- `admin_terminal.py`'s `model train` command still lazily imports
+  `research.train_chart_model.train` on demand — an operational/admin
+  tool invoking research code interactively, distinct from
+  `main.py`'s automatic background invocation.
+
+**Known exceptions**
+- `research/train_v2.py` cannot currently be imported in this environment
+  (`ModuleNotFoundError: No module named 'xgboost'`) — this is a
+  pre-existing gap (the file's unconditional `import xgboost as xgb` at
+  the top predates this task; `xgboost` has never been installed in this
+  venv, as already noted in the `ml_predictor.py` section above) and is
+  unrelated to the move itself. Nothing in this repository's production
+  path imports `train_v2.py`, so this does not affect any running
+  application.

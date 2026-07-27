@@ -22,7 +22,7 @@ from models.schemas import (
 from core.analyzer import analyze
 from core.ml_predictor import get_model_info
 from core.monitoring import init_db, log_prediction, validate_predictions, get_performance_stats
-from ml_trainer import train as train_model
+from research.ml_trainer import train as train_model
 from core.advanced_analysis import run_monte_carlo, optimize_portfolio, compute_recommendation
 from core.session_analysis import compute_session_score, get_current_session, SESSIONS
 from core.news_analyzer import get_news_summary, analyze_news

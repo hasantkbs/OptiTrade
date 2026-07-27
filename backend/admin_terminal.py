@@ -320,7 +320,7 @@ def model_train(
         # Burada bir loop veya cron job tetiklenebilir
 
     try:
-        from ml.train_chart_model import train
+        from research.train_chart_model import train
         # Market bazlı sembol filtreleme mantığı buraya eklenebilir
         meta = train(epochs=epochs, batch_size=batch_size, period=period)
         

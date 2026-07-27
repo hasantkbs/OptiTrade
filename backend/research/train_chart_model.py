@@ -3,7 +3,7 @@ OptiTrade — BTC Chart AI Training Pipeline
 ===========================================
 Çalıştır:
   cd backend
-  python -m ml.train_chart_model [--symbol BTC-USD] [--epochs 50]
+  python -m research.train_chart_model [--symbol BTC-USD] [--epochs 50]
 
 Adımlar:
   1. yfinance'dan maksimum BTC verisi çek

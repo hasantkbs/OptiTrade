@@ -3,7 +3,7 @@ OptiTrade XGBoost Sinyal Sınıflandırıcı Eğitim Scripti
 ------------------------------------------------------
 Çalıştırmak için:
   cd backend
-  python ml_trainer.py
+  python research/ml_trainer.py
 
 Gereksinimler:
   pip install xgboost scikit-learn joblib
@@ -11,7 +11,7 @@ Gereksinimler:
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import pandas as pd
