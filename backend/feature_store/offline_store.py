@@ -19,7 +19,7 @@ import logging
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Iterator, Optional
+from typing import Iterator, List, Optional
 
 import psycopg2
 import psycopg2.pool
@@ -186,6 +186,56 @@ class PostgresOfflineStore:
         if row is None:
             return None
         return FeatureRecord(**dict(row))
+
+    def get_history(
+        self, symbol: str, feature_name: str, start: datetime, end: datetime
+    ) -> List[FeatureRecord]:
+        """Every recorded value for `(symbol, feature_name)` with
+        `event_timestamp` in `[start, end]`, oldest first - used by
+        offline research/analysis (feature correlation, stability,
+        drift) rather than any live read path, which only ever needs
+        `get_latest`/`get_as_of`."""
+        started_at = time.perf_counter()
+        try:
+            with self._connection() as conn, conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT symbol, feature_name, value, version, event_timestamp, ingestion_timestamp
+                    FROM feature_store_records
+                    WHERE symbol = %s AND feature_name = %s
+                      AND event_timestamp >= %s AND event_timestamp <= %s
+                    ORDER BY event_timestamp ASC
+                    """,
+                    (symbol, feature_name, start, end),
+                )
+                rows = cur.fetchall()
+        except psycopg2.Error as exc:
+            log_event(
+                logger,
+                component="feature_store",
+                module="feature_store.offline_store",
+                operation="get_history",
+                status=STATUS_ERROR,
+                symbol=symbol,
+                feature_name=feature_name,
+                error_type=type(exc).__name__,
+                execution_time_ms=(time.perf_counter() - started_at) * 1000,
+                level=logging.ERROR,
+            )
+            raise FeatureStoreError(f"failed to query feature history: {exc}") from exc
+
+        log_event(
+            logger,
+            component="feature_store",
+            module="feature_store.offline_store",
+            operation="get_history",
+            status=STATUS_SUCCESS,
+            symbol=symbol,
+            feature_name=feature_name,
+            execution_time_ms=(time.perf_counter() - started_at) * 1000,
+            row_count=len(rows),
+        )
+        return [FeatureRecord(**dict(row)) for row in rows]
 
     def ping(self) -> bool:
         """Connectivity check used by `FeatureStoreService.health_check()`."""

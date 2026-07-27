@@ -169,3 +169,58 @@ def test_version_is_persisted_and_returned(store, symbol):
     store.insert(record)
     fetched = store.get_latest(symbol, "rsi_14")
     assert fetched.version == "v2"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# get_history - added for Research Lab feature analysis (correlation/
+# stability/drift), which needs every recorded value in a range, not just
+# the latest or a single as-of point.
+# ─────────────────────────────────────────────────────────────────────────
+
+def test_get_history_returns_empty_list_when_nothing_written(store, symbol):
+    now = datetime.now(timezone.utc)
+    assert store.get_history(symbol, "rsi_14", now - timedelta(days=5), now) == []
+
+
+def test_get_history_returns_every_value_in_range_oldest_first(store, symbol):
+    now = datetime.now(timezone.utc)
+    for i in range(5):
+        store.insert(_record(symbol, value=float(i), event_timestamp=now - timedelta(days=4 - i)))
+
+    history = store.get_history(symbol, "rsi_14", now - timedelta(days=10), now)
+    assert [r.value for r in history] == [0.0, 1.0, 2.0, 3.0, 4.0]
+
+
+def test_get_history_excludes_values_outside_the_range(store, symbol):
+    now = datetime.now(timezone.utc)
+    store.insert(_record(symbol, value=1.0, event_timestamp=now - timedelta(days=20)))
+    store.insert(_record(symbol, value=2.0, event_timestamp=now - timedelta(days=1)))
+
+    history = store.get_history(symbol, "rsi_14", now - timedelta(days=5), now)
+    assert [r.value for r in history] == [2.0]
+
+
+def test_get_history_only_returns_the_requested_feature_name(store, symbol):
+    now = datetime.now(timezone.utc)
+    store.insert(_record(symbol, feature_name="rsi_14", value=1.0, event_timestamp=now))
+    store.insert(_record(symbol, feature_name="macd_line", value=2.0, event_timestamp=now))
+
+    history = store.get_history(symbol, "rsi_14", now - timedelta(days=1), now + timedelta(days=1))
+    assert len(history) == 1
+    assert history[0].feature_name == "rsi_14"
+
+
+def test_get_history_wraps_a_real_database_error_in_featurestoreerror(store, symbol):
+    from feature_store.exceptions import FeatureStoreError
+
+    store._pool.closeall()
+    try:
+        with pytest.raises(FeatureStoreError):
+            store.get_history(symbol, "rsi_14", datetime.now(timezone.utc) - timedelta(days=1), datetime.now(timezone.utc))
+    finally:
+        store._pool = store._pool.__class__(
+            1, 5,
+            host=store._config.postgres_host, port=store._config.postgres_port,
+            dbname=store._config.postgres_db, user=store._config.postgres_user,
+            password=store._config.postgres_password,
+        )

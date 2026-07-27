@@ -10,7 +10,7 @@ concrete Redis/PostgreSQL-backed implementations.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, Protocol, runtime_checkable
+from typing import List, Optional, Protocol, runtime_checkable
 
 from feature_store.models import FeatureRecord, FeatureValue, ValidationResult
 
@@ -43,6 +43,10 @@ class OfflineFeatureStoreProtocol(Protocol):
     def get_as_of(
         self, symbol: str, feature_name: str, as_of: datetime
     ) -> Optional[FeatureRecord]: ...
+
+    def get_history(
+        self, symbol: str, feature_name: str, start: datetime, end: datetime
+    ) -> List[FeatureRecord]: ...
 
     def ping(self) -> bool: ...
 

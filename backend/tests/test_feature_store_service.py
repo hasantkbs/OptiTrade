@@ -64,6 +64,12 @@ class FakeOfflineStore:
             return record
         return None
 
+    def get_history(self, symbol: str, feature_name: str, start: datetime, end: datetime) -> List[FeatureRecord]:
+        record = self._data.get((symbol, feature_name))
+        if record is not None and start <= record.event_timestamp <= end:
+            return [record]
+        return []
+
     def ping(self) -> bool:
         return True
 
@@ -177,6 +183,18 @@ def test_get_feature_as_of_only_ever_queries_the_offline_store():
     assert as_of is not None and as_of.value == 1.0
     # The online store's get_latest must never have been consulted for this call.
     assert ("BTC-USD", "rsi_14") not in [c for c in online.get_calls]  # only from write's set, not a get
+
+
+def test_get_feature_history_only_ever_queries_the_offline_store():
+    online, offline = FakeOnlineStore(), FakeOfflineStore()
+    service = FeatureStoreService(online_store=online, offline_store=offline)
+    service.write_feature(_fv(value=1.0))
+
+    now = datetime.now(timezone.utc)
+    history = service.get_feature_history("BTC-USD", "rsi_14", now - timedelta(days=1), now + timedelta(days=1))
+    assert len(history) == 1
+    assert history[0].value == 1.0
+    assert ("BTC-USD", "rsi_14") not in [c for c in online.get_calls]
 
 
 def test_health_check_reports_both_stores():
