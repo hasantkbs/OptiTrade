@@ -20,8 +20,13 @@ Ağırlık hiyerarşisi (toplam ~100 puan alan skor):
   Potansiyel fiyat   : ±12
   Seans düzeltmesi   : %30 ağırlıkla karıştırılır
 """
+import logging
+import time
 from typing import Optional, List, Tuple, Dict
 from core.session_analysis import compute_session_score
+from core.structured_logging import STATUS_ERROR, log_event
+
+logger = logging.getLogger(__name__)
 
 
 def compute_score(
@@ -269,6 +274,7 @@ def compute_score(
 
     # ── Seans Düzeltmesi ─────────────────────────────────────────────────────
     base_score_clamped = max(0, min(100, score))
+    _session_step_started_at = time.perf_counter()
     try:
         session_data = compute_session_score(
             rsi=rsi,
@@ -287,8 +293,19 @@ def compute_score(
         else:
             long_signals = long_signals + sess_signals
 
-    except Exception:
+    except Exception as exc:
         final_score = base_score_clamped
+        log_event(
+            logger,
+            component="scoring_engine",
+            module="core.scoring",
+            operation="session_adjustment",
+            status=STATUS_ERROR,
+            error_type=type(exc).__name__,
+            execution_time_ms=(time.perf_counter() - _session_step_started_at) * 1000,
+            fallback_score=final_score,
+            level=logging.WARNING,
+        )
 
     final_score = max(0, min(100, final_score))
     return final_score, long_signals, short_signals

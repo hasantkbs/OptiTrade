@@ -624,6 +624,37 @@ def test_compute_score_falls_back_to_base_score_if_session_step_raises(monkeypat
     assert score == 64  # base_score_clamped for rsi=15.0 alone (50+14), session step ignored
 
 
+def test_compute_score_emits_a_structured_log_when_session_step_raises(monkeypatch, caplog):
+    """Sprint 1 Task 8: the previously-silent except block above now also
+    emits one structured, machine-readable JSON log event (status=error,
+    error_type set) - the score-fallback behavior itself is unchanged
+    (see the test above), this only adds observability for it."""
+    import json
+    import logging as logging_module
+
+    def raising_session_score(**kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("core.scoring.compute_session_score", raising_session_score)
+    with caplog.at_level(logging_module.WARNING, logger="core.scoring"):
+        score, _, _ = compute_score(
+            current_price=100.0, potential_price=None, volume_ratio=1.0,
+            balance_status="Notr", rsi=15.0, macd=None, macd_signal=None,
+        )
+
+    assert score == 64  # unchanged
+    assert len(caplog.records) == 1
+    record = json.loads(caplog.records[0].message)
+    assert record["component"] == "scoring_engine"
+    assert record["module"] == "core.scoring"
+    assert record["operation"] == "session_adjustment"
+    assert record["status"] == "error"
+    assert record["error_type"] == "RuntimeError"
+    assert record["fallback_score"] == 64
+    assert "execution_time_ms" in record
+    assert caplog.records[0].levelno == logging_module.WARNING
+
+
 def test_compute_score_prepends_session_signals_only_during_overlap(monkeypatch):
     """When session_code == 'OVERLAP', session_signals are prepended to
     long_signals; for every other session code they're appended instead."""
