@@ -41,3 +41,45 @@ def get_balance_status(symbol: str) -> str:
     if forward_eps is None or trailing_eps is None:
         return "Nötr"
     return "Pozitif" if forward_eps > trailing_eps else "Negatif"
+
+
+def fetch_financials(symbol: str) -> Optional[pd.DataFrame]:
+    """Annual income statement (multi-year columns, most recent first)."""
+    try:
+        ticker = yf.Ticker(symbol)
+        financials = ticker.financials
+        if financials is None or financials.empty:
+            logger.warning(f"No financials returned for {symbol}")
+            return None
+        return financials
+    except Exception as e:
+        logger.error(f"Error fetching financials for {symbol}: {e}")
+        return None
+
+
+def fetch_balance_sheet(symbol: str) -> Optional[pd.DataFrame]:
+    """Annual balance sheet (multi-year columns, most recent first)."""
+    try:
+        ticker = yf.Ticker(symbol)
+        balance_sheet = ticker.balance_sheet
+        if balance_sheet is None or balance_sheet.empty:
+            logger.warning(f"No balance sheet returned for {symbol}")
+            return None
+        return balance_sheet
+    except Exception as e:
+        logger.error(f"Error fetching balance sheet for {symbol}: {e}")
+        return None
+
+
+def fetch_cashflow_statement(symbol: str) -> Optional[pd.DataFrame]:
+    """Annual cash flow statement (multi-year columns, most recent first)."""
+    try:
+        ticker = yf.Ticker(symbol)
+        cashflow = ticker.cashflow
+        if cashflow is None or cashflow.empty:
+            logger.warning(f"No cash flow statement returned for {symbol}")
+            return None
+        return cashflow
+    except Exception as e:
+        logger.error(f"Error fetching cash flow statement for {symbol}: {e}")
+        return None
