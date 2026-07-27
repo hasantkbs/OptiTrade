@@ -196,3 +196,141 @@ Source: `backend/core/risk_manager.py` (`DynamicRiskManager`,
   `entry_price`/`atr` pair can produce different `RiskLevels` under a
   different `DynamicRiskManager` configuration, and nothing here currently
   records which configuration produced a given result.
+
+## ml_predictor.py
+
+Source: `backend/core/ml_predictor.py` (`get_ml_confidence`,
+`is_model_available`, `get_model_info`, module-private `_load_model`).
+Characterized in `backend/tests/test_ml_predictor.py` (26 tests, 100%
+line coverage, using a picklable `FakeModel`/`RaisingModel` written
+through real `joblib.dump`/`_load_model()` round-trips rather than
+mocking `joblib` itself, so the actual disk-loading code path is
+exercised).
+
+**Hidden runtime dependencies**
+- A module-level global, `_MODEL_CACHE`, makes model loading **process-wide
+  and effectively permanent** once it succeeds: `_load_model()` returns the
+  cached object immediately on every later call, without ever re-checking
+  `os.path.exists()` or re-reading the file. Deleting or replacing the
+  model file on disk after a successful load has zero effect on the
+  running process.
+- Conversely, a **missing or failed** load is never cached (`_MODEL_CACHE`
+  is only assigned inside the success path) — every call while the model
+  is unavailable re-runs the `os.path.exists()` check (and, if the file
+  exists but fails to unpickle, re-attempts the full `joblib.load()`) from
+  scratch, indefinitely, until it succeeds or the process restarts.
+- `_MODEL_PATH` is a hardcoded, `__file__`-relative path
+  (`backend/models/xgb_signal_model.joblib`) with no environment-variable
+  override, unlike other configurable parts of this codebase (e.g.
+  `GROQ_MODEL`/`GROQ_API_KEY`).
+- `joblib` and `numpy` are imported lazily, inside `_load_model()` and
+  `get_ml_confidence()` respectively, not at module top level — so a
+  missing `numpy`/`joblib` install only surfaces the first time a
+  prediction/load is actually attempted, not at import time.
+
+**Model-loading assumptions**
+- The loaded object is assumed to be a `dict`-like package with (at
+  minimum) a `"model"` key holding an object with a scikit-learn-style
+  `.predict_proba(X)` method. Nothing validates this shape when the model
+  is loaded — only when it's actually used.
+- The feature vector `get_ml_confidence()` builds (7 floats, fixed
+  order: rsi, macd_diff, bollinger_pb, ema_crossover-encoded,
+  trend_strength, price_velocity, volume_ratio) must exactly match what
+  the model currently in `backend/models/xgb_signal_model.joblib` was
+  trained on. There is no schema/feature-count/feature-order validation
+  connecting this function to the model artifact's own
+  `feature_names` metadata (which `get_model_info()` happily surfaces but
+  `get_ml_confidence()` never reads or checks against).
+
+**External resource dependencies**
+- A single file on local disk: `backend/models/xgb_signal_model.joblib`.
+  No network calls, no database, no external service.
+- In this development environment specifically, `xgboost` is **not
+  installed**, even though a real trained model file exists on disk — so
+  `joblib.load()` on the real file currently fails with
+  `ModuleNotFoundError` inside `_load_model()`'s try/except, silently
+  degrading to "model unavailable" in this environment. The tests in this
+  file avoid depending on that real file/environment state entirely, using
+  a synthetic `FakeModel` instead.
+
+**Error handling behavior**
+- `get_ml_confidence()` wraps its entire prediction path in a broad
+  `except Exception`, logged at **DEBUG** level, returning `None` on any
+  failure (bad package shape, missing `"model"` key, `predict_proba`
+  raising, etc.).
+- `_load_model()` wraps the load itself in a broad `except Exception`,
+  logged at **WARNING** level, also returning `None`.
+- `get_model_info()` has **no try/except at all** — if `_load_model()`
+  ever returns a successfully-loaded object that isn't dict-like (e.g. a
+  bare model object saved without the expected wrapper dict), every
+  `package.get(...)` call raises `AttributeError` **uncaught**. This is a
+  real inconsistency: the two "read the model" entry points
+  (`get_ml_confidence` vs `get_model_info`) do not fail the same way for
+  the same kind of malformed package.
+- The DEBUG-vs-WARNING split between prediction failures and load failures
+  means a production deployment that only surfaces WARNING+ logs would see
+  model *loading* failures but never see individual *prediction* failures.
+
+**Determinism**
+- `get_ml_confidence()` introduces no randomness or time-dependence of its
+  own — for a fixed model and fixed inputs, the result is deterministic
+  (verified directly). Any non-determinism would come only from the
+  underlying model itself (not exercised here, since the real XGBoost
+  model can't currently be loaded in this environment).
+- The returned confidence score is **not clamped** to `[0, 1]` in any way
+  — `get_ml_confidence()` returns `float(model.predict_proba(X)[0][1])`
+  exactly as given by the model, even if that value is outside the
+  documented "0.0–1.0 probability" range (verified with a model stubbed to
+  return 1.5).
+
+**Technical debt**
+- Required (non-`Optional`) parameters `volume_ratio` and `price_velocity`
+  are not actually enforced at runtime: passing `None` for either does not
+  raise — `numpy.array(..., dtype=np.float32)` silently converts a Python
+  `None` into `NaN`, which then flows straight into the model as a real
+  (if degenerate) input, rather than being rejected or defaulted the way
+  the `Optional` parameters are.
+- `macd_diff` is zeroed out if **either** `macd` or `macd_signal` is
+  `None` — not "use whichever one is available" — even when the other
+  value is large and meaningful.
+- No feature-schema versioning ties `get_ml_confidence()`'s hardcoded
+  7-feature vector to whatever model happens to be sitting at
+  `_MODEL_PATH`; a retrained model with a different feature count or order
+  would silently produce wrong (or, if `predict_proba` raises on shape
+  mismatch, silently `None`) predictions rather than a clear error.
+
+**Risks for the future Learning Engine**
+- The process-wide, load-once-forever cache means a running server process
+  will never pick up a newly retrained model file without a full process
+  restart — directly relevant to `backend/main.py`'s existing
+  `self_evolution_loop()` background task, which retrains the model daily
+  via `research/ml_trainer.py` (see the Task 7 research/production split)
+  but has no mechanism to tell already-running `core/ml_predictor` callers
+  to reload; they will keep serving whatever was cached at first use.
+- The lack of feature-schema validation between the training script and
+  this serving module means any future Learning Engine that changes the
+  feature set must also manually keep `get_ml_confidence()`'s hardcoded
+  feature list in sync — there is no shared schema to enforce it.
+
+**Risks for continuous training**
+- Because failed loads are retried on *every single call* rather than
+  backed off or cached negatively, a continuously-retraining pipeline that
+  produces a transiently-corrupt or partially-written model file could
+  cause every request touching `get_ml_confidence()`/`is_model_available()`
+  to repeatedly attempt (and fail) a full `joblib.load()` under load, with
+  no circuit breaker.
+- There is no atomic "swap" mechanism visible here (e.g. write-to-temp-then-
+  rename) — that would live in the training script, not this module, but
+  this module's permanent-once-loaded cache means whatever race exists
+  between a training script overwriting the file and a server process's
+  *first* load of it is a one-time event per process lifetime, not an
+  ongoing risk after the first successful load.
+
+**Risks for model versioning**
+- `get_model_info()` surfaces `cv_accuracy`, `cv_std`, `train_samples`,
+  `forward_days`, and `features` from the package dict, but there is no
+  model version identifier, training timestamp, or hash of any kind in
+  either the package format or the API surface — two different model
+  artifacts with identical metadata field values (or missing ones,
+  defaulted silently) are indistinguishable from `get_model_info()`'s
+  output alone.
