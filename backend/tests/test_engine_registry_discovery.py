@@ -6,27 +6,39 @@ mocking the import machinery — this proves package-walking + import-time
 self-registration genuinely works, not just that the function calls
 `importlib.import_module`.
 
-Each test clears `default_registry` first, since fixture modules register
-into that shared, process-wide instance by convention (real self-
-registering engines will do the same) and Python only re-runs a module's
-top-level code once per process (subsequent imports are no-ops), so the
-registry must be explicitly reset rather than relying on a fresh import.
+Each test snapshots and restores `default_registry`'s internal state
+around itself, rather than destructively `.clear()`-ing it: this is the
+same process-wide singleton real self-registering engines (e.g.
+`engines.technical.TechnicalEngine`) use, and once any test module in the
+same pytest session imports one of those, its registration must survive
+these tests running - a bare `.clear()` with no restoration silently
+erases it for the rest of the suite.
 """
 import sys
+
+import pytest
 
 from engine_registry.discovery import discover_engines
 from engine_registry.registry import default_registry
 
 
-def _reset_default_registry_and_forget_fixture_imports():
+@pytest.fixture(autouse=True)
+def isolated_default_registry():
+    saved_engines = dict(default_registry._engines)
+    saved_enabled = dict(default_registry._enabled)
     default_registry.clear()
     for module_name in list(sys.modules):
         if module_name.startswith("tests.fixtures.fake_engines"):
             del sys.modules[module_name]
 
+    yield
+
+    default_registry.clear()
+    default_registry._engines.update(saved_engines)
+    default_registry._enabled.update(saved_enabled)
+
 
 def test_discover_engines_imports_every_submodule_and_returns_their_names():
-    _reset_default_registry_and_forget_fixture_imports()
     imported = discover_engines("tests.fixtures.fake_engines")
 
     assert "tests.fixtures.fake_engines.engine_alpha" in imported
@@ -34,7 +46,6 @@ def test_discover_engines_imports_every_submodule_and_returns_their_names():
 
 
 def test_discover_engines_triggers_self_registration_as_an_import_side_effect():
-    _reset_default_registry_and_forget_fixture_imports()
     assert len(default_registry) == 0
 
     discover_engines("tests.fixtures.fake_engines")
@@ -45,7 +56,6 @@ def test_discover_engines_triggers_self_registration_as_an_import_side_effect():
 
 
 def test_discovered_engines_are_usable_through_the_registry():
-    _reset_default_registry_and_forget_fixture_imports()
     discover_engines("tests.fixtures.fake_engines")
 
     engine = default_registry.get("FakeEngineAlpha", "v1")
@@ -57,8 +67,6 @@ def test_a_broken_module_is_skipped_without_aborting_discovery_of_the_rest():
     # tests/fixtures/fake_engines/engine_gamma_broken.py raises at import
     # time - discover_engines must log and skip it, not propagate the
     # exception or stop importing engine_alpha.py/engine_beta.py.
-    _reset_default_registry_and_forget_fixture_imports()
-
     imported = discover_engines("tests.fixtures.fake_engines")
 
     assert "tests.fixtures.fake_engines.engine_gamma_broken" not in imported

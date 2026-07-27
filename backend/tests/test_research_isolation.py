@@ -1,10 +1,10 @@
 """
 Guards the production/research boundary introduced in Sprint 1, Task 7:
 nothing under core/, v2/, models/, data/, api/, feature_store/,
-decision_engine/, or engine_registry/ should import the `research`
-package. Research code may depend on production code (it already does -
-core.indicators, core.scoring); production must never depend on
-research code.
+decision_engine/, engine_registry/, or engines/ should import the
+`research` package. Research code may depend on production code (it
+already does - core.indicators, core.scoring); production must never
+depend on research code.
 
 Uses an AST scan rather than a simple string grep so that a substring
 match inside a comment or docstring (e.g. this very file's own docstring)
@@ -16,7 +16,7 @@ import pathlib
 BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
 PRODUCTION_DIRS = [
     "core", "v2", "models", "data", "api",
-    "feature_store", "decision_engine", "engine_registry",
+    "feature_store", "decision_engine", "engine_registry", "engines",
 ]
 
 
