@@ -1,14 +1,16 @@
 """
 Guards the production/research boundary introduced in Sprint 1, Task 7,
 and extended for `research_lab` (the Continuous Learning-era Research
-Lab package): nothing under core/, v2/, models/, data/, api/,
-feature_store/, decision_engine/, engine_registry/, engines/, or
-learning/ should import the `research` or `research_lab` packages.
-Research code may depend on production code (it already does -
-core.indicators, core.scoring, and research_lab reuses learning/
+Lab package) and the production execution pipeline: nothing under
+core/, v2/, models/, data/, api/, feature_store/, decision_engine/,
+engine_registry/, engines/, learning/, pipeline/, or
+explanation_engine/ should import the `research` or `research_lab`
+packages. Research code may depend on production code (it already does
+- core.indicators, core.scoring, and research_lab reuses learning/
 feature_store/decision_engine extensively); production (including the
-production-adjacent Continuous Learning system) must never depend on
-research code.
+production-adjacent Continuous Learning system and the new pipeline
+that must never let Research Lab execute during a live request) must
+never depend on research code.
 
 Uses an AST scan rather than a simple string grep so that a substring
 match inside a comment or docstring (e.g. this very file's own docstring)
@@ -21,6 +23,7 @@ BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
 PRODUCTION_DIRS = [
     "core", "v2", "models", "data", "api",
     "feature_store", "decision_engine", "engine_registry", "engines", "learning",
+    "pipeline", "explanation_engine",
 ]
 FORBIDDEN_PACKAGES = ["research", "research_lab"]
 
@@ -50,6 +53,27 @@ def test_no_production_module_imports_research():
             if _imports_forbidden(py_file):
                 offenders.append(str(py_file.relative_to(BACKEND_ROOT)))
     assert offenders == [], f"production modules importing research/research_lab: {offenders}"
+
+
+def test_main_module_does_not_import_research_lab():
+    # main.py already has a pre-existing, legitimate dependency on
+    # `research.ml_trainer.train` for its self-evolution retraining
+    # loop (Sprint 1) - that one stays allowed. `research_lab` is a
+    # different story: it must never execute during a live request, so
+    # main.py must never import it at all.
+    main_py = BACKEND_ROOT / "main.py"
+    tree = ast.parse(main_py.read_text(encoding="utf-8"), filename=str(main_py))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert not (alias.name == "research_lab" or alias.name.startswith("research_lab.")), (
+                    "main.py must never import research_lab"
+                )
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                assert not (node.module == "research_lab" or node.module.startswith("research_lab.")), (
+                    "main.py must never import research_lab"
+                )
 
 
 def test_research_lab_package_exists():

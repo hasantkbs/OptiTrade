@@ -35,6 +35,7 @@ from data.fetcher import fetch_history
 from v2.api.router import router as v2_router
 from api.v1.router import api_v1_router
 from core.rate_limiter import limiter
+from pipeline import PipelineResponse, PipelineService, QuantAnalysisRequest
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -114,6 +115,11 @@ async def self_evolution_loop() -> None:
 @app.on_event("startup")
 async def startup_event() -> None:
     init_db()
+    global _pipeline_service
+    try:
+        _pipeline_service = PipelineService()
+    except Exception as e:
+        logger.error(f"Quant pipeline baslatilamadi: {e}")
     asyncio.create_task(self_evolution_loop())
 
 @app.get("/ml/performance")
@@ -135,6 +141,10 @@ SELL_CODES = {"STRONG_SELL", "SELL"}
 
 # Thread pool for parallel yfinance calls
 _executor = ThreadPoolExecutor(max_workers=16)
+
+# Quant Research Platform pipeline — constructed once at startup (see
+# startup_event) and reused across every request; None until then.
+_pipeline_service: Optional[PipelineService] = None
 
 # ── Firebase Auth Dependency ───────────────────────────────────────────────────
 async def verify_firebase_token(
@@ -520,6 +530,28 @@ def analyze_enhanced(request: Request, body: EnhancedAnalysisRequest,
                 n_days=body.n_days,
             )
     return _enrich_result(result, mc_data)
+
+# ── Quant Research Platform ─────────────────────────────────────────────────────
+
+@app.post("/quant/analyze", response_model=PipelineResponse)
+@limiter.limit("10/minute")
+async def quant_analyze(
+    request: Request, body: QuantAnalysisRequest,
+    uid: Optional[str] = Depends(verify_firebase_token),
+) -> PipelineResponse:
+    """Runs the new Quant Research Platform pipeline (Feature Store ->
+    Technical/Fundamental/News Engines -> Decision Engine ->
+    Explanation Engine -> Learning Tracker) for one symbol. Separate
+    from the legacy /analyze endpoint - see that endpoint's docstring
+    for the backward-compatibility guarantee this one does not carry."""
+    if _pipeline_service is None:
+        raise HTTPException(status_code=503, detail="Quant pipeline henüz hazır değil.")
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(_executor, _pipeline_service.run, body.symbol.upper())
+    except Exception as e:
+        logger.error(f"Quant pipeline hatasi ({body.symbol}): {e}")
+        raise HTTPException(status_code=500, detail=f"{body.symbol} icin analiz calistirilamadi.")
 
 # ── Portfolio ──────────────────────────────────────────────────────────────────
 
