@@ -140,6 +140,26 @@ def test_actual_volatility_is_realized_from_price_series(repository):
     assert outcomes[0].actual_volatility >= 0.0
 
 
+def test_realized_volatility_with_a_single_return_is_zero_not_nan():
+    # A window containing exactly two price points produces exactly one
+    # daily return - pandas' sample std (ddof=1) is undefined for a
+    # single value and returns NaN; this must degrade to 0.0 instead,
+    # matching the "insufficient data" convention used everywhere else
+    # in this function, not propagate a NaN volatility.
+    import math
+
+    from learning.evaluator import OutcomeEvaluator as Evaluator
+
+    start = datetime.now(timezone.utc)
+    end = start + timedelta(days=1)
+    two_point_window = pd.DataFrame(
+        {"Close": [100.0, 101.0]}, index=pd.date_range(start=start, periods=2, freq="D", tz="UTC"),
+    )
+    volatility = Evaluator._realized_volatility(two_point_window, start, end)
+    assert volatility == 0.0
+    assert not math.isnan(volatility)
+
+
 def test_evaluator_defaults_to_real_repository_and_config():
     evaluator = OutcomeEvaluator()
     assert isinstance(evaluator.repository, LearningRepository)

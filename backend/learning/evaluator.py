@@ -123,7 +123,11 @@ class OutcomeEvaluator:
         if len(window) < 2:
             return 0.0
         daily_returns = window["Close"].pct_change().dropna()
-        if daily_returns.empty:
+        if len(daily_returns) < 2:
+            # A single return has no defined sample standard deviation
+            # (pandas' default ddof=1 divides by n-1=0, producing NaN) -
+            # treat it the same as "insufficient data" rather than
+            # propagate a NaN volatility.
             return 0.0
         return float(daily_returns.std() * (252 ** 0.5) * 100)
 
