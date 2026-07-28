@@ -17,7 +17,14 @@ class CatBoostTrainer(BaseTrainer):
         self, X_train: np.ndarray, y_train: np.ndarray,
         X_val: Optional[np.ndarray] = None, y_val: Optional[np.ndarray] = None,
     ) -> None:
-        params = {"random_state": self.config.random_state, "verbose": False, **self.hyperparameters}
+        # allow_writing_files=False: CatBoost otherwise writes a
+        # catboost_info/ directory of training logs into the current
+        # working directory on every fit() call - never appropriate
+        # for a production training service.
+        params = {
+            "random_state": self.config.random_state, "verbose": False,
+            "allow_writing_files": False, **self.hyperparameters,
+        }
         self._model = (
             CatBoostClassifier(**params) if self.task_type == TaskType.CLASSIFICATION
             else CatBoostRegressor(**params)

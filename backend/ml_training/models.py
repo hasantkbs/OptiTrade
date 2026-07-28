@@ -168,13 +168,26 @@ def task_type_for_label(label_name: LabelName) -> TaskType:
 
 
 class ModelMetrics(BaseModel):
-    """Combines Continuous Learning's already-computed accuracy/
-    precision/recall/calibration (`AccuracyMetrics`, embedded verbatim)
-    with classification metrics not tracked there (ROC AUC), regression
-    error metrics (MAE/RMSE), and Research Lab's trading-performance
-    metrics (Sharpe/Sortino/max drawdown/expected value), plus profit
-    factor (new)."""
+    """`accuracy`/`precision`/`recall`/`f1`/`calibration_error` are
+    computed directly from a raw train/test split (via scikit-learn's
+    `precision_score`/`recall_score`, the exact functions
+    `learning/accuracy.py` already uses, and
+    `learning.calibration.expected_calibration_error`'s ECE algorithm
+    reused via lightweight duck-typed points - see
+    `evaluation/metrics.py`). `accuracy_metrics` is a SEPARATE,
+    optional enrichment: once a model is shadow-deployed and
+    Continuous Learning has accumulated real evaluated outcomes for it,
+    `learning.accuracy.compute_accuracy_metrics`'s own windowed
+    `AccuracyMetrics` can be embedded here verbatim instead of being
+    re-derived. ROC AUC/MAE/RMSE are not tracked anywhere else.
+    Sharpe/Sortino/max drawdown/expected value are reused directly from
+    `research_lab.model_analysis.metrics`; profit factor is new."""
 
+    accuracy: float = Field(default=0.0, ge=0.0, le=1.0)
+    precision: float = Field(default=0.0, ge=0.0, le=1.0)
+    recall: float = Field(default=0.0, ge=0.0, le=1.0)
+    f1: float = Field(default=0.0, ge=0.0, le=1.0)
+    calibration_error: float = Field(default=0.0, ge=0.0, le=1.0)
     accuracy_metrics: Optional[AccuracyMetrics] = None
     roc_auc: Optional[float] = None
     mae: Optional[float] = None

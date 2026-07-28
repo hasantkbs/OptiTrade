@@ -90,3 +90,7 @@ backend/firebase-credentials.json
 **/GoogleService-Info.plist
 .firebaserc
 
+
+# CatBoost training logs (allow_writing_files=False is set in
+# ml_training/training/catboost_trainer.py, but ignore defensively)
+catboost_info/
