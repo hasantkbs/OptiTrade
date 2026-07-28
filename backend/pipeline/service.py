@@ -9,6 +9,21 @@ already-self-registered singleton instances every other part of this
 backend shares (`engine_registry.registry.default_registry`), each
 lazily constructing its own Feature Store connection exactly once, on
 first use, for the lifetime of the process - not per request.
+
+Model Serving integration (requirement 9 of the Model Serving
+Platform): every currently-served DIRECTION model is folded into
+`self.pipeline.engines` on each `run()` call, alongside the fixed
+Technical/Fundamental/News three - `Pipeline` itself (frozen, untouched)
+has no idea an ML model is any different from those three, and
+`pipeline.executor.ParallelEngineExecutor` runs all of them concurrently
+with zero duplicated logic. Refreshing the engine list on every call
+(rather than once at construction, like the fixed three) is what makes
+"automatic reload"/"version routing" (`model_serving`'s own
+requirements) actually reach a already-running process - the
+per-request cost is bounded by `model_serving`'s own Redis cache, not a
+Postgres round trip every time. Shadow inference for the same symbol is
+then submitted in the background (see `model_serving.shadow`) - it
+never affects the response just returned.
 """
 from __future__ import annotations
 
@@ -25,6 +40,7 @@ from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from decision_engine.interfaces import VotingEngineProtocol
 from engine_registry.registry import EngineRegistry, default_registry
 from feature_store.service import FeatureStoreService
+from model_serving.service import PredictionService
 from pipeline.config import PipelineConfig
 from pipeline.models import PipelineResponse
 from pipeline.pipeline import Pipeline
@@ -41,11 +57,14 @@ class PipelineService:
         pipeline: Optional[Pipeline] = None,
         engine_registry: Optional[EngineRegistry] = None,
         feature_store: Optional[FeatureStoreService] = None,
+        model_serving: Optional[PredictionService] = None,
         config: Optional[PipelineConfig] = None,
     ) -> None:
         self.config = config or PipelineConfig.from_env()
         self.feature_store = feature_store or FeatureStoreService()
         self.engine_registry = engine_registry or default_registry
+        self.model_serving = model_serving or PredictionService()
+        self.model_serving.warm_up()
         self.pipeline = pipeline or Pipeline(
             engines=self._resolve_engines(), feature_store=self.feature_store, config=self.config,
         )
@@ -72,4 +91,18 @@ class PipelineService:
         return resolved
 
     def run(self, symbol: str) -> PipelineResponse:
-        return self.pipeline.run(symbol.upper())
+        symbol = symbol.upper()
+        self.pipeline.engines = self._resolve_engines() + self._resolve_model_serving_engines()
+        response = self.pipeline.run(symbol)
+        self.model_serving.run_shadow_inference(symbol)
+        return response
+
+    def _resolve_model_serving_engines(self) -> List[VotingEngineProtocol]:
+        try:
+            return self.model_serving.get_active_engines()
+        except Exception as exc:
+            log_event(
+                logger, component="pipeline", module="pipeline.service", operation="resolve_model_serving_engines",
+                status=STATUS_ERROR, error_type=type(exc).__name__, level=logging.ERROR,
+            )
+            return []
