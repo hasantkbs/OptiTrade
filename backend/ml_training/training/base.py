@@ -13,6 +13,16 @@ compatible estimator classes (`LGBMClassifier`/`XGBClassifier`/
 of each library's native Booster API specifically so this one base
 class can serve all four uniformly.
 
+Label encoding is also centralized here: XGBoost (unlike the other
+three) rejects non-numeric class labels outright, discovered via real
+training on the platform's own BUY/HOLD/SELL direction labels. Every
+trainer therefore encodes classification labels through a shared
+`LabelEncoder` before handing them to the underlying library, and
+decodes `predict()`'s output back to the original labels - so from a
+caller's perspective, all four trainers accept and return the exact
+same label values regardless of which library needs numeric encoding
+internally.
+
 Persistence reuses `joblib` - the same library `core/ml_predictor.py`'s
 existing `models/xgb_signal_model.joblib` was already saved with.
 """
@@ -23,6 +33,7 @@ from typing import Dict, List, Optional
 
 import joblib
 import numpy as np
+from sklearn.preprocessing import LabelEncoder
 
 from core.structured_logging import STATUS_SUCCESS, log_event
 from ml_training.config import MLTrainingConfig
@@ -34,7 +45,9 @@ logger = logging.getLogger(__name__)
 
 class BaseTrainer:
     """Not directly instantiated - subclasses set `algorithm` and
-    implement `fit()`."""
+    implement `fit()`, calling `self._encode_y(y_train)`/
+    `self._encode_y(y_val)` on any label array before handing it to the
+    underlying library."""
 
     algorithm: ModelAlgorithm
 
@@ -50,10 +63,20 @@ class BaseTrainer:
         self.hyperparameters = dict(hyperparameters or {})
         self.config = config or MLTrainingConfig()
         self._model = None
+        self._label_encoder: Optional[LabelEncoder] = None
 
     @property
     def is_fitted(self) -> bool:
         return self._model is not None
+
+    @property
+    def classes_(self) -> Optional[np.ndarray]:
+        """The original (pre-encoding) class labels, in the same order
+        as `predict_proba()`'s columns - `None` for regression
+        trainers."""
+        if self._label_encoder is not None:
+            return self._label_encoder.classes_
+        return None
 
     def fit(
         self, X_train: np.ndarray, y_train: np.ndarray,
@@ -61,9 +84,20 @@ class BaseTrainer:
     ) -> None:
         raise NotImplementedError
 
+    def _encode_y(self, y: np.ndarray, fit_encoder: bool) -> np.ndarray:
+        if self.task_type != TaskType.CLASSIFICATION:
+            return np.asarray(y)
+        if fit_encoder:
+            self._label_encoder = LabelEncoder()
+            return self._label_encoder.fit_transform(y)
+        return self._label_encoder.transform(y)
+
     def predict(self, X: np.ndarray) -> np.ndarray:
         self._require_fitted()
-        return np.asarray(self._model.predict(X))
+        raw = np.asarray(self._model.predict(X))
+        if self._label_encoder is not None:
+            return self._label_encoder.inverse_transform(raw.astype(int))
+        return raw
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         self._require_fitted()
@@ -87,7 +121,7 @@ class BaseTrainer:
             {
                 "algorithm": self.algorithm.value, "model": self._model,
                 "feature_names": self.feature_names, "task_type": self.task_type.value,
-                "hyperparameters": self.hyperparameters,
+                "hyperparameters": self.hyperparameters, "label_encoder": self._label_encoder,
             },
             path,
         )
@@ -102,6 +136,7 @@ class BaseTrainer:
         self.feature_names = payload["feature_names"]
         self.task_type = TaskType(payload["task_type"])
         self.hyperparameters = payload["hyperparameters"]
+        self._label_encoder = payload.get("label_encoder")
         log_event(
             logger, component="ml_training", module="ml_training.training.base", operation="load",
             status=STATUS_SUCCESS, algorithm=self.algorithm.value, path=path,

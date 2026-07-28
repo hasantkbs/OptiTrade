@@ -30,10 +30,11 @@ class CatBoostTrainer(BaseTrainer):
             else CatBoostRegressor(**params)
         )
 
+        y_train_encoded = self._encode_y(y_train, fit_encoder=True)
         fit_kwargs = {}
         if X_val is not None and y_val is not None:
-            fit_kwargs["eval_set"] = (X_val, y_val)
+            fit_kwargs["eval_set"] = (X_val, self._encode_y(y_val, fit_encoder=False))
             fit_kwargs["early_stopping_rounds"] = self.config.early_stopping_rounds
             fit_kwargs["verbose"] = False
 
-        self._model.fit(X_train, y_train, **fit_kwargs)
+        self._model.fit(X_train, y_train_encoded, **fit_kwargs)

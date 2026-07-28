@@ -28,4 +28,5 @@ class RandomForestTrainer(BaseTrainer):
             RandomForestClassifier(**params) if self.task_type == TaskType.CLASSIFICATION
             else RandomForestRegressor(**params)
         )
-        self._model.fit(X_train, y_train)
+        y_train_encoded = self._encode_y(y_train, fit_encoder=True)
+        self._model.fit(X_train, y_train_encoded)
