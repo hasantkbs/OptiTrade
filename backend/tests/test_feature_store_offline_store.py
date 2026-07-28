@@ -224,3 +224,61 @@ def test_get_history_wraps_a_real_database_error_in_featurestoreerror(store, sym
             dbname=store._config.postgres_db, user=store._config.postgres_user,
             password=store._config.postgres_password,
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# list_feature_names - added for the ML Training Platform's feature
+# extractor, which needs to auto-discover every feature currently
+# recorded for a symbol rather than depending on a hardcoded list.
+# ─────────────────────────────────────────────────────────────────────────
+
+def test_list_feature_names_returns_empty_list_when_nothing_written(store, symbol):
+    assert store.list_feature_names(symbol) == []
+
+
+def test_list_feature_names_returns_every_distinct_feature_name(store, symbol):
+    store.insert(_record(symbol, feature_name="rsi_14", value=50.0))
+    store.insert(_record(symbol, feature_name="macd_line", value=1.0))
+    store.insert(_record(symbol, feature_name="pe_ratio", value=20.0))
+
+    names = store.list_feature_names(symbol)
+    assert set(names) == {"rsi_14", "macd_line", "pe_ratio"}
+
+
+def test_list_feature_names_does_not_duplicate_repeated_writes(store, symbol):
+    store.insert(_record(symbol, feature_name="rsi_14", value=50.0))
+    store.insert(_record(symbol, feature_name="rsi_14", value=55.0))
+    names = store.list_feature_names(symbol)
+    assert names.count("rsi_14") == 1
+
+
+def test_list_feature_names_scoped_to_the_requested_symbol_only(store, symbol):
+    other_symbol = f"{symbol}-OTHER"
+    store.insert(_record(symbol, feature_name="rsi_14", value=50.0))
+    store.insert(_record(other_symbol, feature_name="macd_line", value=1.0))
+    try:
+        names = store.list_feature_names(symbol)
+        assert names == ["rsi_14"]
+    finally:
+        conn = store._pool.getconn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM feature_store_records WHERE symbol = %s", (other_symbol,))
+        finally:
+            store._pool.putconn(conn)
+
+
+def test_list_feature_names_wraps_a_real_database_error_in_featurestoreerror(store, symbol):
+    from feature_store.exceptions import FeatureStoreError
+
+    store._pool.closeall()
+    try:
+        with pytest.raises(FeatureStoreError):
+            store.list_feature_names(symbol)
+    finally:
+        store._pool = store._pool.__class__(
+            1, 5,
+            host=store._config.postgres_host, port=store._config.postgres_port,
+            dbname=store._config.postgres_db, user=store._config.postgres_user,
+            password=store._config.postgres_password,
+        )

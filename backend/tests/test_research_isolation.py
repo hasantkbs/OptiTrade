@@ -1,16 +1,17 @@
 """
 Guards the production/research boundary introduced in Sprint 1, Task 7,
 and extended for `research_lab` (the Continuous Learning-era Research
-Lab package) and the production execution pipeline: nothing under
-core/, v2/, models/, data/, api/, feature_store/, decision_engine/,
-engine_registry/, engines/, learning/, pipeline/, or
-explanation_engine/ should import the `research` or `research_lab`
-packages. Research code may depend on production code (it already does
-- core.indicators, core.scoring, and research_lab reuses learning/
+Lab package), the production execution pipeline, and `ml_training` (the
+ML Training Platform): nothing under core/, v2/, models/, data/, api/,
+feature_store/, decision_engine/, engine_registry/, engines/, learning/,
+pipeline/, or explanation_engine/ should import the `research`,
+`research_lab`, or `ml_training` packages. Research/training code may
+depend on production code (it already does - core.indicators,
+core.scoring, and research_lab/ml_training both reuse learning/
 feature_store/decision_engine extensively); production (including the
-production-adjacent Continuous Learning system and the new pipeline
-that must never let Research Lab execute during a live request) must
-never depend on research code.
+production-adjacent Continuous Learning system and the pipeline that
+must never let Research Lab or model training execute during a live
+request) must never depend on research or training code.
 
 Uses an AST scan rather than a simple string grep so that a substring
 match inside a comment or docstring (e.g. this very file's own docstring)
@@ -25,7 +26,7 @@ PRODUCTION_DIRS = [
     "feature_store", "decision_engine", "engine_registry", "engines", "learning",
     "pipeline", "explanation_engine",
 ]
-FORBIDDEN_PACKAGES = ["research", "research_lab"]
+FORBIDDEN_PACKAGES = ["research", "research_lab", "ml_training"]
 
 
 def _imports_forbidden(py_file: pathlib.Path) -> bool:
@@ -52,27 +53,28 @@ def test_no_production_module_imports_research():
         for py_file in directory.rglob("*.py"):
             if _imports_forbidden(py_file):
                 offenders.append(str(py_file.relative_to(BACKEND_ROOT)))
-    assert offenders == [], f"production modules importing research/research_lab: {offenders}"
+    assert offenders == [], f"production modules importing research/research_lab/ml_training: {offenders}"
 
 
-def test_main_module_does_not_import_research_lab():
+def test_main_module_does_not_import_research_lab_or_ml_training():
     # main.py already has a pre-existing, legitimate dependency on
     # `research.ml_trainer.train` for its self-evolution retraining
-    # loop (Sprint 1) - that one stays allowed. `research_lab` is a
-    # different story: it must never execute during a live request, so
-    # main.py must never import it at all.
+    # loop (Sprint 1) - that one stays allowed. `research_lab` and
+    # `ml_training` are a different story: neither must ever execute
+    # during a live request, so main.py must never import either.
     main_py = BACKEND_ROOT / "main.py"
     tree = ast.parse(main_py.read_text(encoding="utf-8"), filename=str(main_py))
+    blocked = ("research_lab", "ml_training")
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                assert not (alias.name == "research_lab" or alias.name.startswith("research_lab.")), (
-                    "main.py must never import research_lab"
+                assert not any(alias.name == pkg or alias.name.startswith(f"{pkg}.") for pkg in blocked), (
+                    f"main.py must never import {blocked}"
                 )
         elif isinstance(node, ast.ImportFrom):
             if node.module:
-                assert not (node.module == "research_lab" or node.module.startswith("research_lab.")), (
-                    "main.py must never import research_lab"
+                assert not any(node.module == pkg or node.module.startswith(f"{pkg}.") for pkg in blocked), (
+                    f"main.py must never import {blocked}"
                 )
 
 

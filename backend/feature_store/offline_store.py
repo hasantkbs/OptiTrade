@@ -187,6 +187,47 @@ class PostgresOfflineStore:
             return None
         return FeatureRecord(**dict(row))
 
+    def list_feature_names(self, symbol: str) -> List[str]:
+        """Every distinct `feature_name` ever recorded for `symbol` -
+        used by offline consumers (e.g. the ML Training Platform's
+        feature extractor) that need to auto-discover whatever
+        features currently exist for a symbol, including ones added
+        after this method itself was written, rather than depending on
+        a hardcoded list."""
+        started_at = time.perf_counter()
+        try:
+            with self._connection() as conn, conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT DISTINCT feature_name FROM feature_store_records WHERE symbol = %s",
+                    (symbol,),
+                )
+                rows = cur.fetchall()
+        except psycopg2.Error as exc:
+            log_event(
+                logger,
+                component="feature_store",
+                module="feature_store.offline_store",
+                operation="list_feature_names",
+                status=STATUS_ERROR,
+                symbol=symbol,
+                error_type=type(exc).__name__,
+                execution_time_ms=(time.perf_counter() - started_at) * 1000,
+                level=logging.ERROR,
+            )
+            raise FeatureStoreError(f"failed to list feature names: {exc}") from exc
+
+        log_event(
+            logger,
+            component="feature_store",
+            module="feature_store.offline_store",
+            operation="list_feature_names",
+            status=STATUS_SUCCESS,
+            symbol=symbol,
+            execution_time_ms=(time.perf_counter() - started_at) * 1000,
+            row_count=len(rows),
+        )
+        return [row[0] for row in rows]
+
     def get_history(
         self, symbol: str, feature_name: str, start: datetime, end: datetime
     ) -> List[FeatureRecord]:

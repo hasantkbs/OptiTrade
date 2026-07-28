@@ -18,6 +18,11 @@ scikit-learn>=1.4.0
 joblib>=1.3.0
 pandas-ta>=0.4.71b0
 groq>=0.13.0
+lightgbm>=4.7.0
+xgboost>=2.0.0
+catboost>=1.2.0
+optuna>=4.0.0
+shap>=0.45.0
 # Admin Terminal
 typer[all]>=0.12.0
 rich>=13.7.0

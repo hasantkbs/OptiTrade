@@ -70,6 +70,9 @@ class FakeOfflineStore:
             return [record]
         return []
 
+    def list_feature_names(self, symbol: str) -> List[str]:
+        return [name for (sym, name) in self._data if sym == symbol]
+
     def ping(self) -> bool:
         return True
 
@@ -195,6 +198,13 @@ def test_get_feature_history_only_ever_queries_the_offline_store():
     assert len(history) == 1
     assert history[0].value == 1.0
     assert ("BTC-USD", "rsi_14") not in [c for c in online.get_calls]
+
+
+def test_list_feature_names_delegates_to_the_offline_store():
+    service = FeatureStoreService(online_store=FakeOnlineStore(), offline_store=FakeOfflineStore())
+    service.write_feature(_fv(symbol="BTC-USD", feature_name="rsi_14", value=1.0))
+    service.write_feature(_fv(symbol="BTC-USD", feature_name="macd_line", value=2.0))
+    assert set(service.list_feature_names("BTC-USD")) == {"rsi_14", "macd_line"}
 
 
 def test_health_check_reports_both_stores():

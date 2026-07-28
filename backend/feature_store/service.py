@@ -156,6 +156,12 @@ class FeatureStoreService:
         read path."""
         return self.offline_store.get_history(symbol, feature_name, start, end)
 
+    def list_feature_names(self, symbol: str) -> List[str]:
+        """Every distinct feature name ever recorded for `symbol` -
+        always goes to the offline store, the only one that retains
+        history."""
+        return self.offline_store.list_feature_names(symbol)
+
     def health_check(self) -> Dict[str, Any]:
         """Connectivity monitoring hook for both backing stores. Not wired
         into any HTTP endpoint yet — a future API-integration step can
