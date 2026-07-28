@@ -36,6 +36,8 @@ from v2.api.router import router as v2_router
 from api.v1.router import api_v1_router
 from core.rate_limiter import limiter
 from pipeline import PipelineResponse, PipelineService, QuantAnalysisRequest
+from model_serving import MLPredictionRequest, MLPredictionResult, ServingHealthReport
+from model_serving.exceptions import ModelServingError, NoActiveModelError
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -552,6 +554,40 @@ async def quant_analyze(
     except Exception as e:
         logger.error(f"Quant pipeline hatasi ({body.symbol}): {e}")
         raise HTTPException(status_code=500, detail=f"{body.symbol} icin analiz calistirilamadi.")
+
+@app.post("/quant/predict", response_model=MLPredictionResult)
+@limiter.limit("10/minute")
+async def quant_predict(
+    request: Request, body: MLPredictionRequest,
+    uid: Optional[str] = Depends(verify_firebase_token),
+) -> MLPredictionResult:
+    """Direct prediction from a single trained ML model (Model Serving
+    Platform), bypassing Decision Engine aggregation - separate,
+    additive endpoint; `/quant/analyze` already folds every ACTIVE
+    model into its own aggregated decision (see `pipeline.service.
+    PipelineService.run`), so this one exists purely for callers that
+    want a specific model's raw vote and metadata instead. Backward
+    compatible with every existing endpoint - nothing here changes any
+    other route's request or response shape."""
+    if _pipeline_service is None:
+        raise HTTPException(status_code=503, detail="Quant pipeline henüz hazır değil.")
+    try:
+        return await _pipeline_service.model_serving.predict_async(
+            body.symbol.upper(), body.label_name, body.horizon_days,
+        )
+    except NoActiveModelError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ModelServingError as e:
+        logger.error(f"Model serving hatasi ({body.symbol}): {e}")
+        raise HTTPException(status_code=500, detail=f"{body.symbol} icin ML tahmini yapilamadi.")
+
+@app.get("/quant/model-serving/health", response_model=ServingHealthReport)
+def quant_model_serving_health() -> ServingHealthReport:
+    """Structured Model Serving health: per-model load status,
+    inference latency, cache connectivity, loading failure count."""
+    if _pipeline_service is None:
+        raise HTTPException(status_code=503, detail="Quant pipeline henüz hazır değil.")
+    return _pipeline_service.model_serving.health_report()
 
 # ── Portfolio ──────────────────────────────────────────────────────────────────
 
