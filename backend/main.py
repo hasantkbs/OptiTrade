@@ -38,6 +38,46 @@ from core.rate_limiter import limiter
 from pipeline import PipelineResponse, PipelineService, QuantAnalysisRequest
 from model_serving import MLPredictionRequest, MLPredictionResult, ServingHealthReport
 from model_serving.exceptions import ModelServingError, NoActiveModelError
+from portfolio import (
+    PortfolioDashboardService,
+    PortfolioOptimizationService,
+    PortfolioService,
+    PositionAnalyticsService,
+    RebalancingService,
+    RecommendationEngine,
+    RiskAnalyticsService,
+    ScenarioAnalysisService,
+)
+from portfolio.exceptions import (
+    InsufficientCashError,
+    InsufficientPositionError,
+    InsufficientPriceDataError,
+    InvalidTransactionError,
+    PortfolioError,
+    PortfolioNotFoundError,
+)
+from portfolio.models import (
+    CreatePortfolioRequest,
+    DepositRequest,
+    DividendRequest,
+    OptimizationResult,
+    OptimizeRequest,
+    Portfolio,
+    PortfolioDashboard,
+    PortfolioSnapshot,
+    PositionAnalytics,
+    RebalancePlan,
+    RebalanceRequest,
+    Recommendation,
+    RecommendationsRequest,
+    RiskAnalytics,
+    ScenarioRequest,
+    ScenarioResult,
+    ScenarioType,
+    TradeRequest,
+    Transaction,
+    WithdrawRequest,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -117,11 +157,38 @@ async def self_evolution_loop() -> None:
 @app.on_event("startup")
 async def startup_event() -> None:
     init_db()
-    global _pipeline_service
+    global _pipeline_service, _portfolio_service, _portfolio_analytics, _portfolio_risk
+    global _portfolio_optimization, _portfolio_rebalancing, _portfolio_scenarios
+    global _portfolio_recommendations, _portfolio_dashboard
     try:
         _pipeline_service = PipelineService()
     except Exception as e:
         logger.error(f"Quant pipeline baslatilamadi: {e}")
+    try:
+        _portfolio_service = PortfolioService()
+        _portfolio_analytics = PositionAnalyticsService(portfolio_service=_portfolio_service)
+        _portfolio_risk = RiskAnalyticsService(position_analytics_service=_portfolio_analytics)
+        _portfolio_rebalancing = RebalancingService(position_analytics_service=_portfolio_analytics)
+        # Both optimization and recommendations reuse the same live
+        # Quant Research Platform pipeline for their forward-looking
+        # views (requirement 4's "Reuse existing Prediction Pipeline
+        # outputs", requirement 7's "Use Decision Engine outputs") -
+        # `None` (views disabled) until `_pipeline_service` itself is
+        # ready, exactly like every other consumer of it in this file.
+        _portfolio_optimization = PortfolioOptimizationService(
+            price_service=_portfolio_service.price_service, pipeline_service=_pipeline_service,
+        )
+        _portfolio_scenarios = ScenarioAnalysisService(position_analytics_service=_portfolio_analytics)
+        _portfolio_recommendations = RecommendationEngine(
+            position_analytics_service=_portfolio_analytics, risk_analytics_service=_portfolio_risk,
+            rebalancing_service=_portfolio_rebalancing, pipeline_service=_pipeline_service,
+        )
+        _portfolio_dashboard = PortfolioDashboardService(
+            portfolio_service=_portfolio_service, position_analytics_service=_portfolio_analytics,
+            risk_analytics_service=_portfolio_risk, recommendation_engine=_portfolio_recommendations,
+        )
+    except Exception as e:
+        logger.error(f"Portfolio Intelligence Platform baslatilamadi: {e}")
     asyncio.create_task(self_evolution_loop())
 
 @app.get("/ml/performance")
@@ -148,6 +215,18 @@ _executor = ThreadPoolExecutor(max_workers=16)
 # startup_event) and reused across every request; None until then.
 _pipeline_service: Optional[PipelineService] = None
 
+# Portfolio Intelligence Platform — same "construct once at startup,
+# reuse across every request" convention; all None until startup_event
+# finishes wiring them up.
+_portfolio_service: Optional[PortfolioService] = None
+_portfolio_analytics: Optional[PositionAnalyticsService] = None
+_portfolio_risk: Optional[RiskAnalyticsService] = None
+_portfolio_optimization: Optional[PortfolioOptimizationService] = None
+_portfolio_rebalancing: Optional[RebalancingService] = None
+_portfolio_scenarios: Optional[ScenarioAnalysisService] = None
+_portfolio_recommendations: Optional[RecommendationEngine] = None
+_portfolio_dashboard: Optional[PortfolioDashboardService] = None
+
 # ── Firebase Auth Dependency ───────────────────────────────────────────────────
 async def verify_firebase_token(
     authorization: Optional[str] = Header(default=None)
@@ -162,6 +241,46 @@ async def verify_firebase_token(
         return decoded["uid"]
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Gecersiz token: {e}")
+
+# ── Portfolio Intelligence Platform helpers ─────────────────────────────────────
+async def _run_in_executor(func, *args):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_executor, func, *args)
+
+
+def _resolve_portfolio_owner(uid: Optional[str], fallback_owner: Optional[str]) -> str:
+    owner = uid or fallback_owner
+    if not owner:
+        raise HTTPException(
+            status_code=401, detail="Portfoy sahibi belirlenemedi (giris yapin veya owner belirtin)."
+        )
+    return owner
+
+
+def _authorize_portfolio_access(portfolio_obj: Portfolio, uid: Optional[str]) -> None:
+    # Firebase not configured (uid is always None in that mode, see
+    # verify_firebase_token) - every other endpoint in this file is
+    # equally permissive in that mode, so ownership is only enforced
+    # once a real, verified uid exists to check against.
+    if uid is not None and portfolio_obj.owner != uid:
+        raise HTTPException(status_code=403, detail="Bu portfoye erisim izniniz yok.")
+
+
+def _require_portfolio_service() -> None:
+    if _portfolio_service is None:
+        raise HTTPException(status_code=503, detail="Portfoy servisi henuz hazir degil.")
+
+
+def _map_portfolio_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, PortfolioNotFoundError):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, (InsufficientCashError, InsufficientPositionError, InvalidTransactionError)):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, InsufficientPriceDataError):
+        return HTTPException(status_code=422, detail=str(exc))
+    if isinstance(exc, PortfolioError):
+        return HTTPException(status_code=500, detail=str(exc))
+    return HTTPException(status_code=500, detail=str(exc))
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def categorize(results: List[AnalysisResult]) -> ScanResult:
@@ -610,6 +729,254 @@ def portfolio_optimize(request: Request, body: PortfolioOptRequest,
     if "error" in result:
         raise HTTPException(status_code=422, detail=result["error"])
     return PortfolioOptResult(**result)
+
+# ── Portfolio Intelligence Platform ─────────────────────────────────────────────
+# Additive, `/portfolios` (plural) - a structurally distinct path from
+# the legacy `/portfolio/optimize` above, so there is no routing
+# ambiguity and the legacy endpoint's contract is completely untouched.
+
+@app.post("/portfolios", response_model=Portfolio)
+@limiter.limit("10/minute")
+async def create_portfolio(
+    request: Request, body: CreatePortfolioRequest, uid: Optional[str] = Depends(verify_firebase_token),
+) -> Portfolio:
+    _require_portfolio_service()
+    owner = _resolve_portfolio_owner(uid, body.owner)
+    try:
+        return await _run_in_executor(_portfolio_service.create_portfolio, owner, body.name, body.base_currency)
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.get("/portfolios", response_model=List[Portfolio])
+@limiter.limit("30/minute")
+async def list_portfolios(
+    request: Request, owner: Optional[str] = None, uid: Optional[str] = Depends(verify_firebase_token),
+) -> List[Portfolio]:
+    _require_portfolio_service()
+    resolved_owner = _resolve_portfolio_owner(uid, owner)
+    try:
+        return await _run_in_executor(_portfolio_service.list_portfolios, resolved_owner)
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+async def _get_authorized_portfolio(portfolio_id: int, uid: Optional[str]) -> Portfolio:
+    try:
+        portfolio_obj = await _run_in_executor(_portfolio_service.get_portfolio, portfolio_id)
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+    _authorize_portfolio_access(portfolio_obj, uid)
+    return portfolio_obj
+
+@app.post("/portfolios/{portfolio_id}/deposit", response_model=Transaction)
+@limiter.limit("20/minute")
+async def portfolio_deposit(
+    request: Request, portfolio_id: int, body: DepositRequest, uid: Optional[str] = Depends(verify_firebase_token),
+) -> Transaction:
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        return await _run_in_executor(
+            _portfolio_service.deposit, portfolio_id, body.amount, body.currency, None, body.notes,
+        )
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.post("/portfolios/{portfolio_id}/withdraw", response_model=Transaction)
+@limiter.limit("20/minute")
+async def portfolio_withdraw(
+    request: Request, portfolio_id: int, body: WithdrawRequest, uid: Optional[str] = Depends(verify_firebase_token),
+) -> Transaction:
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        return await _run_in_executor(
+            _portfolio_service.withdraw, portfolio_id, body.amount, body.currency, None, body.notes,
+        )
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.post("/portfolios/{portfolio_id}/buy", response_model=Transaction)
+@limiter.limit("20/minute")
+async def portfolio_buy(
+    request: Request, portfolio_id: int, body: TradeRequest, uid: Optional[str] = Depends(verify_firebase_token),
+) -> Transaction:
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        return await _run_in_executor(
+            _portfolio_service.buy, portfolio_id, body.symbol, body.quantity, body.price, body.fee, body.tax,
+            None, None, body.notes,
+        )
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.post("/portfolios/{portfolio_id}/sell", response_model=Transaction)
+@limiter.limit("20/minute")
+async def portfolio_sell(
+    request: Request, portfolio_id: int, body: TradeRequest, uid: Optional[str] = Depends(verify_firebase_token),
+) -> Transaction:
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        return await _run_in_executor(
+            _portfolio_service.sell, portfolio_id, body.symbol, body.quantity, body.price, body.fee, body.tax,
+            None, None, body.notes,
+        )
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.post("/portfolios/{portfolio_id}/dividend", response_model=Transaction)
+@limiter.limit("20/minute")
+async def portfolio_dividend(
+    request: Request, portfolio_id: int, body: DividendRequest, uid: Optional[str] = Depends(verify_firebase_token),
+) -> Transaction:
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        return await _run_in_executor(
+            _portfolio_service.record_dividend, portfolio_id, body.symbol, body.amount, body.tax, None, None,
+            body.notes,
+        )
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.get("/portfolios/{portfolio_id}/positions", response_model=List[PositionAnalytics])
+@limiter.limit("30/minute")
+async def portfolio_positions(
+    request: Request, portfolio_id: int, uid: Optional[str] = Depends(verify_firebase_token),
+) -> List[PositionAnalytics]:
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        return await _run_in_executor(_portfolio_analytics.analyze_positions, portfolio_id)
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.get("/portfolios/{portfolio_id}/risk", response_model=RiskAnalytics)
+@limiter.limit("15/minute")
+async def portfolio_risk(
+    request: Request, portfolio_id: int, uid: Optional[str] = Depends(verify_firebase_token),
+) -> RiskAnalytics:
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        return await _run_in_executor(_portfolio_risk.analyze, portfolio_id, None)
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.post("/portfolios/{portfolio_id}/optimize", response_model=OptimizationResult)
+@limiter.limit("10/minute")
+async def portfolio_optimize_holdings(
+    request: Request, portfolio_id: int, body: OptimizeRequest, uid: Optional[str] = Depends(verify_firebase_token),
+) -> OptimizationResult:
+    """Portfolio-aware optimization over a caller-supplied candidate
+    symbol list - distinct from the legacy, portfolio-less
+    `/portfolio/optimize` above. `portfolio_id` is only used for
+    authorization here; the optimization itself is symbol-based."""
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        return await _run_in_executor(
+            _portfolio_optimization.optimize, body.symbols, body.strategy, body.risk_tolerance,
+            body.use_prediction_views,
+        )
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.post("/portfolios/{portfolio_id}/rebalance", response_model=RebalancePlan)
+@limiter.limit("15/minute")
+async def portfolio_rebalance(
+    request: Request, portfolio_id: int, body: RebalanceRequest, uid: Optional[str] = Depends(verify_firebase_token),
+) -> RebalancePlan:
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        return await _run_in_executor(
+            _portfolio_rebalancing.build_plan, portfolio_id, body.target_weights_pct, body.trigger,
+            body.threshold_pct, None, None,
+        )
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.post("/portfolios/{portfolio_id}/scenario", response_model=ScenarioResult)
+@limiter.limit("15/minute")
+async def portfolio_scenario(
+    request: Request, portfolio_id: int, body: ScenarioRequest, uid: Optional[str] = Depends(verify_firebase_token),
+) -> ScenarioResult:
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        if body.scenario_type == ScenarioType.MARKET_CRASH:
+            return await _run_in_executor(
+                _portfolio_scenarios.market_crash, portfolio_id, body.drop_pct or 30.0, None,
+            )
+        if body.scenario_type == ScenarioType.VOLATILITY_SHOCK:
+            return await _run_in_executor(
+                _portfolio_scenarios.volatility_shock, portfolio_id, body.volatility_multiplier or 2.0, None,
+            )
+        if body.scenario_type == ScenarioType.INTEREST_RATE_SHOCK:
+            return await _run_in_executor(
+                _portfolio_scenarios.interest_rate_shock, portfolio_id, body.rate_change_bps or 100.0, None,
+            )
+        if body.scenario_type == ScenarioType.MONTE_CARLO:
+            return await _run_in_executor(
+                _portfolio_scenarios.monte_carlo_simulation, portfolio_id, body.n_simulations, body.horizon_days, None,
+            )
+        raise HTTPException(status_code=400, detail=f"Desteklenmeyen senaryo tipi: {body.scenario_type.value}")
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.post("/portfolios/{portfolio_id}/recommendations", response_model=List[Recommendation])
+@limiter.limit("15/minute")
+async def portfolio_recommendations(
+    request: Request, portfolio_id: int, body: RecommendationsRequest,
+    uid: Optional[str] = Depends(verify_firebase_token),
+) -> List[Recommendation]:
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        return await _run_in_executor(
+            _portfolio_recommendations.generate, portfolio_id, body.target_weights_pct, None, None,
+        )
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.get("/portfolios/{portfolio_id}/dashboard", response_model=PortfolioDashboard)
+@limiter.limit("15/minute")
+async def portfolio_dashboard(
+    request: Request, portfolio_id: int, uid: Optional[str] = Depends(verify_firebase_token),
+) -> PortfolioDashboard:
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        return await _run_in_executor(_portfolio_dashboard.build, portfolio_id, None)
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.get("/portfolios/{portfolio_id}/history", response_model=List[Transaction])
+@limiter.limit("30/minute")
+async def portfolio_transaction_history(
+    request: Request, portfolio_id: int, symbol: Optional[str] = None,
+    uid: Optional[str] = Depends(verify_firebase_token),
+) -> List[Transaction]:
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        return await _run_in_executor(_portfolio_service.list_transactions, portfolio_id, symbol)
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
+
+@app.post("/portfolios/{portfolio_id}/snapshot", response_model=PortfolioSnapshot)
+@limiter.limit("10/minute")
+async def portfolio_take_snapshot(
+    request: Request, portfolio_id: int, uid: Optional[str] = Depends(verify_firebase_token),
+) -> PortfolioSnapshot:
+    _require_portfolio_service()
+    await _get_authorized_portfolio(portfolio_id, uid)
+    try:
+        return await _run_in_executor(_portfolio_service.take_snapshot, portfolio_id)
+    except PortfolioError as e:
+        raise _map_portfolio_error(e)
 
 # ── Scan (parallel) ────────────────────────────────────────────────────────────
 

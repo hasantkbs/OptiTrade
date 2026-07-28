@@ -4,10 +4,10 @@ before the Quant Research Platform pipeline was wired in must continue
 to work exactly as before. Real PostgreSQL/Redis/network - no mocks,
 matching this project's established testing philosophy.
 """
-EXPECTED_ROUTE_COUNT = 36  # 34 pre-existing routes + /quant/predict + /quant/model-serving/health
+EXPECTED_ROUTE_COUNT = 52  # 36 pre-existing routes + 16 new /portfolios Portfolio Intelligence Platform routes
 
 
-def test_route_count_is_the_expected_34_plus_the_new_model_serving_routes(client):
+def test_route_count_is_the_expected_36_plus_the_new_portfolio_routes(client):
     from main import app
     assert len(app.routes) == EXPECTED_ROUTE_COUNT
 
@@ -19,6 +19,9 @@ def test_openapi_generation_still_works_and_includes_legacy_and_new_paths(client
     assert "/quant/analyze" in schema["paths"]
     assert "/quant/predict" in schema["paths"]
     assert "/quant/model-serving/health" in schema["paths"]
+    assert "/portfolio/optimize" in schema["paths"]
+    assert "/portfolios" in schema["paths"]
+    assert "/portfolios/{portfolio_id}/dashboard" in schema["paths"]
     assert "/health" in schema["paths"]
 
 
