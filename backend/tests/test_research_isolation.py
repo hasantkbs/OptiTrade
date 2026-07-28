@@ -1,17 +1,30 @@
 """
 Guards the production/research boundary introduced in Sprint 1, Task 7,
 and extended for `research_lab` (the Continuous Learning-era Research
-Lab package), the production execution pipeline, and `ml_training` (the
-ML Training Platform): nothing under core/, v2/, models/, data/, api/,
-feature_store/, decision_engine/, engine_registry/, engines/, learning/,
-pipeline/, or explanation_engine/ should import the `research`,
-`research_lab`, or `ml_training` packages. Research/training code may
-depend on production code (it already does - core.indicators,
-core.scoring, and research_lab/ml_training both reuse learning/
-feature_store/decision_engine extensively); production (including the
-production-adjacent Continuous Learning system and the pipeline that
-must never let Research Lab or model training execute during a live
-request) must never depend on research or training code.
+Lab package), the production execution pipeline, `ml_training` (the ML
+Training Platform), and `model_serving` (the Model Serving Platform):
+nothing under core/, v2/, models/, data/, api/, feature_store/,
+decision_engine/, engine_registry/, engines/, learning/, pipeline/, or
+explanation_engine/ should import the `research`, `research_lab`, or
+`ml_training` packages. Research/training code may depend on production
+code (it already does - core.indicators, core.scoring, and
+research_lab/ml_training both reuse learning/feature_store/
+decision_engine extensively); production (including the production-
+adjacent Continuous Learning system and the pipeline that must never
+let Research Lab or model training execute during a live request) must
+never depend on research or training code.
+
+`model_serving` is the one deliberate exception, and deliberately NOT
+included in `PRODUCTION_DIRS` above: it is the sole bridge between the
+offline Model Registry (`ml_training.registry`) and live serving, so it
+alone is allowed to import `ml_training` - loading an already-trained,
+already-registered artifact and calling `predict()` on it is not
+"research" or "training execution" the way building a dataset, running
+Optuna, or computing SHAP values is. Every other production package
+reaches `ml_training` only indirectly, through `model_serving` (see
+`pipeline.service.PipelineService`) - never directly. `model_serving`
+still must never import `research_lab` - that boundary stays exactly as
+strict as it is for every other production package.
 
 Uses an AST scan rather than a simple string grep so that a substring
 match inside a comment or docstring (e.g. this very file's own docstring)
@@ -98,6 +111,50 @@ def test_ml_training_package_exists():
     }
     actual = {p.name for p in ml_training_dir.iterdir() if p.is_dir() and not p.name.startswith("__")}
     assert expected_subpackages <= actual
+
+
+def test_model_serving_package_exists():
+    model_serving_dir = BACKEND_ROOT / "model_serving"
+    assert model_serving_dir.is_dir()
+    expected_modules = {
+        "config.py", "exceptions.py", "models.py", "cache.py", "loader.py",
+        "inference.py", "shadow.py", "rollback.py", "health.py", "service.py",
+    }
+    actual = {p.name for p in model_serving_dir.glob("*.py")}
+    assert expected_modules <= actual
+
+
+def test_model_serving_is_the_bridge_that_imports_ml_training():
+    # A positive check, not just the absence of a negative: proves the
+    # bridge is actually wired (model_serving really does depend on
+    # ml_training.registry to load ACTIVE models), so
+    # `test_no_production_module_imports_research` passing for every
+    # OTHER production package isn't just vacuously true because nothing
+    # imports ml_training anywhere.
+    loader_source = (BACKEND_ROOT / "model_serving" / "loader.py").read_text(encoding="utf-8")
+    assert "from ml_training" in loader_source
+
+
+def test_model_serving_never_imports_research_lab_or_bare_research():
+    # model_serving sits on the production side of the boundary (it
+    # executes during live requests) - unlike ml_training, it does NOT
+    # get a research_lab exception. `research`/`research_lab` must stay
+    # exactly as forbidden here as everywhere else in PRODUCTION_DIRS.
+    model_serving_dir = BACKEND_ROOT / "model_serving"
+    offenders = []
+    for py_file in model_serving_dir.glob("*.py"):
+        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if any(alias.name == pkg or alias.name.startswith(f"{pkg}.") for pkg in ("research", "research_lab")):
+                        offenders.append(f"{py_file.name}: {alias.name}")
+            elif isinstance(node, ast.ImportFrom):
+                if node.module and any(
+                    node.module == pkg or node.module.startswith(f"{pkg}.") for pkg in ("research", "research_lab")
+                ):
+                    offenders.append(f"{py_file.name}: {node.module}")
+    assert offenders == [], f"model_serving must never import research/research_lab: {offenders}"
 
 
 def test_research_lab_is_free_to_import_production_and_learning_code():

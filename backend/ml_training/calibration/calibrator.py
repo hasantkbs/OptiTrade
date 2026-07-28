@@ -47,9 +47,19 @@ class _CalibratedTrainerAdapter:
     label values - the same contract every trainer in this platform
     already exposes."""
 
-    def __init__(self, calibrated_model: CalibratedClassifierCV, label_encoder) -> None:
+    def __init__(self, calibrated_model: CalibratedClassifierCV, label_encoder, algorithm) -> None:
         self._calibrated_model = calibrated_model
         self._label_encoder = label_encoder
+        self.algorithm = algorithm
+
+    @property
+    def classes_(self) -> np.ndarray:
+        """The original (pre-encoding) class labels, in the same order
+        as `predict_proba()`'s columns - mirrors `BaseTrainer.classes_`
+        exactly, so callers (e.g. `model_serving`/
+        `ml_training.shadow.adapter.MLModelVotingEngineAdapter`) can use
+        a calibrated model interchangeably with a raw trainer."""
+        return self._label_encoder.classes_
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         raw = np.asarray(self._calibrated_model.predict(X))
@@ -90,4 +100,4 @@ class ModelCalibrator:
         frozen_estimator = FrozenEstimator(trainer._model)
         calibrated_model = CalibratedClassifierCV(frozen_estimator, method=_SKLEARN_METHOD[method], cv=cv)
         calibrated_model.fit(X_cal, y_cal_encoded)
-        return _CalibratedTrainerAdapter(calibrated_model, trainer._label_encoder)
+        return _CalibratedTrainerAdapter(calibrated_model, trainer._label_encoder, trainer.algorithm)
