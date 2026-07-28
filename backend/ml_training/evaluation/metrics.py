@@ -56,14 +56,22 @@ class CalibrationPoint:
     confidence: float
 
 
-def calibration_error_from_predictions(y_true: np.ndarray, y_proba: np.ndarray, num_bins: int = 10) -> float:
-    """Builds `CalibrationPoint`s from raw predicted-probability
-    matrices (argmax = predicted class, its own probability = reported
-    confidence) and scores them with the exact same ECE algorithm
-    Continuous Learning uses for a live engine's outcomes."""
-    predicted_class = np.argmax(y_proba, axis=1)
+def calibration_error_from_predictions(
+    y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray, num_bins: int = 10,
+) -> float:
+    """Builds `CalibrationPoint`s from a trainer's own decoded
+    predictions (`correct` = `y_pred == y_true`, in whatever label space
+    the trainer natively predicts in - ints, or the platform's own
+    BUY/HOLD/SELL strings) paired with each row's own top probability
+    (`confidence` = `max(y_proba, axis=1)`), and scores them with the
+    exact same ECE algorithm Continuous Learning uses for a live
+    engine's outcomes. Deliberately does NOT re-derive "predicted
+    class" from `argmax(y_proba)` - that index only equals `y_true` by
+    coincidence when labels happen to be 0..n-1 in probability-column
+    order, and silently mismatches for any other label encoding
+    (string labels included)."""
     confidences = np.max(y_proba, axis=1)
-    correct = np.asarray(y_true) == predicted_class
+    correct = np.asarray(y_true) == np.asarray(y_pred)
     points = [
         CalibrationPoint(evaluated=True, correct=bool(c), confidence=float(conf))
         for c, conf in zip(correct, confidences)
@@ -82,7 +90,7 @@ def classification_metrics(
     }
 
     if y_proba is not None:
-        metrics["calibration_error"] = calibration_error_from_predictions(y_true, y_proba, calibration_bins)
+        metrics["calibration_error"] = calibration_error_from_predictions(y_true, y_pred, y_proba, calibration_bins)
 
         unique_classes = np.unique(y_true)
         if len(unique_classes) == 2:

@@ -51,6 +51,13 @@ class MLTrainingConfig:
     # Model registry / artifacts
     model_artifact_dir: str = "ml_training_artifacts"
     min_samples_for_shadow_promotion: int = 20
+    min_training_samples: int = 50
+
+    # Shadow voting-engine adapter (no natural per-vote return/volatility
+    # magnitude exists for a raw classifier - same situation Fundamental
+    # Engine already solved, with the same default volatility value)
+    expected_return_scale_pct: float = 10.0
+    default_expected_volatility_pct: float = 15.0
 
     @classmethod
     def from_env(cls) -> "MLTrainingConfig":
@@ -78,5 +85,10 @@ class MLTrainingConfig:
             model_artifact_dir=os.getenv("ML_TRAINING_MODEL_ARTIFACT_DIR", "ml_training_artifacts"),
             min_samples_for_shadow_promotion=int(
                 os.getenv("ML_TRAINING_MIN_SAMPLES_FOR_SHADOW_PROMOTION", "20")
+            ),
+            min_training_samples=int(os.getenv("ML_TRAINING_MIN_TRAINING_SAMPLES", "50")),
+            expected_return_scale_pct=float(os.getenv("ML_TRAINING_EXPECTED_RETURN_SCALE_PCT", "10.0")),
+            default_expected_volatility_pct=float(
+                os.getenv("ML_TRAINING_DEFAULT_EXPECTED_VOLATILITY_PCT", "15.0")
             ),
         )

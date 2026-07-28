@@ -44,12 +44,13 @@ class CalibrationService:
         artifact_path: str,
     ) -> CalibrationResult:
         error_before = calibration_error_from_predictions(
-            y_test, trainer.predict_proba(X_test), self.config.calibration_bins,
+            y_test, trainer.predict(X_test), trainer.predict_proba(X_test), self.config.calibration_bins,
         )
 
         calibrated_model = self.calibrator.calibrate(trainer, X_cal, y_cal, method)
         error_after = calibration_error_from_predictions(
-            y_test, calibrated_model.predict_proba(X_test), self.config.calibration_bins,
+            y_test, calibrated_model.predict(X_test), calibrated_model.predict_proba(X_test),
+            self.config.calibration_bins,
         )
 
         joblib.dump(calibrated_model, artifact_path)

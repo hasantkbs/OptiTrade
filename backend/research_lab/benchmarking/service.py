@@ -93,8 +93,12 @@ class BenchmarkService:
 
     def compare_models(
         self, name_a: str, returns_a: List[float], name_b: str, returns_b: List[float], window: RollingWindow,
+        experiment_id: Optional[int] = None,
     ) -> BenchmarkResult:
-        result = comparator.compare(BenchmarkSubjectType.MODEL, name_a, name_b, returns_a, returns_b, window, self.config)
+        result = comparator.compare(
+            BenchmarkSubjectType.MODEL, name_a, name_b, returns_a, returns_b, window, self.config,
+            experiment_id=experiment_id,
+        )
         result.id = self.repository.save(result)
         return result
 

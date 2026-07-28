@@ -89,6 +89,17 @@ def test_research_lab_package_exists():
     assert expected_subpackages <= actual
 
 
+def test_ml_training_package_exists():
+    ml_training_dir = BACKEND_ROOT / "ml_training"
+    assert ml_training_dir.is_dir()
+    expected_subpackages = {
+        "datasets", "labels", "features", "training", "optimization", "evaluation",
+        "calibration", "importance", "registry", "shadow", "runs",
+    }
+    actual = {p.name for p in ml_training_dir.iterdir() if p.is_dir() and not p.name.startswith("__")}
+    assert expected_subpackages <= actual
+
+
 def test_research_lab_is_free_to_import_production_and_learning_code():
     # The boundary is one-directional - research_lab importing from
     # feature_store/decision_engine/learning is expected and extensive

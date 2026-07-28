@@ -68,8 +68,22 @@ def test_classification_metrics_roc_auc_for_three_classes():
 
 def test_calibration_error_from_predictions_perfect_confidence():
     y_true = np.array([1, 1, 1])
+    y_pred = np.array([1, 1, 1])
     y_proba = np.array([[0.0, 1.0]] * 3)
-    error = metrics_module.calibration_error_from_predictions(y_true, y_proba)
+    error = metrics_module.calibration_error_from_predictions(y_true, y_pred, y_proba)
+    assert error == pytest.approx(0.0)
+
+
+def test_calibration_error_from_predictions_uses_y_pred_not_proba_argmax_index():
+    # y_proba's argmax index (0) would equal y_true's own encoding
+    # (0/1) only by coincidence - calibration_error_from_predictions
+    # must compare against the trainer's own decoded y_pred (here,
+    # string labels), not re-derive "predicted class" from the
+    # probability matrix's column position.
+    y_true = np.array(["SELL", "SELL", "SELL"])
+    y_pred = np.array(["SELL", "SELL", "SELL"])
+    y_proba = np.array([[1.0, 0.0]] * 3)  # column 0 is the top probability, but the true label is "SELL"
+    error = metrics_module.calibration_error_from_predictions(y_true, y_pred, y_proba)
     assert error == pytest.approx(0.0)
 
 
