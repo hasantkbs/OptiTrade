@@ -2,17 +2,19 @@
 Guards the production/research boundary introduced in Sprint 1, Task 7,
 and extended for `research_lab` (the Continuous Learning-era Research
 Lab package), the production execution pipeline, `ml_training` (the ML
-Training Platform), and `model_serving` (the Model Serving Platform):
-nothing under core/, v2/, models/, data/, api/, feature_store/,
-decision_engine/, engine_registry/, engines/, learning/, pipeline/, or
-explanation_engine/ should import the `research`, `research_lab`, or
+Training Platform), `model_serving` (the Model Serving Platform), and
+`portfolio` (the Portfolio Intelligence Platform): nothing under core/,
+v2/, models/, data/, api/, feature_store/, decision_engine/,
+engine_registry/, engines/, learning/, pipeline/, explanation_engine/,
+or portfolio/ should import the `research`, `research_lab`, or
 `ml_training` packages. Research/training code may depend on production
 code (it already does - core.indicators, core.scoring, and
 research_lab/ml_training both reuse learning/feature_store/
 decision_engine extensively); production (including the production-
-adjacent Continuous Learning system and the pipeline that must never
-let Research Lab or model training execute during a live request) must
-never depend on research or training code.
+adjacent Continuous Learning system, the pipeline, and the Portfolio
+Intelligence Platform that must never let Research Lab or model
+training execute during a live request) must never depend on research
+or training code.
 
 `model_serving` is the one deliberate exception, and deliberately NOT
 included in `PRODUCTION_DIRS` above: it is the sole bridge between the
@@ -37,7 +39,7 @@ BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
 PRODUCTION_DIRS = [
     "core", "v2", "models", "data", "api",
     "feature_store", "decision_engine", "engine_registry", "engines", "learning",
-    "pipeline", "explanation_engine",
+    "pipeline", "explanation_engine", "portfolio",
 ]
 FORBIDDEN_PACKAGES = ["research", "research_lab", "ml_training"]
 
@@ -121,6 +123,18 @@ def test_model_serving_package_exists():
         "inference.py", "shadow.py", "rollback.py", "health.py", "service.py",
     }
     actual = {p.name for p in model_serving_dir.glob("*.py")}
+    assert expected_modules <= actual
+
+
+def test_portfolio_package_exists():
+    portfolio_dir = BACKEND_ROOT / "portfolio"
+    assert portfolio_dir.is_dir()
+    expected_modules = {
+        "config.py", "exceptions.py", "models.py", "repository.py", "prices.py",
+        "classification.py", "service.py", "analytics.py", "risk.py", "optimization.py",
+        "rebalancing.py", "scenarios.py", "recommendations.py", "dashboard.py",
+    }
+    actual = {p.name for p in portfolio_dir.glob("*.py")}
     assert expected_modules <= actual
 
 
