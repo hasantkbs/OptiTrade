@@ -143,6 +143,49 @@ from users.schemas import (
     UpdateProfileRequest,
     UserResponse,
 )
+from feature_store.service import FeatureStoreService
+from paper_trading import (
+    JournalService,
+    PaperTradingRepository,
+    PaperTradingScheduler,
+    PaperTradingService,
+    PortfolioSyncService,
+    PositionService,
+)
+from paper_trading.exceptions import (
+    AccountNotFoundError,
+    InsufficientPaperCashError,
+    InsufficientPaperPositionError,
+    InvalidOrderError,
+    JournalEntryNotFoundError,
+    MarketClosedError,
+    OrderNotFoundError,
+    OrderNotOpenError,
+    PaperTradingError,
+)
+from paper_trading.exceptions import ValidationFailedError as PaperTradingValidationFailedError
+from paper_trading.models import (
+    AnalyticsSummary,
+    ClosedTrade,
+    EquityPoint,
+    MonthlyPerformance,
+    Order as PaperOrder,
+    OrderStatus as PaperOrderStatus,
+    ReportPeriod,
+    TradeReport,
+)
+from paper_trading.schemas import (
+    AccountResponse,
+    AddJournalTagsRequest,
+    AddScreenshotRequest,
+    CreateAccountRequest,
+    JournalEntryResponse,
+    ModifyOrderRequest,
+    OrderResponse,
+    PlaceOrderRequest,
+    ScreenshotResponse,
+    UpdateJournalNotesRequest,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -274,6 +317,23 @@ async def startup_event() -> None:
         _users_service = UserService(_users_repository, _users_authentication)
     except Exception as e:
         logger.error(f"User & Organization Platform baslatilamadi: {e}")
+
+    global _paper_trading_repository, _paper_trading_service, _paper_trading_scheduler
+    try:
+        _paper_trading_repository = PaperTradingRepository()
+        feature_store_service = FeatureStoreService()
+        portfolio_sync = PortfolioSyncService(
+            _paper_trading_repository, _portfolio_service, watchlist_service=_users_watchlist_bridge,
+            watchlist_repository=_users_watchlist_bridge.repository if _users_watchlist_bridge else None,
+        )
+        position_service = PositionService(_portfolio_service)
+        journal_service = JournalService(_paper_trading_repository, _pipeline_service, feature_store_service=feature_store_service)
+        _paper_trading_service = PaperTradingService(
+            _paper_trading_repository, portfolio_sync, position_service, journal_service,
+        )
+        _paper_trading_scheduler = PaperTradingScheduler(_paper_trading_repository, portfolio_sync)
+    except Exception as e:
+        logger.error(f"Paper Trading Platform baslatilamadi: {e}")
     asyncio.create_task(self_evolution_loop())
 
 @app.get("/ml/performance")
@@ -326,6 +386,11 @@ _users_preferences: Optional[PreferencesService] = None
 _users_audit: Optional[AuditService] = None
 _users_service: Optional[UserService] = None
 _users_watchlist_bridge: Optional[WatchlistService] = None
+
+# Paper Trading & Trade Journal Platform — same convention.
+_paper_trading_repository: Optional[PaperTradingRepository] = None
+_paper_trading_service: Optional[PaperTradingService] = None
+_paper_trading_scheduler: Optional[PaperTradingScheduler] = None
 
 # ── Firebase Auth Dependency ───────────────────────────────────────────────────
 async def verify_firebase_token(
@@ -424,6 +489,43 @@ def _device_from_request(request: Request) -> DeviceInfo:
         user_agent=request.headers.get("user-agent", ""),
         ip_address=request.client.host if request.client else "",
     )
+
+# ── Paper Trading & Trade Journal Platform helpers ──────────────────────────────
+
+def _require_paper_trading_service() -> None:
+    if _paper_trading_service is None:
+        raise HTTPException(status_code=503, detail="Kagit uzerinde islem servisi henuz hazir degil.")
+
+
+def _map_paper_trading_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, (AccountNotFoundError, OrderNotFoundError, JournalEntryNotFoundError)):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, OrderNotOpenError):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, MarketClosedError):
+        return HTTPException(status_code=422, detail=str(exc))
+    if isinstance(exc, (InvalidOrderError, PaperTradingValidationFailedError, InsufficientPaperCashError,
+                         InsufficientPaperPositionError, InsufficientCashError, InsufficientPositionError,
+                         InvalidTransactionError)):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, InsufficientPriceDataError):
+        return HTTPException(status_code=422, detail=str(exc))
+    if isinstance(exc, (PaperTradingError, PortfolioError)):
+        return HTTPException(status_code=500, detail=str(exc))
+    return HTTPException(status_code=500, detail=str(exc))
+
+
+def _get_authorized_paper_account(account_id: int, user: UsersUser):
+    account = _paper_trading_service.get_account(account_id)
+    if account.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Bu kagit uzerinde islem hesabina erisim izniniz yok.")
+    return account
+
+
+def _get_authorized_paper_order(order_id: int, user: UsersUser) -> PaperOrder:
+    order = _paper_trading_service.get_order(order_id)
+    _get_authorized_paper_account(order.account_id, user)
+    return order
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def categorize(results: List[AnalysisResult]) -> ScanResult:
@@ -1540,3 +1642,256 @@ def organizations_audit_log(organization_id: int, user: UsersUser = Depends(_get
         return [AuditLogEntryResponse.model_validate(e) for e in _users_audit.list_for_organization(organization_id)]
     except UserPlatformError as e:
         raise _map_users_error(e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PAPER TRADING & TRADE JOURNAL PLATFORM ENDPOINTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Accounts ─────────────────────────────────────────────────────────────────
+
+@app.post("/paper-trading/accounts", response_model=AccountResponse)
+async def paper_trading_create_account(
+    body: CreateAccountRequest, user: UsersUser = Depends(_get_current_user),
+) -> AccountResponse:
+    _require_paper_trading_service()
+    try:
+        account = await _run_in_executor(
+            _paper_trading_service.ensure_account, user.id, user.email, body.name, body.starting_balance,
+        )
+        return AccountResponse.model_validate(account)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.get("/paper-trading/accounts", response_model=List[AccountResponse])
+async def paper_trading_list_accounts(user: UsersUser = Depends(_get_current_user)) -> List[AccountResponse]:
+    _require_paper_trading_service()
+    accounts = await _run_in_executor(_paper_trading_service.list_accounts, user.id)
+    return [AccountResponse.model_validate(account) for account in accounts]
+
+@app.get("/paper-trading/accounts/{account_id}", response_model=AccountResponse)
+async def paper_trading_get_account(account_id: int, user: UsersUser = Depends(_get_current_user)) -> AccountResponse:
+    _require_paper_trading_service()
+    try:
+        account = await _run_in_executor(_get_authorized_paper_account, account_id, user)
+        return AccountResponse.model_validate(account)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+# ── Orders ───────────────────────────────────────────────────────────────────
+
+@app.post("/paper-trading/accounts/{account_id}/orders", response_model=OrderResponse)
+async def paper_trading_place_order(
+    account_id: int, body: PlaceOrderRequest, user: UsersUser = Depends(_get_current_user),
+) -> OrderResponse:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_account, account_id, user)
+        order = await _run_in_executor(
+            _paper_trading_service.place_order, account_id, user.email, body.symbol, body.side, body.order_type,
+            body.quantity, body.limit_price, body.stop_price, body.notes,
+        )
+        return OrderResponse.model_validate(order)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+    except (InsufficientCashError, InsufficientPositionError, InsufficientPriceDataError, InvalidTransactionError) as e:
+        raise _map_paper_trading_error(e)
+
+@app.get("/paper-trading/accounts/{account_id}/orders", response_model=List[OrderResponse])
+async def paper_trading_list_orders(
+    account_id: int, status: Optional[PaperOrderStatus] = None, user: UsersUser = Depends(_get_current_user),
+) -> List[OrderResponse]:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_account, account_id, user)
+        orders = await _run_in_executor(_paper_trading_service.list_orders, account_id, status)
+        return [OrderResponse.model_validate(order) for order in orders]
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.get("/paper-trading/orders/{order_id}", response_model=OrderResponse)
+async def paper_trading_get_order(order_id: int, user: UsersUser = Depends(_get_current_user)) -> OrderResponse:
+    _require_paper_trading_service()
+    try:
+        order = await _run_in_executor(_get_authorized_paper_order, order_id, user)
+        return OrderResponse.model_validate(order)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.patch("/paper-trading/orders/{order_id}", response_model=OrderResponse)
+async def paper_trading_modify_order(
+    order_id: int, body: ModifyOrderRequest, user: UsersUser = Depends(_get_current_user),
+) -> OrderResponse:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_order, order_id, user)
+        order = await _run_in_executor(
+            _paper_trading_service.modify_order, order_id, body.quantity, body.limit_price, body.stop_price,
+        )
+        return OrderResponse.model_validate(order)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.delete("/paper-trading/orders/{order_id}", response_model=OrderResponse)
+async def paper_trading_cancel_order(order_id: int, user: UsersUser = Depends(_get_current_user)) -> OrderResponse:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_order, order_id, user)
+        order = await _run_in_executor(_paper_trading_service.cancel_order, order_id)
+        return OrderResponse.model_validate(order)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+# ── Positions ──────────────────────────────────────────────────────────────────
+
+@app.get("/paper-trading/accounts/{account_id}/positions", response_model=List[PositionAnalytics])
+async def paper_trading_positions(account_id: int, user: UsersUser = Depends(_get_current_user)) -> List[PositionAnalytics]:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_account, account_id, user)
+        return await _run_in_executor(_paper_trading_service.get_positions, account_id)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.get("/paper-trading/accounts/{account_id}/cash")
+async def paper_trading_cash_balance(account_id: int, user: UsersUser = Depends(_get_current_user)) -> Dict[str, float]:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_account, account_id, user)
+        cash = await _run_in_executor(_paper_trading_service.get_cash_balance, account_id)
+        return {"cash_balance": cash}
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.get("/paper-trading/accounts/{account_id}/total-value")
+async def paper_trading_total_value(account_id: int, user: UsersUser = Depends(_get_current_user)) -> Dict[str, float]:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_account, account_id, user)
+        total_value = await _run_in_executor(_paper_trading_service.get_total_value, account_id)
+        return {"total_value": total_value}
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+# ── Trade journal ──────────────────────────────────────────────────────────────
+
+@app.get("/paper-trading/orders/{order_id}/journal", response_model=JournalEntryResponse)
+async def paper_trading_journal_for_order(order_id: int, user: UsersUser = Depends(_get_current_user)) -> JournalEntryResponse:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_order, order_id, user)
+        entry = await _run_in_executor(_paper_trading_service.get_journal_entry_by_order, order_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"no journal entry recorded for order {order_id}")
+        return JournalEntryResponse.model_validate(entry)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.get("/paper-trading/accounts/{account_id}/journal", response_model=List[JournalEntryResponse])
+async def paper_trading_list_journal_entries(
+    account_id: int, user: UsersUser = Depends(_get_current_user),
+) -> List[JournalEntryResponse]:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_account, account_id, user)
+        entries = await _run_in_executor(_paper_trading_service.list_journal_entries, account_id)
+        return [JournalEntryResponse.model_validate(entry) for entry in entries]
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+def _get_authorized_journal_entry(entry_id: int, user: UsersUser):
+    entry = _paper_trading_service.get_journal_entry(entry_id)
+    _get_authorized_paper_account(entry.account_id, user)
+    return entry
+
+@app.patch("/paper-trading/journal/{entry_id}/notes", response_model=JournalEntryResponse)
+async def paper_trading_update_journal_notes(
+    entry_id: int, body: UpdateJournalNotesRequest, user: UsersUser = Depends(_get_current_user),
+) -> JournalEntryResponse:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_journal_entry, entry_id, user)
+        entry = await _run_in_executor(_paper_trading_service.update_journal_notes, entry_id, body.notes)
+        return JournalEntryResponse.model_validate(entry)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.post("/paper-trading/journal/{entry_id}/tags", response_model=JournalEntryResponse)
+async def paper_trading_add_journal_tags(
+    entry_id: int, body: AddJournalTagsRequest, user: UsersUser = Depends(_get_current_user),
+) -> JournalEntryResponse:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_journal_entry, entry_id, user)
+        entry = await _run_in_executor(_paper_trading_service.add_journal_tags, entry_id, body.tags)
+        return JournalEntryResponse.model_validate(entry)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.post("/paper-trading/journal/{entry_id}/screenshots", response_model=ScreenshotResponse)
+async def paper_trading_add_journal_screenshot(
+    entry_id: int, body: AddScreenshotRequest, user: UsersUser = Depends(_get_current_user),
+) -> ScreenshotResponse:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_journal_entry, entry_id, user)
+        screenshot = await _run_in_executor(
+            _paper_trading_service.add_journal_screenshot, entry_id, body.url, body.caption,
+        )
+        return ScreenshotResponse.model_validate(screenshot)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+# ── Analytics / reports ────────────────────────────────────────────────────────
+
+@app.get("/paper-trading/accounts/{account_id}/analytics", response_model=AnalyticsSummary)
+async def paper_trading_analytics(
+    account_id: int, symbol: Optional[str] = None, user: UsersUser = Depends(_get_current_user),
+) -> AnalyticsSummary:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_account, account_id, user)
+        return await _run_in_executor(_paper_trading_service.get_analytics_summary, account_id, symbol)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.get("/paper-trading/accounts/{account_id}/trades", response_model=List[ClosedTrade])
+async def paper_trading_closed_trades(
+    account_id: int, symbol: Optional[str] = None, user: UsersUser = Depends(_get_current_user),
+) -> List[ClosedTrade]:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_account, account_id, user)
+        return await _run_in_executor(_paper_trading_service.get_closed_trades, account_id, symbol)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.get("/paper-trading/accounts/{account_id}/equity-curve", response_model=List[EquityPoint])
+async def paper_trading_equity_curve(account_id: int, user: UsersUser = Depends(_get_current_user)) -> List[EquityPoint]:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_account, account_id, user)
+        return await _run_in_executor(_paper_trading_service.get_equity_curve, account_id)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.get("/paper-trading/accounts/{account_id}/monthly-performance", response_model=List[MonthlyPerformance])
+async def paper_trading_monthly_performance(
+    account_id: int, user: UsersUser = Depends(_get_current_user),
+) -> List[MonthlyPerformance]:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_account, account_id, user)
+        return await _run_in_executor(_paper_trading_service.get_monthly_performance, account_id)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.get("/paper-trading/accounts/{account_id}/reports/{period}", response_model=TradeReport)
+async def paper_trading_report(
+    account_id: int, period: ReportPeriod, user: UsersUser = Depends(_get_current_user),
+) -> TradeReport:
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_account, account_id, user)
+        return await _run_in_executor(_paper_trading_service.generate_report, account_id, period, None)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
