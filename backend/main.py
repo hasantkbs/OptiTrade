@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import logging
 import os
 import asyncio
@@ -186,6 +187,36 @@ from paper_trading.schemas import (
     ScreenshotResponse,
     UpdateJournalNotesRequest,
 )
+from dashboard import (
+    AlertDashboardService,
+    DashboardPortfolioService,
+    DashboardRepository,
+    DashboardScheduler,
+    DashboardService,
+    EngineDashboardService,
+    LearningDashboardService,
+    MarketDashboardService,
+    ModelDashboardService,
+    OverviewDashboardService,
+    PaperTradingDashboardService,
+    WatchlistDashboardService,
+)
+from dashboard.exceptions import DashboardError
+from dashboard.models import (
+    AlertDashboardView,
+    DashboardReport,
+    EngineDashboardView,
+    LearningDashboardView,
+    MarketDashboardView,
+    MLDashboardView,
+    OverviewMetrics,
+    PaperTradingDashboardView,
+    PortfolioDashboardExtended,
+    ReportFormat,
+    ReportPeriod as DashboardReportPeriod,
+    WatchlistDashboardView,
+)
+from learning.models import RollingWindow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -334,6 +365,37 @@ async def startup_event() -> None:
         _paper_trading_scheduler = PaperTradingScheduler(_paper_trading_repository, portfolio_sync)
     except Exception as e:
         logger.error(f"Paper Trading Platform baslatilamadi: {e}")
+
+    global _dashboard_repository, _dashboard_service, _dashboard_scheduler
+    try:
+        _dashboard_repository = DashboardRepository()
+        dashboard_overview_service = OverviewDashboardService(_dashboard_repository)
+        dashboard_engine_service = EngineDashboardService(_dashboard_repository)
+        dashboard_market_service = MarketDashboardService()
+        _dashboard_service = DashboardService(
+            _dashboard_repository,
+            overview_service=dashboard_overview_service,
+            engine_dashboard_service=dashboard_engine_service,
+            model_dashboard_service=ModelDashboardService(_dashboard_repository),
+            portfolio_dashboard_service=(
+                DashboardPortfolioService(portfolio_dashboard_service=_portfolio_dashboard, portfolio_service=_portfolio_service)
+                if _portfolio_dashboard is not None else DashboardPortfolioService()
+            ),
+            watchlist_dashboard_service=(
+                WatchlistDashboardService(watchlist_service=_users_watchlist_bridge)
+                if _users_watchlist_bridge is not None else WatchlistDashboardService()
+            ),
+            paper_trading_dashboard_service=(
+                PaperTradingDashboardService(paper_trading_repository=_paper_trading_repository)
+                if _paper_trading_repository is not None else PaperTradingDashboardService()
+            ),
+            learning_dashboard_service=LearningDashboardService(_dashboard_repository),
+            alert_dashboard_service=AlertDashboardService(_dashboard_repository),
+            market_dashboard_service=dashboard_market_service,
+        )
+        _dashboard_scheduler = DashboardScheduler(dashboard_overview_service, dashboard_market_service, dashboard_engine_service)
+    except Exception as e:
+        logger.error(f"Analytics & Dashboard Platform baslatilamadi: {e}")
     asyncio.create_task(self_evolution_loop())
 
 @app.get("/ml/performance")
@@ -391,6 +453,11 @@ _users_watchlist_bridge: Optional[WatchlistService] = None
 _paper_trading_repository: Optional[PaperTradingRepository] = None
 _paper_trading_service: Optional[PaperTradingService] = None
 _paper_trading_scheduler: Optional[PaperTradingScheduler] = None
+
+# Analytics & Dashboard Platform — same convention.
+_dashboard_repository: Optional[DashboardRepository] = None
+_dashboard_service: Optional[DashboardService] = None
+_dashboard_scheduler: Optional[DashboardScheduler] = None
 
 # ── Firebase Auth Dependency ───────────────────────────────────────────────────
 async def verify_firebase_token(
@@ -526,6 +593,27 @@ def _get_authorized_paper_order(order_id: int, user: UsersUser) -> PaperOrder:
     order = _paper_trading_service.get_order(order_id)
     _get_authorized_paper_account(order.account_id, user)
     return order
+
+# ── Analytics & Dashboard Platform helpers ──────────────────────────────────────
+
+def _require_dashboard_service() -> None:
+    if _dashboard_service is None:
+        raise HTTPException(status_code=503, detail="Panel servisi henuz hazir degil.")
+
+
+def _map_dashboard_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, (PortfolioNotFoundError, AccountNotFoundError)):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, DashboardError):
+        return HTTPException(status_code=500, detail=str(exc))
+    return HTTPException(status_code=500, detail=str(exc))
+
+
+def _get_owned_portfolio_for_dashboard(portfolio_id: int, user: UsersUser):
+    portfolio_obj = _portfolio_service.get_portfolio(portfolio_id)
+    if portfolio_obj.owner != user.email:
+        raise HTTPException(status_code=403, detail="Bu portfoye erisim izniniz yok.")
+    return portfolio_obj
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def categorize(results: List[AnalysisResult]) -> ScanResult:
@@ -1895,3 +1983,111 @@ async def paper_trading_report(
         return await _run_in_executor(_paper_trading_service.generate_report, account_id, period, None)
     except PaperTradingError as e:
         raise _map_paper_trading_error(e)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ANALYTICS & DASHBOARD PLATFORM ENDPOINTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/dashboard/overview", response_model=OverviewMetrics)
+async def dashboard_overview(user: UsersUser = Depends(_get_current_user)) -> OverviewMetrics:
+    _require_dashboard_service()
+    try:
+        return await _run_in_executor(_dashboard_service.get_overview)
+    except DashboardError as e:
+        raise _map_dashboard_error(e)
+
+@app.get("/dashboard/engines", response_model=EngineDashboardView)
+async def dashboard_engines(
+    symbol: Optional[str] = None, regime_symbols: Optional[List[str]] = Query(default=None),
+    user: UsersUser = Depends(_get_current_user),
+) -> EngineDashboardView:
+    _require_dashboard_service()
+    try:
+        return await _run_in_executor(_dashboard_service.get_engine_dashboard, symbol, regime_symbols)
+    except DashboardError as e:
+        raise _map_dashboard_error(e)
+
+@app.get("/dashboard/ml", response_model=MLDashboardView)
+async def dashboard_ml(
+    model_ids: Optional[List[str]] = Query(default=None), user: UsersUser = Depends(_get_current_user),
+) -> MLDashboardView:
+    _require_dashboard_service()
+    try:
+        return await _run_in_executor(_dashboard_service.get_model_dashboard, model_ids)
+    except DashboardError as e:
+        raise _map_dashboard_error(e)
+
+@app.get("/dashboard/portfolios/{portfolio_id}", response_model=PortfolioDashboardExtended)
+async def dashboard_portfolio(portfolio_id: int, user: UsersUser = Depends(_get_current_user)) -> PortfolioDashboardExtended:
+    _require_dashboard_service()
+    _require_portfolio_service()
+    try:
+        await _run_in_executor(_get_owned_portfolio_for_dashboard, portfolio_id, user)
+        return await _run_in_executor(_dashboard_service.get_portfolio_dashboard, portfolio_id)
+    except PortfolioError as e:
+        raise _map_dashboard_error(e)
+    except DashboardError as e:
+        raise _map_dashboard_error(e)
+
+@app.get("/dashboard/watchlists", response_model=WatchlistDashboardView)
+async def dashboard_watchlists(user: UsersUser = Depends(_get_current_user)) -> WatchlistDashboardView:
+    _require_dashboard_service()
+    try:
+        return await _run_in_executor(_dashboard_service.get_watchlist_dashboard, user.email)
+    except DashboardError as e:
+        raise _map_dashboard_error(e)
+
+@app.get("/dashboard/paper-trading/{account_id}", response_model=PaperTradingDashboardView)
+async def dashboard_paper_trading(account_id: int, user: UsersUser = Depends(_get_current_user)) -> PaperTradingDashboardView:
+    _require_dashboard_service()
+    _require_paper_trading_service()
+    try:
+        await _run_in_executor(_get_authorized_paper_account, account_id, user)
+        return await _run_in_executor(_dashboard_service.get_paper_trading_dashboard, account_id)
+    except DashboardError as e:
+        raise _map_dashboard_error(e)
+    except PaperTradingError as e:
+        raise _map_paper_trading_error(e)
+
+@app.get("/dashboard/learning", response_model=LearningDashboardView)
+async def dashboard_learning(
+    window: RollingWindow = RollingWindow.THIRTY_DAY, user: UsersUser = Depends(_get_current_user),
+) -> LearningDashboardView:
+    _require_dashboard_service()
+    try:
+        return await _run_in_executor(_dashboard_service.get_learning_dashboard, window)
+    except DashboardError as e:
+        raise _map_dashboard_error(e)
+
+@app.get("/dashboard/alerts", response_model=AlertDashboardView)
+async def dashboard_alerts(user: UsersUser = Depends(_get_current_user)) -> AlertDashboardView:
+    _require_dashboard_service()
+    try:
+        return await _run_in_executor(_dashboard_service.get_alert_dashboard, user.email)
+    except DashboardError as e:
+        raise _map_dashboard_error(e)
+
+@app.get("/dashboard/market", response_model=MarketDashboardView)
+async def dashboard_market(
+    symbols: Optional[List[str]] = Query(default=None), market: str = "US",
+    user: UsersUser = Depends(_get_current_user),
+) -> MarketDashboardView:
+    _require_dashboard_service()
+    try:
+        return await _run_in_executor(_dashboard_service.get_market_dashboard, symbols, market)
+    except DashboardError as e:
+        raise _map_dashboard_error(e)
+
+@app.get("/dashboard/reports/{period}", response_model=None)
+async def dashboard_report(
+    period: DashboardReportPeriod, format: ReportFormat = ReportFormat.JSON,
+    user: UsersUser = Depends(_get_current_user),
+) -> Union[DashboardReport, PlainTextResponse]:
+    _require_dashboard_service()
+    try:
+        report = await _run_in_executor(_dashboard_service.generate_report, period, None)
+        if format == ReportFormat.CSV:
+            return PlainTextResponse(content=_dashboard_service.report_service.to_csv(report), media_type="text/csv")
+        return report
+    except DashboardError as e:
+        raise _map_dashboard_error(e)

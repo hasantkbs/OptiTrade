@@ -40,7 +40,7 @@ BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
 PRODUCTION_DIRS = [
     "core", "v2", "models", "data", "api",
     "feature_store", "decision_engine", "engine_registry", "engines", "learning",
-    "pipeline", "explanation_engine", "portfolio", "watchlist", "users", "paper_trading",
+    "pipeline", "explanation_engine", "portfolio", "watchlist", "users", "paper_trading", "dashboard",
 ]
 FORBIDDEN_PACKAGES = ["research", "research_lab", "ml_training"]
 
@@ -173,6 +173,29 @@ def test_paper_trading_package_exists():
     }
     actual = {p.name for p in paper_trading_dir.glob("*.py")}
     assert expected_modules <= actual
+
+
+def test_dashboard_package_exists():
+    dashboard_dir = BACKEND_ROOT / "dashboard"
+    assert dashboard_dir.is_dir()
+    expected_modules = {
+        "service.py", "repository.py", "overview.py", "portfolio_dashboard.py", "watchlist_dashboard.py",
+        "paper_trading_dashboard.py", "learning_dashboard.py", "model_dashboard.py", "engine_dashboard.py",
+        "alert_dashboard.py", "market_dashboard.py", "analytics.py", "charts.py", "metrics.py", "reports.py",
+        "scheduler.py", "models.py", "schemas.py", "config.py", "exceptions.py",
+    }
+    actual = {p.name for p in dashboard_dir.glob("*.py")}
+    assert expected_modules <= actual
+
+
+def test_dashboard_reads_ml_training_tables_via_raw_sql_not_import():
+    # A positive check mirroring test_model_serving_is_the_bridge_that_imports_ml_training:
+    # dashboard/repository.py is expected to read ml_training-owned tables
+    # by name (raw SQL), never by importing the ml_training package -
+    # this proves the isolation-guard-passing state isn't vacuous.
+    repository_source = (BACKEND_ROOT / "dashboard" / "repository.py").read_text(encoding="utf-8")
+    assert "ml_training_model_registry" in repository_source
+    assert "research_promotion_decisions" in repository_source
 
 
 def test_model_serving_is_the_bridge_that_imports_ml_training():
