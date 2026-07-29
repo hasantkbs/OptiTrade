@@ -78,6 +78,71 @@ from portfolio.models import (
     Transaction,
     WithdrawRequest,
 )
+from watchlist import WatchlistService
+from users import (
+    APIKeyService,
+    AuditService,
+    AuthenticationService,
+    AuthorizationService,
+    OrganizationService,
+    PreferencesService,
+    SessionService,
+    TeamService,
+    UserService,
+    UsersRepository,
+)
+from users.authentication import decode_access_token
+from users.exceptions import (
+    APIKeyNotFoundError,
+    EmailAlreadyRegisteredError,
+    InvalidCredentialsError,
+    InvalidTokenError,
+    InvitationNotFoundError,
+    LastOwnerError,
+    MembershipNotFoundError,
+    OrganizationNotFoundError,
+    PermissionDeniedError,
+    QuotaExceededError,
+    TeamNotFoundError,
+    UserNotFoundError,
+    UserPlatformError,
+    ValidationFailedError,
+)
+from users.models import DeviceInfo, OrganizationQuotas, Permission as UsersPermission, User as UsersUser
+from users.schemas import (
+    AcceptInvitationRequest,
+    AddTeamMemberRequest,
+    APIKeyCreatedResponse,
+    APIKeyResponse,
+    APIKeyUsageStatsResponse,
+    AuditLogEntryResponse,
+    ChangeRoleRequest,
+    CreateAPIKeyRequest,
+    CreateOrganizationRequest,
+    CreateTeamRequest,
+    InvitationCreatedResponse,
+    InvitationResponse,
+    InviteMemberRequest,
+    LoginHistoryEntryResponse,
+    LoginRequest,
+    LogoutRequest,
+    MembershipResponse,
+    OrganizationResponse,
+    PasswordResetConfirmRequest,
+    PasswordResetRequestSchema,
+    PreferencesResponse,
+    RefreshRequest,
+    RegisterRequest,
+    ResourceUsageResponse,
+    SessionResponse,
+    TeamMembershipResponse,
+    TeamResponse,
+    TokenPairResponse,
+    UpdateOrganizationRequest,
+    UpdatePreferencesRequest,
+    UpdateProfileRequest,
+    UserResponse,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -189,6 +254,26 @@ async def startup_event() -> None:
         )
     except Exception as e:
         logger.error(f"Portfolio Intelligence Platform baslatilamadi: {e}")
+
+    global _users_repository, _users_authentication, _users_authorization, _users_sessions
+    global _users_organizations, _users_teams, _users_api_keys, _users_preferences
+    global _users_audit, _users_service, _users_watchlist_bridge
+    try:
+        _users_repository = UsersRepository()
+        _users_sessions = SessionService(_users_repository)
+        _users_authentication = AuthenticationService(_users_repository, session_cache=_users_sessions)
+        _users_authorization = AuthorizationService(_users_repository)
+        _users_organizations = OrganizationService(_users_repository, _users_authorization)
+        _users_teams = TeamService(_users_repository, _users_authorization)
+        _users_audit = AuditService(_users_repository)
+        _users_api_keys = APIKeyService(_users_repository, _users_authorization, _users_audit)
+        _users_watchlist_bridge = WatchlistService()
+        _users_preferences = PreferencesService(
+            _users_repository, portfolio_service=_portfolio_service, watchlist_service=_users_watchlist_bridge,
+        )
+        _users_service = UserService(_users_repository, _users_authentication)
+    except Exception as e:
+        logger.error(f"User & Organization Platform baslatilamadi: {e}")
     asyncio.create_task(self_evolution_loop())
 
 @app.get("/ml/performance")
@@ -226,6 +311,21 @@ _portfolio_rebalancing: Optional[RebalancingService] = None
 _portfolio_scenarios: Optional[ScenarioAnalysisService] = None
 _portfolio_recommendations: Optional[RecommendationEngine] = None
 _portfolio_dashboard: Optional[PortfolioDashboardService] = None
+
+# User & Organization Platform — same "construct once at startup, reuse
+# across every request" convention; all None until startup_event
+# finishes wiring them up.
+_users_repository: Optional[UsersRepository] = None
+_users_authentication: Optional[AuthenticationService] = None
+_users_authorization: Optional[AuthorizationService] = None
+_users_sessions: Optional[SessionService] = None
+_users_organizations: Optional[OrganizationService] = None
+_users_teams: Optional[TeamService] = None
+_users_api_keys: Optional[APIKeyService] = None
+_users_preferences: Optional[PreferencesService] = None
+_users_audit: Optional[AuditService] = None
+_users_service: Optional[UserService] = None
+_users_watchlist_bridge: Optional[WatchlistService] = None
 
 # ── Firebase Auth Dependency ───────────────────────────────────────────────────
 async def verify_firebase_token(
@@ -281,6 +381,49 @@ def _map_portfolio_error(exc: Exception) -> HTTPException:
     if isinstance(exc, PortfolioError):
         return HTTPException(status_code=500, detail=str(exc))
     return HTTPException(status_code=500, detail=str(exc))
+
+# ── User & Organization Platform helpers ────────────────────────────────────────
+
+def _require_users_service() -> None:
+    if _users_repository is None:
+        raise HTTPException(status_code=503, detail="Kullanici servisi henuz hazir degil.")
+
+
+def _map_users_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, (InvalidCredentialsError, InvalidTokenError)):
+        return HTTPException(status_code=401, detail=str(exc))
+    if isinstance(exc, (PermissionDeniedError, MembershipNotFoundError)):
+        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, (UserNotFoundError, OrganizationNotFoundError, TeamNotFoundError,
+                         APIKeyNotFoundError, InvitationNotFoundError)):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, (EmailAlreadyRegisteredError, QuotaExceededError, LastOwnerError, ValidationFailedError)):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, UserPlatformError):
+        return HTTPException(status_code=500, detail=str(exc))
+    return HTTPException(status_code=500, detail=str(exc))
+
+
+async def _get_current_user(authorization: Optional[str] = Header(default=None)) -> UsersUser:
+    _require_users_service()
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Yetkilendirme tokeni eksik.")
+    token = authorization.split(" ", 1)[1]
+    try:
+        user_id = decode_access_token(token)
+    except InvalidTokenError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    user = _users_repository.get_user(user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="Kullanici bulunamadi veya devre disi.")
+    return user
+
+
+def _device_from_request(request: Request) -> DeviceInfo:
+    return DeviceInfo(
+        user_agent=request.headers.get("user-agent", ""),
+        ip_address=request.client.host if request.client else "",
+    )
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def categorize(results: List[AnalysisResult]) -> ScanResult:
@@ -1057,3 +1200,343 @@ def get_chart(
         high=round(float(hist["High"].max()), 4),
         low=round(float(hist["Low"].min()),  4),
     )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# USER & ORGANIZATION PLATFORM ENDPOINTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Authentication ───────────────────────────────────────────────────────────
+
+@app.post("/auth/register", response_model=UserResponse)
+def auth_register(body: RegisterRequest) -> UserResponse:
+    _require_users_service()
+    try:
+        return UserResponse.model_validate(
+            _users_service.register(body.email, body.password, body.display_name)
+        )
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.post("/auth/login", response_model=TokenPairResponse)
+def auth_login(request: Request, body: LoginRequest) -> TokenPairResponse:
+    _require_users_service()
+    try:
+        tokens = _users_authentication.login(body.email, body.password, _device_from_request(request))
+        return TokenPairResponse.model_validate(tokens)
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.post("/auth/refresh", response_model=TokenPairResponse)
+def auth_refresh(request: Request, body: RefreshRequest) -> TokenPairResponse:
+    _require_users_service()
+    try:
+        tokens = _users_authentication.refresh(body.refresh_token, _device_from_request(request))
+        return TokenPairResponse.model_validate(tokens)
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.post("/auth/logout")
+def auth_logout(body: LogoutRequest) -> Dict[str, str]:
+    _require_users_service()
+    _users_authentication.logout(body.refresh_token)
+    return {"status": "ok"}
+
+@app.post("/auth/password-reset/request")
+def auth_password_reset_request(body: PasswordResetRequestSchema) -> Dict[str, str]:
+    _require_users_service()
+    _users_authentication.request_password_reset(body.email)
+    return {"status": "ok"}
+
+@app.post("/auth/password-reset/confirm")
+def auth_password_reset_confirm(body: PasswordResetConfirmRequest) -> Dict[str, str]:
+    _require_users_service()
+    try:
+        _users_authentication.reset_password(body.token, body.new_password)
+        return {"status": "ok"}
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+# ── Current user / profile ────────────────────────────────────────────────────
+
+@app.get("/users/me", response_model=UserResponse)
+def users_me(user: UsersUser = Depends(_get_current_user)) -> UserResponse:
+    return UserResponse.model_validate(user)
+
+@app.patch("/users/me", response_model=UserResponse)
+def users_update_me(body: UpdateProfileRequest, user: UsersUser = Depends(_get_current_user)) -> UserResponse:
+    try:
+        return UserResponse.model_validate(_users_service.update_profile(user.id, body.display_name))
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.get("/users/me/login-history", response_model=List[LoginHistoryEntryResponse])
+def users_login_history(user: UsersUser = Depends(_get_current_user)) -> List[LoginHistoryEntryResponse]:
+    return [LoginHistoryEntryResponse.model_validate(entry) for entry in _users_repository.list_login_history(user.id)]
+
+@app.get("/users/me/sessions", response_model=List[SessionResponse])
+def users_sessions(user: UsersUser = Depends(_get_current_user)) -> List[SessionResponse]:
+    return [SessionResponse.model_validate(session) for session in _users_sessions.list_active_sessions(user.id)]
+
+# ── Preferences ────────────────────────────────────────────────────────────────
+
+@app.get("/users/me/preferences", response_model=PreferencesResponse)
+def users_get_preferences(user: UsersUser = Depends(_get_current_user)) -> PreferencesResponse:
+    try:
+        return PreferencesResponse.model_validate(_users_preferences.get_preferences(user.id))
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.put("/users/me/preferences", response_model=PreferencesResponse)
+def users_update_preferences(
+    body: UpdatePreferencesRequest, user: UsersUser = Depends(_get_current_user),
+) -> PreferencesResponse:
+    try:
+        preferences = _users_preferences.update_preferences(
+            user.id, theme=body.theme, language=body.language,
+            notification_settings=body.notification_settings, dashboard_layout=body.dashboard_layout,
+            default_portfolio_id=body.default_portfolio_id, default_watchlist_id=body.default_watchlist_id,
+        )
+        return PreferencesResponse.model_validate(preferences)
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+# ── API keys ─────────────────────────────────────────────────────────────────
+
+@app.post("/users/me/api-keys", response_model=APIKeyCreatedResponse)
+def users_create_api_key(body: CreateAPIKeyRequest, user: UsersUser = Depends(_get_current_user)) -> APIKeyCreatedResponse:
+    try:
+        api_key, raw_key = _users_api_keys.create_api_key(
+            user.id, body.name, scope=body.scope, organization_id=body.organization_id,
+            expires_in_seconds=body.expires_in_seconds,
+        )
+        return APIKeyCreatedResponse(api_key=APIKeyResponse.model_validate(api_key), key=raw_key)
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.get("/users/me/api-keys", response_model=List[APIKeyResponse])
+def users_list_api_keys(user: UsersUser = Depends(_get_current_user)) -> List[APIKeyResponse]:
+    return [APIKeyResponse.model_validate(key) for key in _users_api_keys.list_api_keys(user.id)]
+
+@app.post("/users/me/api-keys/{api_key_id}/rotate", response_model=APIKeyCreatedResponse)
+def users_rotate_api_key(api_key_id: int, user: UsersUser = Depends(_get_current_user)) -> APIKeyCreatedResponse:
+    try:
+        api_key, raw_key = _users_api_keys.rotate_api_key(user.id, api_key_id)
+        return APIKeyCreatedResponse(api_key=APIKeyResponse.model_validate(api_key), key=raw_key)
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.delete("/users/me/api-keys/{api_key_id}")
+def users_revoke_api_key(api_key_id: int, user: UsersUser = Depends(_get_current_user)) -> Dict[str, str]:
+    try:
+        _users_api_keys.revoke_api_key(user.id, api_key_id)
+        return {"status": "ok"}
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.get("/users/me/api-keys/{api_key_id}/usage", response_model=APIKeyUsageStatsResponse)
+def users_api_key_usage(api_key_id: int, user: UsersUser = Depends(_get_current_user)) -> APIKeyUsageStatsResponse:
+    try:
+        api_key = _users_api_keys.get_api_key(api_key_id)
+        if api_key.user_id != user.id:
+            raise PermissionDeniedError(f"user {user.id} does not own API key {api_key_id}")
+        return APIKeyUsageStatsResponse.model_validate(_users_api_keys.get_usage_stats(api_key_id))
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+# ── Organizations ──────────────────────────────────────────────────────────────
+
+@app.post("/organizations", response_model=OrganizationResponse)
+def organizations_create(body: CreateOrganizationRequest, user: UsersUser = Depends(_get_current_user)) -> OrganizationResponse:
+    quotas = OrganizationQuotas(**body.quotas.model_dump()) if body.quotas else None
+    try:
+        return OrganizationResponse.model_validate(
+            _users_organizations.create_organization(body.name, user.id, quotas=quotas)
+        )
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.get("/organizations", response_model=List[OrganizationResponse])
+def organizations_list(user: UsersUser = Depends(_get_current_user)) -> List[OrganizationResponse]:
+    return [OrganizationResponse.model_validate(org) for org in _users_organizations.list_organizations_for_user(user.id)]
+
+@app.get("/organizations/{organization_id}", response_model=OrganizationResponse)
+def organizations_get(organization_id: int, user: UsersUser = Depends(_get_current_user)) -> OrganizationResponse:
+    try:
+        _users_authorization.get_role(user.id, organization_id)
+        return OrganizationResponse.model_validate(_users_organizations.get_organization(organization_id))
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.patch("/organizations/{organization_id}", response_model=OrganizationResponse)
+def organizations_update(
+    organization_id: int, body: UpdateOrganizationRequest, user: UsersUser = Depends(_get_current_user),
+) -> OrganizationResponse:
+    quotas = OrganizationQuotas(**body.quotas.model_dump()) if body.quotas else None
+    try:
+        return OrganizationResponse.model_validate(
+            _users_organizations.update_organization(organization_id, user.id, name=body.name, quotas=quotas)
+        )
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.delete("/organizations/{organization_id}")
+def organizations_delete(organization_id: int, user: UsersUser = Depends(_get_current_user)) -> Dict[str, str]:
+    try:
+        _users_organizations.delete_organization(organization_id, user.id)
+        return {"status": "ok"}
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.get("/organizations/{organization_id}/usage", response_model=ResourceUsageResponse)
+def organizations_usage(organization_id: int, user: UsersUser = Depends(_get_current_user)) -> ResourceUsageResponse:
+    try:
+        _users_authorization.get_role(user.id, organization_id)
+        organization = _users_organizations.get_organization(organization_id)
+        usage = _users_organizations.get_resource_usage(
+            organization_id, portfolio_service=_portfolio_service, watchlist_service=_users_watchlist_bridge,
+        )
+        return ResourceUsageResponse(usage=usage, quotas=organization.quotas)
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.get("/organizations/{organization_id}/members", response_model=List[MembershipResponse])
+def organizations_list_members(organization_id: int, user: UsersUser = Depends(_get_current_user)) -> List[MembershipResponse]:
+    try:
+        _users_authorization.get_role(user.id, organization_id)
+        return [MembershipResponse.model_validate(m) for m in _users_organizations.list_members(organization_id)]
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.patch("/organizations/{organization_id}/members/{target_user_id}/role", response_model=MembershipResponse)
+def organizations_change_member_role(
+    organization_id: int, target_user_id: int, body: ChangeRoleRequest, user: UsersUser = Depends(_get_current_user),
+) -> MembershipResponse:
+    try:
+        return MembershipResponse.model_validate(
+            _users_organizations.change_member_role(organization_id, user.id, target_user_id, body.role)
+        )
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.delete("/organizations/{organization_id}/members/{target_user_id}")
+def organizations_remove_member(
+    organization_id: int, target_user_id: int, user: UsersUser = Depends(_get_current_user),
+) -> Dict[str, str]:
+    try:
+        _users_organizations.remove_member(organization_id, user.id, target_user_id)
+        return {"status": "ok"}
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+# ── Invitations ────────────────────────────────────────────────────────────────
+
+@app.post("/organizations/{organization_id}/invitations", response_model=InvitationCreatedResponse)
+def organizations_invite_member(
+    organization_id: int, body: InviteMemberRequest, user: UsersUser = Depends(_get_current_user),
+) -> InvitationCreatedResponse:
+    try:
+        invitation, token = _users_organizations.invite_member(organization_id, user.id, body.email, body.role, body.team_id)
+        return InvitationCreatedResponse(invitation=InvitationResponse.model_validate(invitation), token=token)
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.get("/organizations/{organization_id}/invitations", response_model=List[InvitationResponse])
+def organizations_list_invitations(
+    organization_id: int, user: UsersUser = Depends(_get_current_user),
+) -> List[InvitationResponse]:
+    try:
+        return [
+            InvitationResponse.model_validate(inv)
+            for inv in _users_organizations.list_invitations(organization_id, user.id)
+        ]
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.delete("/organizations/{organization_id}/invitations/{invitation_id}")
+def organizations_revoke_invitation(
+    organization_id: int, invitation_id: int, user: UsersUser = Depends(_get_current_user),
+) -> Dict[str, str]:
+    try:
+        _users_organizations.revoke_invitation(organization_id, user.id, invitation_id)
+        return {"status": "ok"}
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.post("/organizations/invitations/accept", response_model=MembershipResponse)
+def organizations_accept_invitation(
+    body: AcceptInvitationRequest, user: UsersUser = Depends(_get_current_user),
+) -> MembershipResponse:
+    try:
+        return MembershipResponse.model_validate(_users_organizations.accept_invitation(body.token, user.id))
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+# ── Teams ──────────────────────────────────────────────────────────────────────
+
+@app.post("/organizations/{organization_id}/teams", response_model=TeamResponse)
+def organizations_create_team(
+    organization_id: int, body: CreateTeamRequest, user: UsersUser = Depends(_get_current_user),
+) -> TeamResponse:
+    try:
+        return TeamResponse.model_validate(_users_teams.create_team(organization_id, user.id, body.name))
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.get("/organizations/{organization_id}/teams", response_model=List[TeamResponse])
+def organizations_list_teams(organization_id: int, user: UsersUser = Depends(_get_current_user)) -> List[TeamResponse]:
+    try:
+        _users_authorization.get_role(user.id, organization_id)
+        return [TeamResponse.model_validate(team) for team in _users_teams.list_teams(organization_id)]
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.delete("/organizations/{organization_id}/teams/{team_id}")
+def organizations_delete_team(
+    organization_id: int, team_id: int, user: UsersUser = Depends(_get_current_user),
+) -> Dict[str, str]:
+    try:
+        _users_teams.delete_team(organization_id, user.id, team_id)
+        return {"status": "ok"}
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.post("/organizations/{organization_id}/teams/{team_id}/members", response_model=TeamMembershipResponse)
+def organizations_add_team_member(
+    organization_id: int, team_id: int, body: AddTeamMemberRequest, user: UsersUser = Depends(_get_current_user),
+) -> TeamMembershipResponse:
+    try:
+        return TeamMembershipResponse.model_validate(
+            _users_teams.add_member(organization_id, user.id, team_id, body.user_id)
+        )
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.delete("/organizations/{organization_id}/teams/{team_id}/members/{target_user_id}")
+def organizations_remove_team_member(
+    organization_id: int, team_id: int, target_user_id: int, user: UsersUser = Depends(_get_current_user),
+) -> Dict[str, str]:
+    try:
+        _users_teams.remove_member(organization_id, user.id, team_id, target_user_id)
+        return {"status": "ok"}
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+@app.get("/organizations/{organization_id}/teams/{team_id}/members", response_model=List[TeamMembershipResponse])
+def organizations_list_team_members(
+    organization_id: int, team_id: int, user: UsersUser = Depends(_get_current_user),
+) -> List[TeamMembershipResponse]:
+    try:
+        _users_authorization.get_role(user.id, organization_id)
+        return [TeamMembershipResponse.model_validate(m) for m in _users_teams.list_members(team_id)]
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
+# ── Audit log ────────────────────────────────────────────────────────────────
+
+@app.get("/organizations/{organization_id}/audit-log", response_model=List[AuditLogEntryResponse])
+def organizations_audit_log(organization_id: int, user: UsersUser = Depends(_get_current_user)) -> List[AuditLogEntryResponse]:
+    try:
+        _users_authorization.check_permission(user.id, organization_id, UsersPermission.MANAGE_MEMBERS)
+        return [AuditLogEntryResponse.model_validate(e) for e in _users_audit.list_for_organization(organization_id)]
+    except UserPlatformError as e:
+        raise _map_users_error(e)

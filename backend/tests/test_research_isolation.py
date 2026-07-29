@@ -40,7 +40,7 @@ BACKEND_ROOT = pathlib.Path(__file__).resolve().parent.parent
 PRODUCTION_DIRS = [
     "core", "v2", "models", "data", "api",
     "feature_store", "decision_engine", "engine_registry", "engines", "learning",
-    "pipeline", "explanation_engine", "portfolio", "watchlist",
+    "pipeline", "explanation_engine", "portfolio", "watchlist", "users",
 ]
 FORBIDDEN_PACKAGES = ["research", "research_lab", "ml_training"]
 
@@ -148,6 +148,18 @@ def test_watchlist_package_exists():
         "news_alerts.py", "notification_router.py", "scheduler.py",
     }
     actual = {p.name for p in watchlist_dir.glob("*.py")}
+    assert expected_modules <= actual
+
+
+def test_users_package_exists():
+    users_dir = BACKEND_ROOT / "users"
+    assert users_dir.is_dir()
+    expected_modules = {
+        "service.py", "repository.py", "authentication.py", "authorization.py",
+        "organizations.py", "teams.py", "api_keys.py", "sessions.py", "preferences.py",
+        "models.py", "schemas.py", "validators.py", "audit.py",
+    }
+    actual = {p.name for p in users_dir.glob("*.py")}
     assert expected_modules <= actual
 
 
