@@ -74,12 +74,40 @@ class AlertScheduler:
         self._pool = ThreadPoolExecutor(max_workers=self.config.max_parallel_workers)
         self._in_flight: Set[int] = set()
         self._in_flight_lock = threading.Lock()
+        # Rotating cursor for the global sweep (owner=None) only - see
+        # run_scan below. Never reset for an owner-scoped scan, so the
+        # periodic sweep's rotation isn't disturbed by an on-demand
+        # single-owner call landing in between two ticks.
+        self._scan_offset = 0
 
     def run_scan(self, owner: Optional[str] = None) -> ScanReport:
+        """Owner-scoped calls (the on-demand `POST /alerts/scan`
+        endpoint) load that owner's entire enabled-alert set in one
+        page - naturally bounded by how many alerts one owner can have.
+
+        The periodic global sweep (`owner=None`, called every
+        `alert_scan_loop` tick) instead loads ONE bounded page
+        (`scan_batch_size` alerts) per call and advances an internal
+        offset, rotating through the full enabled-alert set across
+        successive ticks rather than ever being capped to only the
+        first `scan_batch_size` alerts that ever existed (production
+        audit HIGH #5) - every enabled alert is still eventually
+        scanned, without loading an unbounded number of alerts into
+        memory or slowing down any single tick."""
         scan_started_at = time.perf_counter()
         started_dt = datetime.now(timezone.utc)
 
-        all_alerts = self.repository.list_alerts(owner=owner, enabled_only=True, limit=self.config.scan_batch_size)
+        if owner is not None:
+            all_alerts = self.repository.list_alerts(owner=owner, enabled_only=True, limit=self.config.scan_batch_size)
+        else:
+            total_enabled = self.repository.count_alerts(enabled_only=True)
+            if total_enabled == 0 or self._scan_offset >= total_enabled:
+                self._scan_offset = 0
+            all_alerts = self.repository.list_alerts(
+                enabled_only=True, limit=self.config.scan_batch_size, offset=self._scan_offset,
+            )
+            self._scan_offset += len(all_alerts)
+
         due_alerts = [alert for alert in all_alerts if self._is_due(alert)]
 
         futures = [self._pool.submit(self._check_one_deduped, alert) for alert in due_alerts]

@@ -245,3 +245,72 @@ def test_service_defaults_to_real_dependencies():
     scheduler = AlertScheduler()
     assert isinstance(scheduler.repository, WatchlistRepository)
     scheduler.shutdown()
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Global-sweep pagination regression (production audit HIGH #5: "Once
+# more than 200 enabled alerts exist, newer alerts are never scanned").
+# owner=None (the periodic global sweep alert_scan_loop drives, as
+# opposed to every other test above's owner-scoped on-demand scan) must
+# rotate through the full enabled-alert set across successive calls
+# rather than being permanently capped to the first `scan_batch_size`
+# alerts that ever existed.
+# ─────────────────────────────────────────────────────────────────────────
+
+def test_global_scan_rotates_through_more_alerts_than_one_batch(repository):
+    config = WatchlistConfig(
+        min_check_interval_seconds=0, max_parallel_workers=4, max_retries=0, alert_timeout_seconds=1.0,
+        scan_batch_size=5,
+    )
+    owner = f"{_OWNER_PREFIX}-rotation"
+    created_ids = set()
+    for i in range(12):  # more than 2x the 5-alert batch size
+        alert = Alert(
+            owner=owner, symbol=f"ROT{i}", category=AlertCategory.PRICE, alert_type=AlertType.PRICE_ABOVE,
+            parameters={"threshold": 1.0},
+        )
+        alert.id = repository.save_alert(alert)
+        created_ids.add(alert.id)
+
+    engine = _FakeAlertEngine(lambda a: (None, {}))
+    scheduler, _ = _scheduler(repository, engine, config=config)
+
+    seen_ids = set()
+    try:
+        # ceil(12/5) = 3 ticks is the theoretical minimum to cover every
+        # alert once - run double that for headroom against any other
+        # enabled alerts sharing the same global rotation.
+        for _ in range(6):
+            report = scheduler.run_scan()  # owner=None - the global sweep, not owner-scoped
+            seen_ids.update(outcome.alert_id for outcome in report.outcomes)
+
+        assert created_ids <= seen_ids, (
+            f"never scanned: {created_ids - seen_ids} - the global sweep must eventually reach every alert"
+        )
+    finally:
+        scheduler.shutdown()
+
+
+def test_global_scan_batch_is_bounded_to_the_configured_batch_size(repository):
+    config = WatchlistConfig(
+        min_check_interval_seconds=0, max_parallel_workers=4, max_retries=0, alert_timeout_seconds=1.0,
+        scan_batch_size=5,
+    )
+    owner = f"{_OWNER_PREFIX}-bounded"
+    for i in range(12):
+        alert = Alert(
+            owner=owner, symbol=f"BND{i}", category=AlertCategory.PRICE, alert_type=AlertType.PRICE_ABOVE,
+            parameters={"threshold": 1.0},
+        )
+        alert.id = repository.save_alert(alert)
+
+    engine = _FakeAlertEngine(lambda a: (None, {}))
+    scheduler, _ = _scheduler(repository, engine, config=config)
+    try:
+        # A single tick must never load more than scan_batch_size alerts
+        # - the periodic sweep's whole point is bounded, predictable
+        # per-tick cost, not "eventually load everything in one call".
+        report = scheduler.run_scan()
+        assert report.total_alerts <= config.scan_batch_size
+    finally:
+        scheduler.shutdown()

@@ -245,8 +245,16 @@ class WatchlistRepository:
 
     def list_alerts(
         self, owner: Optional[str] = None, symbol: Optional[str] = None, enabled_only: bool = False,
-        limit: int = 500,
+        limit: int = 500, offset: int = 0,
     ) -> List[Alert]:
+        """`limit`/`offset` page through the matching alerts, ordered by
+        `(created_at, id)` for a stable, deterministic page boundary
+        (created_at alone ties for alerts created in the same instant,
+        which would make OFFSET pagination skip/repeat rows even
+        without concurrent writes) - `AlertScheduler.run_scan` uses this
+        to rotate through the full enabled-alert set one bounded page
+        per call rather than ever loading (or being capped to) only the
+        first `limit` alerts that ever existed."""
         query = "SELECT * FROM watchlist_alerts WHERE 1=1"
         params: list = []
         if owner is not None:
@@ -257,13 +265,27 @@ class WatchlistRepository:
             params.append(symbol.upper())
         if enabled_only:
             query += " AND enabled = TRUE"
-        query += " ORDER BY created_at LIMIT %s"
+        query += " ORDER BY created_at, id LIMIT %s OFFSET %s"
         params.append(limit)
+        params.append(offset)
 
         with self._connection() as conn, conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(query, tuple(params))
             rows = cur.fetchall()
         return [self._row_to_alert(row) for row in rows]
+
+    def count_alerts(self, owner: Optional[str] = None, enabled_only: bool = False) -> int:
+        query = "SELECT count(*) FROM watchlist_alerts WHERE 1=1"
+        params: list = []
+        if owner is not None:
+            query += " AND owner = %s"
+            params.append(owner)
+        if enabled_only:
+            query += " AND enabled = TRUE"
+
+        with self._connection() as conn, conn, conn.cursor() as cur:
+            cur.execute(query, tuple(params))
+            return cur.fetchone()[0]
 
     def update_alert_state(
         self, alert_id: int, last_state: dict, last_checked_at, last_triggered_at,
