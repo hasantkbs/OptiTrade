@@ -271,17 +271,30 @@ class PortfolioService:
         return sum(state.realized_pnl for state in states.values())
 
     def get_unrealized_pnl(self, portfolio_id: int) -> float:
+        """A position whose current price can't be resolved (delisted,
+        invalid, or a temporarily unavailable data source) contributes
+        nothing to the total rather than crashing the whole calculation
+        - see `PriceService.get_current_prices`, which logs and skips
+        exactly that symbol instead of fabricating a price for it."""
         positions = self.get_positions(portfolio_id)
+        prices = self.price_service.get_current_prices([position.symbol for position in positions])
         total = 0.0
         for position in positions:
-            current_price = self.price_service.get_current_price(position.symbol)
+            current_price = prices.get(position.symbol)
+            if current_price is None:
+                continue
             total += (current_price - position.average_cost) * position.quantity
         return total
 
     def get_total_value(self, portfolio_id: int) -> float:
+        """Same per-symbol resilience as `get_unrealized_pnl` - a
+        position with no resolvable current price is excluded from
+        `positions_value` (not fabricated at $0 or any other value)
+        rather than raising and losing the whole portfolio's total."""
         positions = self.get_positions(portfolio_id)
+        prices = self.price_service.get_current_prices([position.symbol for position in positions])
         positions_value = sum(
-            position.quantity * self.price_service.get_current_price(position.symbol) for position in positions
+            position.quantity * prices[position.symbol] for position in positions if position.symbol in prices
         )
         return self.get_cash_balance(portfolio_id) + positions_value
 
@@ -291,10 +304,13 @@ class PortfolioService:
         self.get_portfolio(portfolio_id)
         positions = self.get_positions(portfolio_id)
         cash_balance = self.get_cash_balance(portfolio_id)
+        prices = self.price_service.get_current_prices([position.symbol for position in positions])
         positions_value = 0.0
         unrealized_pnl = 0.0
         for position in positions:
-            current_price = self.price_service.get_current_price(position.symbol)
+            current_price = prices.get(position.symbol)
+            if current_price is None:
+                continue
             positions_value += position.quantity * current_price
             unrealized_pnl += (current_price - position.average_cost) * position.quantity
 

@@ -61,7 +61,25 @@ class PriceService:
         return price
 
     def get_current_prices(self, symbols: List[str]) -> Dict[str, float]:
-        return {symbol.upper(): self.get_current_price(symbol) for symbol in symbols}
+        """Current price for every symbol that resolves. A single
+        delisted/invalid/unavailable symbol is logged and skipped rather
+        than failing the whole batch - mirrors `get_returns()`'s exact
+        "silently dropped, not a whole-call failure" philosophy just
+        below, since a portfolio holding one bad symbol must not block
+        pricing every other position. Missing symbols are simply absent
+        from the returned dict - callers that need to know MUST check
+        for the symbols they asked for rather than a fabricated price
+        for it."""
+        prices: Dict[str, float] = {}
+        for symbol in symbols:
+            try:
+                prices[symbol.upper()] = self.get_current_price(symbol)
+            except Exception as exc:
+                log_event(
+                    logger, component="portfolio", module="portfolio.prices", operation="get_current_prices",
+                    status=STATUS_ERROR, symbol=symbol.upper(), error_type=type(exc).__name__, level=logging.WARNING,
+                )
+        return prices
 
     def get_returns(self, symbols: List[str], lookback_days: Optional[int] = None) -> pd.DataFrame:
         """Daily simple returns for every symbol that had usable price

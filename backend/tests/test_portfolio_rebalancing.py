@@ -148,3 +148,20 @@ def test_is_scheduled_rebalance_due_respects_interval(rebalancing_service):
 def test_service_defaults_to_real_dependencies():
     service = RebalancingService()
     assert isinstance(service.position_analytics_service, PositionAnalyticsService)
+
+
+def test_build_plan_skips_a_target_symbol_with_unavailable_price(portfolio_service, rebalancing_service):
+    # production audit HIGH #4: a target-only symbol (not currently
+    # held) whose price can't be resolved must not abort the whole
+    # rebalance plan - every other symbol's trade is still produced.
+    portfolio = portfolio_service.create_portfolio(owner=f"{_OWNER_PREFIX}-unavailable-target", name="Mixed")
+    portfolio_service.deposit(portfolio.id, 10000.0)
+    portfolio_service.buy(portfolio.id, "AAPL", 10, 150.0)
+
+    plan = rebalancing_service.build_plan(
+        portfolio.id, {"AAPL": 20.0, "GOOGL": 20.0, "DELISTED": 20.0}, trigger=RebalanceTrigger.MANUAL,
+    )  # must not raise
+
+    symbols_traded = {trade.symbol for trade in plan.trades}
+    assert "GOOGL" in symbols_traded
+    assert "DELISTED" not in symbols_traded

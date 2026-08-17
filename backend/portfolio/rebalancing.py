@@ -14,13 +14,17 @@ never self-scheduled" convention.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+from core.structured_logging import STATUS_ERROR, log_event
 from portfolio.analytics import PositionAnalyticsService
 from portfolio.config import PortfolioConfig
 from portfolio.models import PositionAnalytics, RebalanceAction, RebalancePlan, RebalanceTrade, RebalanceTrigger
 from portfolio.prices import PriceService
+
+logger = logging.getLogger(__name__)
 
 
 class RebalancingService:
@@ -82,7 +86,18 @@ class RebalancingService:
 
             price = current_prices.get(symbol)
             if price is None:
-                price = self.price_service.get_current_price(symbol)
+                try:
+                    price = self.price_service.get_current_price(symbol)
+                except Exception as exc:
+                    # A target-only symbol (not currently held) with no
+                    # resolvable price can't be turned into a trade -
+                    # skip it rather than aborting the whole plan; every
+                    # other symbol's trade is still computed.
+                    log_event(
+                        logger, component="portfolio", module="portfolio.rebalancing", operation="build_plan",
+                        status=STATUS_ERROR, symbol=symbol, error_type=type(exc).__name__, level=logging.WARNING,
+                    )
+                    continue
 
             diff_value = (total_value * target_weight / 100.0) - (total_value * current_weight / 100.0)
             fee = abs(diff_value) * fee_rate_pct / 100.0

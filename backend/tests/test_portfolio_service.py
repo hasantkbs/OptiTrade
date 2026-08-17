@@ -254,6 +254,60 @@ def test_service_defaults_to_real_dependencies():
     assert isinstance(service.price_service, PriceService)
 
 
+# ── Price-fetch resilience (production audit HIGH #4: "per-position ────
+# price fetch has no try/except. A single delisted/invalid/unavailable
+# symbol crashes the dashboard/position calculation") ──────────────────
+#
+# _fake_current_price_fetcher (above) already returns an empty DataFrame
+# for any symbol not in _CURRENT_PRICES - exactly PriceService's own
+# "no data available" case - so buying a symbol like "DELISTED" (never
+# in _CURRENT_PRICES) is enough to simulate an unavailable/delisted
+# symbol without any extra fakery.
+
+def test_get_unrealized_pnl_excludes_a_position_with_unavailable_price(service):
+    portfolio = service.create_portfolio(owner=_owner("unrealized-mixed"), name="Trading")
+    service.deposit(portfolio.id, 10000.0)
+    service.buy(portfolio.id, "AAPL", 10, 150.0)
+    service.buy(portfolio.id, "DELISTED", 5, 20.0)
+
+    # Must not raise - DELISTED's unresolvable price is skipped, AAPL's
+    # contribution is still computed correctly.
+    assert service.get_unrealized_pnl(portfolio.id) == pytest.approx((200.0 - 150.0) * 10)
+
+
+def test_get_total_value_excludes_a_position_with_unavailable_price(service):
+    portfolio = service.create_portfolio(owner=_owner("total-value-mixed"), name="Trading")
+    service.deposit(portfolio.id, 10000.0)
+    service.buy(portfolio.id, "AAPL", 10, 150.0)
+    service.buy(portfolio.id, "DELISTED", 5, 20.0)
+
+    # Cash is reduced by both buys' cost, but only AAPL's current value
+    # is added back in - DELISTED contributes nothing rather than
+    # crashing the whole call or fabricating a price for it.
+    expected_cash = 10000.0 - (10 * 150.0) - (5 * 20.0)
+    assert service.get_total_value(portfolio.id) == pytest.approx(expected_cash + 10 * 200.0)
+
+
+def test_take_snapshot_excludes_a_position_with_unavailable_price(service):
+    portfolio = service.create_portfolio(owner=_owner("snapshot-mixed"), name="Trading")
+    service.deposit(portfolio.id, 10000.0)
+    service.buy(portfolio.id, "AAPL", 10, 150.0)
+    service.buy(portfolio.id, "DELISTED", 5, 20.0)
+
+    snapshot = service.take_snapshot(portfolio.id)  # must not raise
+    assert snapshot.positions_value == pytest.approx(10 * 200.0)
+    assert snapshot.unrealized_pnl == pytest.approx((200.0 - 150.0) * 10)
+    assert snapshot.total_value == pytest.approx(service.get_total_value(portfolio.id))
+
+
+def test_get_unrealized_pnl_is_zero_when_every_position_is_unavailable(service):
+    portfolio = service.create_portfolio(owner=_owner("all-unavailable"), name="Trading")
+    service.deposit(portfolio.id, 10000.0)
+    service.buy(portfolio.id, "DELISTED", 5, 20.0)
+
+    assert service.get_unrealized_pnl(portfolio.id) == 0.0
+
+
 # ── Concurrency (money-path race-condition regression) ───────────────────
 #
 # buy()/sell()/withdraw() replay the transaction history to check a

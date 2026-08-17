@@ -32,14 +32,19 @@ class PositionAnalyticsService:
         self.price_service = price_service or self.portfolio_service.price_service
 
     def analyze_positions(self, portfolio_id: int) -> List[PositionAnalytics]:
+        """A position whose current price can't be resolved (delisted,
+        invalid, or a temporarily unavailable data source) is excluded
+        from the result - see `PriceService.get_current_prices`, which
+        logs and skips exactly that symbol - rather than fabricating a
+        price for it or letting it crash analytics for every other
+        position in the portfolio."""
         positions = self.portfolio_service.get_positions(portfolio_id)
         if not positions:
             return []
 
         cash_balance = self.portfolio_service.get_cash_balance(portfolio_id)
-        current_prices = {
-            position.symbol: self.price_service.get_current_price(position.symbol) for position in positions
-        }
+        current_prices = self.price_service.get_current_prices([position.symbol for position in positions])
+        positions = [position for position in positions if position.symbol in current_prices]
         positions_value = sum(position.quantity * current_prices[position.symbol] for position in positions)
         total_value = positions_value + cash_balance
 

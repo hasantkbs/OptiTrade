@@ -115,3 +115,20 @@ def test_allocation_breakdown_recomputes_when_position_analytics_not_supplied(po
 def test_service_defaults_to_real_dependencies():
     service = PositionAnalyticsService()
     assert isinstance(service.portfolio_service, PortfolioService)
+
+
+def test_analyze_positions_excludes_a_symbol_with_unavailable_price(portfolio_service, analytics_service):
+    # production audit HIGH #4: one delisted/invalid/unavailable symbol
+    # must not crash analytics for the rest of the portfolio.
+    # _fake_current_price_fetcher returns empty data for any symbol not
+    # in _CURRENT_PRICES, simulating exactly that.
+    portfolio = portfolio_service.create_portfolio(owner=f"{_OWNER_PREFIX}-unavailable", name="Mixed")
+    portfolio_service.deposit(portfolio.id, 10000.0)
+    portfolio_service.buy(portfolio.id, "AAPL", 10, 150.0)
+    portfolio_service.buy(portfolio.id, "DELISTED", 5, 20.0)
+
+    positions = analytics_service.analyze_positions(portfolio.id)  # must not raise
+
+    symbols = {p.symbol for p in positions}
+    assert symbols == {"AAPL"}
+    assert positions[0].current_price == 200.0
