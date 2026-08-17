@@ -2,11 +2,13 @@
 real Feature Store (PostgreSQL + Redis), real Decision Engine, real
 Groq explanation, real Learning tracking. Cleans up every row it
 writes."""
+import threading
+import time
 from datetime import datetime, timezone
 
 import pytest
 
-from decision_engine.models import Prediction
+from decision_engine.models import EngineVote, Prediction
 from decision_engine.repository import PostgresExecutionRepository
 from engine_registry.registry import default_registry
 from feature_store.config import FeatureStoreConfig
@@ -106,3 +108,75 @@ def test_service_lowercase_symbol_resolves_same_engines(service):
     first = service.run(_SYMBOL)
     second = service.run(_SYMBOL)
     assert first.symbol == second.symbol == _SYMBOL
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Concurrency regression (production audit HIGH #1: "pipeline/service.py
+# mutates self.pipeline.engines (shared, unlocked) per request while
+# Pipeline.run() reads it at multiple points"): PipelineService/Pipeline
+# are process-wide singletons main.py runs concurrent requests through
+# (a 16-thread executor pool). This proves service.run() - the actual
+# code path HTTP requests hit - never lets one concurrent call's engine
+# composition leak into or get clobbered by another's, using the real,
+# shared `service` fixture (real Postgres/Redis-backed Feature Store,
+# weight provider, execution repository, learning service - only engine
+# *resolution* is swapped out, since real ACTIVE-model-serving engines
+# aren't the thing under test here). See
+# test_pipeline_pipeline.py's equivalent test at the Pipeline layer.
+# ─────────────────────────────────────────────────────────────────────────
+
+class _ConcurrencyFakeEngine:
+    def __init__(self, name: str) -> None:
+        self.engine_name = name
+        self.engine_version = "v1"
+
+    def vote(self, symbol: str) -> EngineVote:
+        time.sleep(0.05)  # widen the window for concurrent PipelineService.run() calls to overlap
+        return EngineVote(
+            engine_name=self.engine_name, engine_version=self.engine_version, prediction=Prediction.BUY,
+            confidence=0.7, expected_return=1.0, volatility=10.0, evidence=[f"{self.engine_name} evidence"],
+        )
+
+
+def test_concurrent_service_runs_with_different_engine_lists_never_observe_each_others_engines(
+    service, monkeypatch,
+):
+    thread_count = 6
+    thread_local = threading.local()
+
+    # The fixed three (Technical/Fundamental/News) are the same
+    # singletons for every call by design - only model_serving's
+    # resolved engines vary per request in production (a different
+    # ACTIVE model), so that's the seam this test drives per-thread.
+    monkeypatch.setattr(PipelineService, "_resolve_engines", lambda self: [])
+    monkeypatch.setattr(
+        PipelineService, "_resolve_model_serving_engines", lambda self: getattr(thread_local, "engines", []),
+    )
+
+    results = {}
+    errors = []
+
+    def _run(thread_index: int) -> None:
+        try:
+            thread_local.engines = [_ConcurrencyFakeEngine(f"Svc-{thread_index}-{j}") for j in range(thread_index + 1)]
+            results[thread_index] = service.run(_SYMBOL)
+        except Exception as exc:  # pragma: no cover - failure path only
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_run, args=(i,)) for i in range(thread_count)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    assert set(results.keys()) == set(range(thread_count))
+    for i, response in results.items():
+        expected_names = {f"Svc-{i}-{j}" for j in range(i + 1)}
+        actual_names = {item.engine_name for item in response.engine_breakdown}
+        assert actual_names == expected_names, (
+            f"thread {i} observed engines {actual_names}, expected only its own {expected_names} - "
+            f"a foreign or missing engine name means engine composition leaked across concurrent requests"
+        )
+        assert response.metadata.engines_available == i + 1
+        assert response.metadata.engines_succeeded == i + 1

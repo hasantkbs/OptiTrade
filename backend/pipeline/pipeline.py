@@ -137,7 +137,7 @@ class Pipeline:
             result.vote for result in context.execution_results
             if result.status == EngineExecutionStatus.SUCCESS and result.vote is not None
         ]
-        weights = {vote.engine_name: self.weight_provider.get_weight(vote.engine_name) for vote in votes}
+        weights = {vote.engine_name: self._get_weight_safely(vote.engine_name, symbol) for vote in votes}
         aggregation = aggregate_votes(votes, weights)
 
         data_sufficiency = (len(votes) / len(context.engines)) if context.engines else 0.0
@@ -155,6 +155,27 @@ class Pipeline:
             timestamp=datetime.now(timezone.utc),
         )
         context.record_stage("decision", (time.perf_counter() - started_at) * 1000)
+
+    def _get_weight_safely(self, engine_name: str, symbol: str) -> float:
+        """`self.weight_provider.get_weight` was the only per-vote call
+        in this stage with no failure isolation of its own - a Feature
+        Store hiccup there would propagate out of `_decision_stage` and
+        turn an otherwise-successful vote collection into a hard
+        failure for the whole request. Every other stage in this class
+        already degrades gracefully (log + continue) on an injected
+        dependency's failure; this matches that same pattern rather than
+        relying solely on `AccuracyWeightProvider.get_weight`'s own
+        fallback (any `weight_provider` implementation is protected
+        here, not just the real one)."""
+        try:
+            return self.weight_provider.get_weight(engine_name)
+        except Exception as exc:
+            log_event(
+                logger, component="pipeline", module="pipeline.pipeline", operation="decision_weight_lookup",
+                status=STATUS_ERROR, symbol=symbol, engine_name=engine_name, error_type=type(exc).__name__,
+                level=logging.WARNING,
+            )
+            return self._decision_engine_config.default_accuracy_weight
 
     def _persist_decision(self, decision_output: Optional[DecisionOutput]) -> None:
         if decision_output is None:

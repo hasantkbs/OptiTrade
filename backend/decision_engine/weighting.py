@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 
-from core.structured_logging import STATUS_SUCCESS, log_event
+from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from decision_engine.config import DecisionEngineConfig
 from feature_store.interfaces import OfflineFeatureStoreProtocol, OnlineFeatureStoreProtocol
 from feature_store.service import FeatureStoreService
@@ -35,9 +35,33 @@ class AccuracyWeightProvider:
         self._config = config
 
     def get_weight(self, engine_name: str) -> float:
-        record = self._feature_store.get_latest_feature(
-            engine_name, self._config.accuracy_feature_name
-        )
+        """Looks up `engine_name`'s accuracy weight. Falls back to
+        `default_accuracy_weight` - the same "neutral, neither penalized
+        nor favored" value already used when no accuracy history exists
+        yet - if the Feature Store lookup itself fails (e.g. Redis/
+        Postgres unreachable), instead of letting that failure propagate
+        out of an otherwise-successful decision. This is the only
+        Decision Engine call `pipeline.pipeline.Pipeline._decision_stage`
+        makes per vote with no upstream try/except of its own, so a
+        transient Feature Store outage must not turn a successful vote
+        collection into an HTTP 500."""
+        try:
+            record = self._feature_store.get_latest_feature(
+                engine_name, self._config.accuracy_feature_name
+            )
+        except Exception as exc:
+            log_event(
+                logger,
+                component="decision_engine",
+                module="decision_engine.weighting",
+                operation="get_weight",
+                status=STATUS_ERROR,
+                engine_name=engine_name,
+                error_type=type(exc).__name__,
+                level=logging.ERROR,
+            )
+            return self._config.default_accuracy_weight
+
         weight = record.value if record is not None else self._config.default_accuracy_weight
         log_event(
             logger,

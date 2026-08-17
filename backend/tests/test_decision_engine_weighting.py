@@ -62,3 +62,30 @@ def test_different_engines_are_independent():
     assert provider.get_weight("TechnicalEngine") == 0.8
     assert provider.get_weight("FundamentalEngine") == 0.4
     assert provider.get_weight("NewsEngine") == 1.0  # no history -> default
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Failure-resilience regression (production audit HIGH #2: "the weight
+# lookup call in _decision_stage is the only pipeline stage without
+# try/except - a Feature Store/weight lookup failure can turn an
+# otherwise successful decision into HTTP 500").
+# ─────────────────────────────────────────────────────────────────────────
+
+class _RaisingFeatureStoreService:
+    def get_latest_feature(self, symbol: str, feature_name: str):
+        raise RuntimeError("feature store unreachable")
+
+
+def test_get_weight_falls_back_to_default_when_the_feature_store_lookup_raises():
+    config = DecisionEngineConfig(default_accuracy_weight=1.0)
+    provider = AccuracyWeightProvider(_RaisingFeatureStoreService(), config)
+    # Must not raise - degrades to the same "unknown accuracy" default
+    # weight used when no history exists yet, rather than propagating
+    # the Feature Store failure out of an otherwise-successful vote.
+    assert provider.get_weight("TechnicalEngine") == 1.0
+
+
+def test_get_weight_uses_the_configured_default_when_lookup_raises():
+    config = DecisionEngineConfig(default_accuracy_weight=0.42)
+    provider = AccuracyWeightProvider(_RaisingFeatureStoreService(), config)
+    assert provider.get_weight("TechnicalEngine") == 0.42

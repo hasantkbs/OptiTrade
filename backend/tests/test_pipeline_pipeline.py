@@ -251,6 +251,49 @@ def test_engine_breakdown_includes_failed_engines_with_no_vote_data():
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# Weight-lookup failure resilience (production audit HIGH #2: "the weight
+# lookup call in _decision_stage is the only pipeline stage without
+# try/except - a Feature Store/weight lookup failure can turn an
+# otherwise successful decision into HTTP 500").
+# ─────────────────────────────────────────────────────────────────────────
+
+class _RaisingWeightProvider:
+    def get_weight(self, engine_name: str) -> float:
+        raise RuntimeError("feature store unreachable")
+
+
+def test_run_survives_a_weight_lookup_failure_instead_of_raising():
+    engines = [
+        _FakeEngine("TechnicalEngine", Prediction.BUY),
+        _FakeEngine("FundamentalEngine", Prediction.BUY),
+    ]
+    pipeline = _build_pipeline(engines, weight_provider=_RaisingWeightProvider())
+    response = pipeline.run("AAPL")  # must not raise
+
+    assert response.decision == Prediction.BUY
+    assert response.metadata.engines_succeeded == 2
+    assert response.metadata.degraded is False  # both votes still succeeded - only their weight lookup failed
+    assert len(response.engine_breakdown) == 2
+
+
+def test_weight_lookup_failure_falls_back_to_the_configured_default_weight():
+    engines = [_FakeEngine("TechnicalEngine", Prediction.BUY, confidence=0.9)]
+    config = PipelineConfig(engine_timeout_seconds=2.0, max_retries=0)
+    pipeline_with_failure = _build_pipeline(engines, weight_provider=_RaisingWeightProvider(), config=config)
+    pipeline_with_default = _build_pipeline(
+        engines, weight_provider=_FakeWeightProvider({"TechnicalEngine": 1.0}), config=config,
+    )
+
+    response_with_failure = pipeline_with_failure.run("AAPL")
+    response_with_default = pipeline_with_default.run("AAPL")
+
+    # A failed lookup must resolve to the same result as the provider's
+    # own documented "no accuracy data" default (1.0, single-engine
+    # case) - not an arbitrarily different weight.
+    assert response_with_failure.confidence == response_with_default.confidence
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Concurrency regression (production audit's "self.pipeline.engines is
 # shared and mutated per request while Pipeline.run() is simultaneously
 # reading it" finding).
