@@ -44,12 +44,12 @@ def repository():
     conn = repo._pool.getconn()
     try:
         with conn, conn.cursor() as cur:
-            cur.execute("DELETE FROM learning_samples WHERE symbol = %s", (_SYMBOL,))
+            cur.execute("DELETE FROM learning_samples WHERE symbol LIKE %s", (f"{_SYMBOL}%",))
     finally:
         repo._pool.putconn(conn)
 
 
-def _tracked_sample(repository, prediction: Prediction, horizon_days: int = 5, days_ago: int = 10):
+def _tracked_sample(repository, prediction: Prediction, horizon_days: int = 5, days_ago: int = 10, symbol: str = _SYMBOL):
     config = LearningConfig(evaluation_horizon_days=horizon_days)
     tracker = SampleTracker(repository=repository, config=config)
     decided_at = datetime.now(timezone.utc) - timedelta(days=days_ago)
@@ -58,7 +58,7 @@ def _tracked_sample(repository, prediction: Prediction, horizon_days: int = 5, d
         confidence=0.7, expected_return=2.0, volatility=15.0, evidence=["e"], timestamp=decided_at,
     )
     output = DecisionOutput(
-        symbol=_SYMBOL, decision=prediction, confidence=0.7, expected_return=2.0,
+        symbol=symbol, decision=prediction, confidence=0.7, expected_return=2.0,
         expected_volatility=15.0, aggregation_strategy_version="v1", data_sufficiency=1.0,
         evidence=["e"], engine_results=[vote], timestamp=decided_at,
     )
@@ -199,3 +199,53 @@ def test_realized_volatility_is_zero_with_a_single_row_window():
     end = start + timedelta(days=1)
     single_row = pd.DataFrame({"Close": [100.0]}, index=pd.date_range(start=start, periods=1, freq="D", tz="UTC"))
     assert Evaluator._realized_volatility(single_row, start, end) == 0.0
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Per-item failure isolation regression (production audit HIGH #3:
+# "Per-item loops are not individually protected. One bad sample/engine
+# can abort an entire batch/cycle").
+# ─────────────────────────────────────────────────────────────────────────
+
+def test_one_failing_sample_does_not_abort_evaluation_of_the_rest_of_the_batch(repository):
+    bad_symbol = f"{_SYMBOL}-BAD"
+
+    def _mixed_fetcher(symbol, start, end):
+        if symbol == bad_symbol:
+            raise RuntimeError("data provider outage")
+        return _rising_price_fetcher(symbol, start, end)
+
+    good_sample = _tracked_sample(repository, Prediction.BUY, symbol=_SYMBOL)
+    bad_sample = _tracked_sample(repository, Prediction.BUY, symbol=bad_symbol)
+
+    evaluator = OutcomeEvaluator(repository=repository, config=LearningConfig(), price_fetcher=_mixed_fetcher)
+    count = evaluator.evaluate_pending(now=datetime.now(timezone.utc))  # must not raise
+
+    assert count == 1  # only the good sample was newly evaluated
+    pending_ids = {p.id for p in repository.get_pending_samples(datetime.now(timezone.utc))}
+    assert good_sample.id not in pending_ids  # evaluated and removed from pending
+    assert bad_sample.id in pending_ids  # left pending - retried on a later cycle, not lost
+
+
+def test_a_failing_sample_earlier_in_the_batch_does_not_block_a_later_good_one(repository):
+    # Order matters for a naive "abort on first exception" implementation
+    # - the bad sample is tracked (and therefore evaluated) FIRST here,
+    # to prove later batch members still get processed even when the
+    # failure happens early rather than late.
+    bad_symbol = f"{_SYMBOL}-BAD-FIRST"
+
+    def _mixed_fetcher(symbol, start, end):
+        if symbol == bad_symbol:
+            raise RuntimeError("data provider outage")
+        return _rising_price_fetcher(symbol, start, end)
+
+    bad_sample = _tracked_sample(repository, Prediction.BUY, symbol=bad_symbol)
+    good_sample = _tracked_sample(repository, Prediction.BUY, symbol=_SYMBOL)
+
+    evaluator = OutcomeEvaluator(repository=repository, config=LearningConfig(), price_fetcher=_mixed_fetcher)
+    count = evaluator.evaluate_pending(now=datetime.now(timezone.utc))
+
+    assert count == 1
+    pending_ids = {p.id for p in repository.get_pending_samples(datetime.now(timezone.utc))}
+    assert good_sample.id not in pending_ids
+    assert bad_sample.id in pending_ids

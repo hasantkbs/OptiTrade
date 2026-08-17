@@ -124,3 +124,62 @@ def test_run_once_is_idempotent_on_already_evaluated_samples(scheduler_setup):
     scheduler.run_once(now=datetime.now(timezone.utc))
     second = scheduler.run_once(now=datetime.now(timezone.utc))
     assert second.evaluated_count == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Per-engine failure isolation regression (production audit HIGH #3:
+# "Per-item loops are not individually protected. One bad sample/engine
+# can abort an entire batch/cycle").
+# ─────────────────────────────────────────────────────────────────────────
+
+def test_one_failing_engine_does_not_abort_the_rest_of_the_cycle(scheduler_setup, monkeypatch):
+    scheduler, repo, _ = scheduler_setup
+    bad_engine = f"{_ENGINE}-BAD"
+
+    decided_at = datetime.now(timezone.utc) - timedelta(days=10)
+    tracker = SampleTracker(
+        repository=repo, config=LearningConfig(evaluation_horizon_days=5, min_samples_for_weighting=1, min_samples_for_drift=1),
+    )
+    for _ in range(3):
+        vote = EngineVote(
+            engine_name=bad_engine, engine_version="v1", prediction=Prediction.BUY, confidence=0.7,
+            expected_return=2.0, volatility=15.0, evidence=["e"], timestamp=decided_at,
+        )
+        output = DecisionOutput(
+            symbol=_SYMBOL, decision=Prediction.BUY, confidence=0.7, expected_return=2.0,
+            expected_volatility=15.0, aggregation_strategy_version="v1", data_sufficiency=1.0,
+            evidence=["e"], engine_results=[vote], timestamp=decided_at,
+        )
+        tracker.track_decision(output)
+
+    original_detect = scheduler.drift_detector.detect
+
+    def _raise_for_bad_engine(engine_name, engine_version, metrics_by_window):
+        if engine_name == bad_engine:
+            raise RuntimeError("drift detector exploded")
+        return original_detect(engine_name, engine_version, metrics_by_window)
+
+    monkeypatch.setattr(scheduler.drift_detector, "detect", _raise_for_bad_engine)
+
+    try:
+        result = scheduler.run_once(now=datetime.now(timezone.utc))  # must not raise
+
+        # The good engine (_ENGINE) still got fully processed even
+        # though the bad one blew up mid-cycle.
+        assert (_ENGINE, "v1") in result.accuracy_snapshots
+        assert any(update.engine_name == _ENGINE for update in result.weight_updates)
+        assert any(signal.engine_name == _ENGINE for signal in result.drift_signals)
+        # The bad engine's own (failed) entries must not appear as if
+        # they succeeded.
+        assert all(signal.engine_name != bad_engine for signal in result.drift_signals)
+        assert all(update.engine_name != bad_engine for update in result.weight_updates)
+    finally:
+        conn = repo._pool.getconn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM learning_accuracy_metrics WHERE engine_name = %s", (bad_engine,))
+                cur.execute("DELETE FROM learning_weight_updates WHERE engine_name = %s", (bad_engine,))
+                cur.execute("DELETE FROM learning_drift_signals WHERE engine_name = %s", (bad_engine,))
+                cur.execute("DELETE FROM learning_engine_outcomes WHERE engine_name = %s", (bad_engine,))
+        finally:
+            repo._pool.putconn(conn)

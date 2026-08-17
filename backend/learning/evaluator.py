@@ -19,7 +19,7 @@ from typing import Callable, List, Optional, Tuple
 
 import pandas as pd
 
-from core.structured_logging import STATUS_SUCCESS, log_event
+from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from data.fetcher import fetch_price_history_range
 from decision_engine.models import Prediction
 from learning.config import LearningConfig
@@ -50,20 +50,35 @@ class OutcomeEvaluator:
 
     def evaluate_pending(self, now: Optional[datetime] = None) -> int:
         """Evaluates every pending sample whose horizon has elapsed as
-        of `now`. Returns how many samples were newly evaluated."""
+        of `now`. Returns how many samples were newly evaluated.
+
+        Each sample is isolated - a malformed sample or a price-fetch/
+        persistence failure for one sample is logged and skipped rather
+        than aborting the rest of the batch (matches the graceful-
+        degradation convention `pipeline.pipeline.Pipeline` already uses
+        for its own per-stage/per-vote external calls)."""
         started_at = time.perf_counter()
         now = now or datetime.now(timezone.utc)
         pending = self.repository.get_pending_samples(now, limit=self.config.evaluation_batch_size)
 
         evaluated_count = 0
+        failed_count = 0
         for sample in pending:
-            if self._evaluate_one(sample, now):
-                evaluated_count += 1
+            try:
+                if self._evaluate_one(sample, now):
+                    evaluated_count += 1
+            except Exception as exc:
+                failed_count += 1
+                log_event(
+                    logger, component="learning", module="learning.evaluator", operation="evaluate_one",
+                    status=STATUS_ERROR, sample_id=sample.id, symbol=sample.symbol,
+                    error_type=type(exc).__name__, level=logging.ERROR,
+                )
 
         log_event(
             logger, component="learning", module="learning.evaluator", operation="evaluate_pending",
             status=STATUS_SUCCESS, pending_count=len(pending), evaluated_count=evaluated_count,
-            execution_time_ms=(time.perf_counter() - started_at) * 1000,
+            failed_count=failed_count, execution_time_ms=(time.perf_counter() - started_at) * 1000,
         )
         return evaluated_count
 

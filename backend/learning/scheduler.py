@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
-from core.structured_logging import STATUS_SUCCESS, log_event
+from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from learning import accuracy
 from learning.config import LearningConfig
 from learning.drift import DriftDetector
@@ -75,22 +75,34 @@ class LearningScheduler:
         drift_signals: List[DriftSignal] = []
         weight_updates: List[WeightUpdate] = []
 
+        # Each engine is isolated - a bad accuracy computation, drift
+        # detection, or weight recompute for one engine is logged and
+        # skipped rather than aborting the rest of the cycle (every
+        # other already-registered engine still gets its accuracy/
+        # drift/weight refreshed this pass).
         for engine_name, engine_version in engines:
-            metrics_by_window = self._compute_all_windows(engine_name, engine_version, now)
-            accuracy_snapshots[(engine_name, engine_version)] = metrics_by_window
+            try:
+                metrics_by_window = self._compute_all_windows(engine_name, engine_version, now)
+                accuracy_snapshots[(engine_name, engine_version)] = metrics_by_window
 
-            drift_signal = self.drift_detector.detect(engine_name, engine_version, metrics_by_window)
-            self.repository.save_drift_signal(drift_signal)
-            drift_signals.append(drift_signal)
+                drift_signal = self.drift_detector.detect(engine_name, engine_version, metrics_by_window)
+                self.repository.save_drift_signal(drift_signal)
+                drift_signals.append(drift_signal)
 
-            weighting_window = RollingWindow(self.config.weighting_window)
-            weighting_outcomes = self.repository.get_engine_outcomes(
-                engine_name, engine_version,
-                since=accuracy.window_start(weighting_window, now) or _EPOCH,
-                only_evaluated=True,
-            )
-            weight_update = self.weight_calculator.recompute_weight(engine_name, engine_version, weighting_outcomes)
-            weight_updates.append(weight_update)
+                weighting_window = RollingWindow(self.config.weighting_window)
+                weighting_outcomes = self.repository.get_engine_outcomes(
+                    engine_name, engine_version,
+                    since=accuracy.window_start(weighting_window, now) or _EPOCH,
+                    only_evaluated=True,
+                )
+                weight_update = self.weight_calculator.recompute_weight(engine_name, engine_version, weighting_outcomes)
+                weight_updates.append(weight_update)
+            except Exception as exc:
+                log_event(
+                    logger, component="learning", module="learning.scheduler", operation="run_once_engine",
+                    status=STATUS_ERROR, engine_name=engine_name, engine_version=engine_version,
+                    error_type=type(exc).__name__, level=logging.ERROR,
+                )
 
         log_event(
             logger, component="learning", module="learning.scheduler", operation="run_once",
