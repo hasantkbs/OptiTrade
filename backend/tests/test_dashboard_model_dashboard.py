@@ -258,3 +258,65 @@ def test_feature_importance_history(service, feature_store):
 def test_feature_importance_history_empty_without_model_ids(service):
     view = service.build()
     assert view.feature_importance_history == []
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Feature Store failure resilience regression (production audit HIGH #7
+# sweep - same "unguarded per-item Feature Store call" pattern as
+# market_dashboard.py's HIGH #6 finding, found in the same package):
+# _feature_importance_history's per-model_id/per-feature_name Feature
+# Store calls had no try/except, so a Feature Store outage (or a single
+# bad model_id) would crash the entire ML dashboard, not just feature
+# importance history.
+# ─────────────────────────────────────────────────────────────────────────
+
+class _AlwaysFailingFeatureStore:
+    def list_feature_names(self, symbol):
+        raise RuntimeError("feature store unreachable")
+
+
+class _PartiallyFailingFeatureStore:
+    """Raises only for one specific model_id's list_feature_names call -
+    proves per-model_id isolation, not just "happens not to raise"."""
+
+    def __init__(self, failing_model_id: str, good_feature_store):
+        self._failing_model_id = failing_model_id
+        self._good = good_feature_store
+
+    def list_feature_names(self, symbol):
+        if symbol == self._failing_model_id:
+            raise RuntimeError("feature store unreachable for this model")
+        return self._good.list_feature_names(symbol)
+
+    def get_feature_history(self, symbol, feature_name, start, end):
+        return self._good.get_feature_history(symbol, feature_name, start, end)
+
+
+def test_build_survives_a_feature_store_outage_during_importance_history(dashboard_repo):
+    service = ModelDashboardService(dashboard_repo, feature_store=_AlwaysFailingFeatureStore())
+    view = service.build(feature_importance_model_ids=["some-model"])  # must not raise
+    assert view.feature_importance_history == []
+    # the rest of the dashboard still comes through
+    assert isinstance(view.registry_entries, list)
+
+
+def test_build_excludes_only_the_model_whose_feature_store_lookup_fails(dashboard_repo, feature_store):
+    good_model_id = f"{_MODEL_ID_PREFIX}-importance-good"
+    bad_model_id = f"{_MODEL_ID_PREFIX}-importance-bad"
+    feature_store.write_feature(FeatureValue(symbol=good_model_id, feature_name="shap_importance:rsi", value=0.42))
+
+    service = ModelDashboardService(
+        dashboard_repo, feature_store=_PartiallyFailingFeatureStore(bad_model_id, feature_store),
+    )
+    try:
+        view = service.build(feature_importance_model_ids=[good_model_id, bad_model_id])  # must not raise
+        model_ids_seen = {f.model_id for f in view.feature_importance_history}
+        assert good_model_id in model_ids_seen
+        assert bad_model_id not in model_ids_seen
+    finally:
+        conn = feature_store.offline_store._pool.getconn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute("DELETE FROM feature_store_records WHERE symbol = %s", (good_model_id,))
+        finally:
+            feature_store.offline_store._pool.putconn(conn)

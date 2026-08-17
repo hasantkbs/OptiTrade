@@ -16,7 +16,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from core.structured_logging import STATUS_SUCCESS, log_event
+from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from dashboard.config import DashboardConfig
 from dashboard.models import (
     ActiveModelInfo,
@@ -127,16 +127,40 @@ class ModelDashboardService:
         return entries
 
     def _feature_importance_history(self, model_ids: List[str]) -> List[FeatureImportanceSnapshot]:
+        """One model_id's (or one feature's) Feature Store lookup
+        failing is logged and skipped rather than losing every other
+        model's feature importance history - or, since this feeds
+        `build()`'s single `MLDashboardView`, the entire ML dashboard
+        (registry/training-run/promotion/benchmark data, all already
+        successfully fetched by the time this runs)."""
         end = datetime.now(timezone.utc)
         start = end - timedelta(days=_IMPORTANCE_HISTORY_DAYS)
         snapshots: List[FeatureImportanceSnapshot] = []
         for model_id in model_ids:
-            for feature_name in self._feature_store.list_feature_names(model_id):
+            try:
+                feature_names = self._feature_store.list_feature_names(model_id)
+            except Exception as exc:
+                log_event(
+                    logger, component=_COMPONENT, module=_MODULE, operation="list_feature_names",
+                    status=STATUS_ERROR, model_id=model_id, error_type=type(exc).__name__, level=logging.WARNING,
+                )
+                continue
+
+            for feature_name in feature_names:
                 method = next((m for m in _IMPORTANCE_METHODS if feature_name.startswith(f"{m}_importance:")), None)
                 if method is None:
                     continue
                 actual_feature_name = feature_name[len(f"{method}_importance:"):]
-                for record in self._feature_store.get_feature_history(model_id, feature_name, start, end):
+                try:
+                    history = self._feature_store.get_feature_history(model_id, feature_name, start, end)
+                except Exception as exc:
+                    log_event(
+                        logger, component=_COMPONENT, module=_MODULE, operation="get_feature_history",
+                        status=STATUS_ERROR, model_id=model_id, feature_name=feature_name,
+                        error_type=type(exc).__name__, level=logging.WARNING,
+                    )
+                    continue
+                for record in history:
                     snapshots.append(
                         FeatureImportanceSnapshot(
                             model_id=model_id, method=method, feature_name=actual_feature_name,

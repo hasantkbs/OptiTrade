@@ -41,7 +41,14 @@ class MarketDashboardService:
 
         volatility_map = {}
         for symbol in symbols:
-            record = self._feature_store.get_latest_feature(symbol, _VOLATILITY_FEATURE_NAME)
+            try:
+                record = self._feature_store.get_latest_feature(symbol, _VOLATILITY_FEATURE_NAME)
+            except Exception as exc:
+                log_event(
+                    logger, component=_COMPONENT, module=_MODULE, operation="get_latest_feature", status=STATUS_ERROR,
+                    error_type=type(exc).__name__, symbol=symbol, level=logging.WARNING,
+                )
+                continue
             if record is not None:
                 volatility_map[symbol] = record.value
 

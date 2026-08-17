@@ -50,3 +50,53 @@ def test_build_survives_news_lookup_failures():
     service = MarketDashboardService(regime_scanner=_AlwaysFailingRegimeScanner())
     view = service.build(symbols=["THIS-IS-NOT-A-REAL-SYMBOL-XYZ"])
     assert isinstance(view.news_impact_summary, list)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Feature Store failure resilience regression (production audit HIGH #6:
+# "unguarded Feature Store call while the adjacent news call correctly
+# handles the same failure class").
+# ─────────────────────────────────────────────────────────────────────────
+
+class _AlwaysFailingFeatureStore:
+    def get_latest_feature(self, symbol, feature_name):
+        raise RuntimeError("feature store unreachable")
+
+
+class _PartiallyFailingFeatureStore:
+    """Raises only for one specific symbol - proves failure isolation
+    per-symbol, not just "the whole call happens not to raise"."""
+
+    def __init__(self, failing_symbol: str, value: float = 5.0):
+        self._failing_symbol = failing_symbol
+        self._value = value
+
+    def get_latest_feature(self, symbol, feature_name):
+        if symbol == self._failing_symbol:
+            raise RuntimeError("feature store unreachable for this symbol")
+
+        class _Record:
+            value = self._value
+
+        return _Record()
+
+
+def test_build_survives_a_feature_store_outage_across_every_symbol():
+    service = MarketDashboardService(
+        regime_scanner=_FakeRegimeScanner(), feature_store=_AlwaysFailingFeatureStore(),
+    )
+    view = service.build(symbols=["AAPL", "MSFT"])  # must not raise
+
+    assert view.volatility_map == {}
+    # the rest of the dashboard still comes through
+    assert view.regime_distribution == {"TRENDING_BULL": 2}
+
+
+def test_build_excludes_only_the_symbol_whose_feature_store_lookup_fails():
+    service = MarketDashboardService(
+        regime_scanner=_FakeRegimeScanner(), feature_store=_PartiallyFailingFeatureStore("MSFT", value=7.5),
+    )
+    view = service.build(symbols=["AAPL", "MSFT"])  # must not raise
+
+    assert view.volatility_map == {"AAPL": 7.5}
+    assert "MSFT" not in view.volatility_map
