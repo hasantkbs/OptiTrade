@@ -3,6 +3,8 @@ dependency so orchestration logic (stage sequencing, aggregation,
 graceful degradation, response building) is tested in full isolation
 from real infrastructure - the real, infrastructure-backed end-to-end
 path is covered separately in test_pipeline_service.py."""
+import threading
+import time
 from datetime import datetime, timezone
 
 import pytest
@@ -246,3 +248,77 @@ def test_engine_breakdown_includes_failed_engines_with_no_vote_data():
     assert item.status == EngineExecutionStatus.FAILED
     assert item.prediction is None
     assert item.confidence is None
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Concurrency regression (production audit's "self.pipeline.engines is
+# shared and mutated per request while Pipeline.run() is simultaneously
+# reading it" finding).
+#
+# `Pipeline`/`PipelineService` are process-wide singletons main.py runs
+# concurrent requests through (a 16-thread executor pool) - engines were
+# previously resolved per request and assigned to shared `self.engines`
+# instance state, which `run()` then read from at several different
+# points during a single call. Two overlapping `run()` calls with
+# different engine compositions could interleave their write/reads and
+# see each other's engine list. The fix threads each call's engines
+# through as a local `PipelineContext.engines` value instead - this test
+# proves that holds even under real concurrent execution with distinct
+# per-call engine lists.
+# ─────────────────────────────────────────────────────────────────────────
+
+class _SlowFakeEngine:
+    """Like _FakeEngine, but sleeps inside vote() - widens the window
+    during which other concurrent `Pipeline.run()` calls on the SAME
+    shared `pipeline` instance are also mid-flight, so a race on shared
+    per-request state (were one still present) would actually be
+    exercised rather than being merely theoretically possible."""
+
+    def __init__(self, name: str, delay_seconds: float = 0.05):
+        self.engine_name = name
+        self.engine_version = "v1"
+        self._delay_seconds = delay_seconds
+
+    def vote(self, symbol: str) -> EngineVote:
+        time.sleep(self._delay_seconds)
+        return EngineVote(
+            engine_name=self.engine_name, engine_version=self.engine_version, prediction=Prediction.BUY,
+            confidence=0.7, expected_return=2.0, volatility=12.0, evidence=[f"{self.engine_name} evidence"],
+        )
+
+
+def test_concurrent_runs_with_different_engine_lists_never_observe_each_others_engines():
+    thread_count = 10
+    # One shared Pipeline instance (as PipelineService holds one shared
+    # singleton in production) - every thread below calls .run() on the
+    # SAME object, each with its own, differently-sized/named engine list.
+    pipeline = _build_pipeline([_SlowFakeEngine("placeholder")])
+
+    results = {}
+    errors = []
+
+    def _run(thread_index: int) -> None:
+        try:
+            engines = [_SlowFakeEngine(f"Engine-{thread_index}-{j}") for j in range(thread_index + 1)]
+            response = pipeline.run("AAPL", engines=engines)
+            results[thread_index] = response
+        except Exception as exc:  # pragma: no cover - failure path only
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_run, args=(i,)) for i in range(thread_count)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    assert set(results.keys()) == set(range(thread_count))
+    for i, response in results.items():
+        expected_names = {f"Engine-{i}-{j}" for j in range(i + 1)}
+        actual_names = {item.engine_name for item in response.engine_breakdown}
+        assert actual_names == expected_names, (
+            f"thread {i} observed engines {actual_names}, expected only its own {expected_names} - "
+            f"a foreign or missing engine name means engine composition leaked across concurrent requests"
+        )
+        assert response.metadata.engines_available == i + 1
+        assert response.metadata.engines_succeeded == i + 1

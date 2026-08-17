@@ -126,15 +126,23 @@ class PortfolioService:
     def withdraw(self, portfolio_id: int, amount: float, currency: Optional[str] = None,
                  executed_at: Optional[datetime] = None, notes: str = "") -> Transaction:
         portfolio = self.get_portfolio(portfolio_id)
-        cash = self.get_cash_balance(portfolio_id)
-        if amount > cash:
-            raise InsufficientCashError(
-                f"portfolio {portfolio_id}: cannot withdraw {amount} - only {cash} cash available"
-            )
-        return self._record(
-            portfolio_id, TransactionType.WITHDRAWAL, amount=amount,
-            currency=currency or portfolio.base_currency, executed_at=executed_at, notes=notes,
+        transaction = Transaction(
+            portfolio_id=portfolio_id, transaction_type=TransactionType.WITHDRAWAL, amount=amount,
+            currency=currency or portfolio.base_currency, executed_at=executed_at or datetime.now(timezone.utc),
+            notes=notes,
         )
+        # Locked so a concurrent withdraw/buy on the same portfolio can
+        # never both read the same pre-transaction cash balance and both
+        # pass this check - see portfolio/repository.py:locked_portfolio.
+        with self.repository.locked_portfolio(portfolio_id) as conn:
+            cash = _replay_cash(self.repository.list_transactions_locked(conn, portfolio_id))
+            if amount > cash:
+                raise InsufficientCashError(
+                    f"portfolio {portfolio_id}: cannot withdraw {amount} - only {cash} cash available"
+                )
+            transaction.id = self.repository.save_transaction_locked(conn, transaction)
+        self._log_transaction(transaction)
+        return transaction
 
     # ── Trades ───────────────────────────────────────────────────────────
 
@@ -144,18 +152,26 @@ class PortfolioService:
         if quantity <= 0 or price <= 0:
             raise InvalidTransactionError("a BUY requires a positive quantity and price")
         portfolio = self.get_portfolio(portfolio_id)
-        total_cost = quantity * price + fee + tax
-        cash = self.get_cash_balance(portfolio_id)
-        if total_cost > cash:
-            raise InsufficientCashError(
-                f"portfolio {portfolio_id}: cannot buy {quantity} {symbol} at {price} - "
-                f"total cost {total_cost} exceeds available cash {cash}"
-            )
-        return self._record(
-            portfolio_id, TransactionType.BUY, symbol=symbol, quantity=quantity, price=price,
-            amount=quantity * price, fee=fee, tax=tax, currency=currency or portfolio.base_currency,
-            executed_at=executed_at, notes=notes,
+        symbol = symbol.upper()
+        transaction = Transaction(
+            portfolio_id=portfolio_id, transaction_type=TransactionType.BUY, symbol=symbol, quantity=quantity,
+            price=price, amount=quantity * price, fee=fee, tax=tax, currency=currency or portfolio.base_currency,
+            executed_at=executed_at or datetime.now(timezone.utc), notes=notes,
         )
+        # Locked so two concurrent buys on the same portfolio can never
+        # both read the same pre-transaction cash balance and both pass
+        # this check (double-spend) - see repository.py:locked_portfolio.
+        with self.repository.locked_portfolio(portfolio_id) as conn:
+            total_cost = quantity * price + fee + tax
+            cash = _replay_cash(self.repository.list_transactions_locked(conn, portfolio_id))
+            if total_cost > cash:
+                raise InsufficientCashError(
+                    f"portfolio {portfolio_id}: cannot buy {quantity} {symbol} at {price} - "
+                    f"total cost {total_cost} exceeds available cash {cash}"
+                )
+            transaction.id = self.repository.save_transaction_locked(conn, transaction)
+        self._log_transaction(transaction)
+        return transaction
 
     def sell(self, portfolio_id: int, symbol: str, quantity: float, price: float, fee: float = 0.0,
              tax: float = 0.0, currency: Optional[str] = None, executed_at: Optional[datetime] = None,
@@ -163,16 +179,26 @@ class PortfolioService:
         if quantity <= 0 or price <= 0:
             raise InvalidTransactionError("a SELL requires a positive quantity and price")
         portfolio = self.get_portfolio(portfolio_id)
-        position = self.get_position(portfolio_id, symbol)
-        if quantity > position.quantity:
-            raise InsufficientPositionError(
-                f"portfolio {portfolio_id}: cannot sell {quantity} {symbol} - only {position.quantity} held"
-            )
-        return self._record(
-            portfolio_id, TransactionType.SELL, symbol=symbol, quantity=quantity, price=price,
-            amount=quantity * price, fee=fee, tax=tax, currency=currency or portfolio.base_currency,
-            executed_at=executed_at, notes=notes,
+        symbol = symbol.upper()
+        transaction = Transaction(
+            portfolio_id=portfolio_id, transaction_type=TransactionType.SELL, symbol=symbol, quantity=quantity,
+            price=price, amount=quantity * price, fee=fee, tax=tax, currency=currency or portfolio.base_currency,
+            executed_at=executed_at or datetime.now(timezone.utc), notes=notes,
         )
+        # Locked so two concurrent sells on the same portfolio can never
+        # both read the same pre-transaction position and both pass this
+        # check (oversell) - see repository.py:locked_portfolio.
+        with self.repository.locked_portfolio(portfolio_id) as conn:
+            states = _replay_positions(self.repository.list_transactions_locked(conn, portfolio_id, symbol=symbol))
+            state = states.get(symbol)
+            held = state.quantity if state is not None else 0.0
+            if quantity > held:
+                raise InsufficientPositionError(
+                    f"portfolio {portfolio_id}: cannot sell {quantity} {symbol} - only {held} held"
+                )
+            transaction.id = self.repository.save_transaction_locked(conn, transaction)
+        self._log_transaction(transaction)
+        return transaction
 
     # ── Dividends / fees / taxes ─────────────────────────────────────────
 
@@ -301,9 +327,14 @@ class PortfolioService:
             executed_at=executed_at or datetime.now(timezone.utc), notes=notes,
         )
         transaction.id = self.repository.save_transaction(transaction)
+        self._log_transaction(transaction)
+        return transaction
+
+    @staticmethod
+    def _log_transaction(transaction: Transaction) -> None:
         log_event(
             logger, component="portfolio", module="portfolio.service", operation="record_transaction",
-            status=STATUS_SUCCESS, portfolio_id=portfolio_id, transaction_type=transaction_type.value,
-            transaction_id=transaction.id, symbol=symbol,
+            status=STATUS_SUCCESS, portfolio_id=transaction.portfolio_id,
+            transaction_type=transaction.transaction_type.value, transaction_id=transaction.id,
+            symbol=transaction.symbol,
         )
-        return transaction

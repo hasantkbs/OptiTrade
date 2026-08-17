@@ -1,10 +1,39 @@
 """OptiTrade User & Organization Platform — configuration."""
 from __future__ import annotations
 
+import logging
 import os
-from dataclasses import dataclass
+import secrets
+from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+
+# A hardcoded, publicly-known JWT secret (this file is committed to
+# source control) is a full authentication bypass - anyone who reads
+# this repository can forge a valid access token for any user_id. If
+# USERS_JWT_SECRET isn't set, generate a real random secret once per
+# process instead of ever falling back to a fixed string. It's memoized
+# here (not regenerated per UsersConfig()/from_env() call) so every
+# token created and verified within the SAME process keeps working -
+# it just doesn't survive a restart, and is never shared between
+# processes, which is the whole point: no operator can ever be
+# unknowingly running with a secret an attacker already knows.
+_ephemeral_jwt_secret: "str | None" = None
+
+
+def _get_or_generate_ephemeral_jwt_secret() -> str:
+    global _ephemeral_jwt_secret
+    if _ephemeral_jwt_secret is None:
+        _ephemeral_jwt_secret = secrets.token_urlsafe(64)
+        logger.warning(
+            "USERS_JWT_SECRET ortam degiskeni ayarlanmamis - bu process icin rastgele, gecici bir JWT "
+            "secret'i uretildi. Bu secret process yeniden baslatildiginda degisir (o ana kadar verilmis "
+            "tum access/refresh token'lari gecersiz olur) ve baska bir process ile paylasilmaz. "
+            "Production'da mutlaka USERS_JWT_SECRET ortam degiskenini ayarlayin."
+        )
+    return _ephemeral_jwt_secret
 
 
 @dataclass(frozen=True)
@@ -12,7 +41,7 @@ class UsersConfig:
     """Runtime settings for the User & Organization Platform."""
 
     # JWT / sessions
-    jwt_secret: str = "insecure-development-secret-change-me"
+    jwt_secret: str = field(default_factory=_get_or_generate_ephemeral_jwt_secret)
     jwt_algorithm: str = "HS256"
     access_token_expires_seconds: int = 15 * 60
     refresh_token_expires_seconds: int = 30 * 24 * 60 * 60
@@ -37,7 +66,7 @@ class UsersConfig:
     def from_env(cls) -> "UsersConfig":
         load_dotenv()
         return cls(
-            jwt_secret=os.getenv("USERS_JWT_SECRET", "insecure-development-secret-change-me"),
+            jwt_secret=os.getenv("USERS_JWT_SECRET") or _get_or_generate_ephemeral_jwt_secret(),
             jwt_algorithm=os.getenv("USERS_JWT_ALGORITHM", "HS256"),
             access_token_expires_seconds=int(os.getenv("USERS_ACCESS_TOKEN_EXPIRES_SECONDS", str(15 * 60))),
             refresh_token_expires_seconds=int(

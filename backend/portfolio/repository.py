@@ -27,7 +27,7 @@ from psycopg2.extras import RealDictCursor
 
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from feature_store.config import FeatureStoreConfig
-from portfolio.exceptions import PortfolioPersistenceError
+from portfolio.exceptions import PortfolioNotFoundError, PortfolioPersistenceError
 from portfolio.models import Portfolio, PortfolioSnapshot, Transaction, TransactionType
 
 logger = logging.getLogger(__name__)
@@ -111,6 +111,79 @@ class PortfolioRepository:
             yield conn
         finally:
             self._pool.putconn(conn)
+
+    @contextmanager
+    def locked_portfolio(self, portfolio_id: int) -> Iterator["psycopg2.extensions.connection"]:
+        """Opens one connection, starts a transaction, and takes a
+        `SELECT ... FOR UPDATE` row lock on `portfolio_id` for the
+        duration of the `with` block - any concurrent caller that also
+        goes through this method for the SAME portfolio_id blocks until
+        the first transaction commits or rolls back. Different
+        portfolio_ids never block each other (the lock is per-row, not
+        table-wide), so concurrency across portfolios is unaffected.
+
+        Callers must do their read-check-write sequence entirely inside
+        the `with` block, using the yielded connection (via
+        `list_transactions_locked`/`save_transaction_locked` below) -
+        reading through a *different* connection/pool checkout would
+        not observe the lock and would defeat the whole point."""
+        conn = self._pool.getconn()
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT id FROM portfolio_portfolios WHERE id = %s FOR UPDATE", (portfolio_id,))
+                    if cur.fetchone() is None:
+                        raise PortfolioNotFoundError(f"no portfolio with id {portfolio_id!r}")
+                yield conn
+        finally:
+            self._pool.putconn(conn)
+
+    def list_transactions_locked(
+        self, conn: "psycopg2.extensions.connection", portfolio_id: int, symbol: Optional[str] = None,
+    ) -> List[Transaction]:
+        """Same query as `list_transactions`, but reused inside an
+        already-open, already-locked transaction (see `locked_portfolio`)
+        instead of checking out a second, unlocked connection."""
+        query = "SELECT * FROM portfolio_transactions WHERE portfolio_id = %s"
+        params: tuple = (portfolio_id,)
+        if symbol is not None:
+            query += " AND symbol = %s"
+            params = params + (symbol.upper(),)
+        query += " ORDER BY executed_at, id"
+
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+        return [self._row_to_transaction(row) for row in rows]
+
+    def save_transaction_locked(self, conn: "psycopg2.extensions.connection", transaction: Transaction) -> int:
+        """Same insert as `save_transaction`, but reused inside an
+        already-open, already-locked transaction (see `locked_portfolio`)
+        so the write commits atomically with the read-check it followed."""
+        started_at = time.perf_counter()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO portfolio_transactions
+                        (portfolio_id, transaction_type, symbol, quantity, price, amount, fee, tax,
+                         currency, executed_at, notes, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        transaction.portfolio_id, transaction.transaction_type.value, transaction.symbol,
+                        transaction.quantity, transaction.price, transaction.amount, transaction.fee,
+                        transaction.tax, transaction.currency, transaction.executed_at, transaction.notes,
+                        transaction.created_at,
+                    ),
+                )
+                transaction_id = cur.fetchone()[0]
+        except psycopg2.Error as exc:
+            self._log_error("save_transaction_locked", exc, started_at, portfolio_id=transaction.portfolio_id)
+            raise PortfolioPersistenceError(f"failed to save transaction: {exc}") from exc
+        self._log_success("save_transaction_locked", started_at, transaction_id=transaction_id)
+        return transaction_id
 
     # ── Portfolios ───────────────────────────────────────────────────────
 

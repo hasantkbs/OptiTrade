@@ -13,8 +13,8 @@ import logging
 from typing import List, Optional
 
 from core.structured_logging import STATUS_SUCCESS, log_event
-from watchlist.exceptions import WatchlistItemNotFoundError, WatchlistNotFoundError
-from watchlist.models import Watchlist, WatchlistItem
+from watchlist.exceptions import AlertNotFoundError, WatchlistItemNotFoundError, WatchlistNotFoundError
+from watchlist.models import Alert, AlertCategory, AlertType, Watchlist, WatchlistItem
 from watchlist.repository import WatchlistRepository
 
 logger = logging.getLogger(__name__)
@@ -120,3 +120,59 @@ class WatchlistService:
         item.notes = notes
         item.id = self.repository.save_item(item)
         return item
+
+    # ── Alerts ───────────────────────────────────────────────────────────
+    #
+    # Alert *evaluation* lives in alert_engine.py/price_alerts.py/etc. and
+    # is driven by scheduler.py:AlertScheduler; these are the plain CRUD
+    # operations a caller needs to actually define an alert in the first
+    # place, following the exact same thin-wrapper-over-the-repository
+    # shape as the watchlist/item methods above.
+
+    def create_alert(
+        self, owner: str, category: AlertCategory, alert_type: AlertType, parameters: Optional[dict] = None,
+        watchlist_id: Optional[int] = None, symbol: Optional[str] = None, portfolio_id: Optional[int] = None,
+        cooldown_minutes: int = 60,
+    ) -> Alert:
+        if watchlist_id is not None:
+            self.get_watchlist(watchlist_id)
+        alert = Alert(
+            owner=owner, watchlist_id=watchlist_id, symbol=symbol, portfolio_id=portfolio_id, category=category,
+            alert_type=alert_type, parameters=parameters or {}, cooldown_minutes=cooldown_minutes,
+        )
+        alert.id = self.repository.save_alert(alert)
+        log_event(
+            logger, component="watchlist", module="watchlist.watchlist_service", operation="create_alert",
+            status=STATUS_SUCCESS, alert_id=alert.id, owner=owner, category=category.value, alert_type=alert_type.value,
+        )
+        return alert
+
+    def get_alert(self, alert_id: int) -> Alert:
+        alert = self.repository.get_alert(alert_id)
+        if alert is None:
+            raise AlertNotFoundError(f"no alert with id {alert_id!r}")
+        return alert
+
+    def list_alerts(self, owner: str, watchlist_id: Optional[int] = None) -> List[Alert]:
+        alerts = self.repository.list_alerts(owner=owner)
+        if watchlist_id is not None:
+            alerts = [alert for alert in alerts if alert.watchlist_id == watchlist_id]
+        return alerts
+
+    def set_alert_enabled(self, alert_id: int, enabled: bool) -> Alert:
+        alert = self.get_alert(alert_id)
+        self.repository.set_alert_enabled(alert_id, enabled)
+        alert.enabled = enabled
+        log_event(
+            logger, component="watchlist", module="watchlist.watchlist_service", operation="set_alert_enabled",
+            status=STATUS_SUCCESS, alert_id=alert_id, enabled=enabled,
+        )
+        return alert
+
+    def delete_alert(self, alert_id: int) -> None:
+        self.get_alert(alert_id)
+        self.repository.delete_alert(alert_id)
+        log_event(
+            logger, component="watchlist", module="watchlist.watchlist_service", operation="delete_alert",
+            status=STATUS_SUCCESS, alert_id=alert_id,
+        )

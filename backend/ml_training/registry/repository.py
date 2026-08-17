@@ -11,7 +11,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import List, Optional
+from contextlib import contextmanager
+from typing import Iterator, List, Optional
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -60,8 +61,10 @@ CREATE INDEX IF NOT EXISTS ix_ml_training_model_registry_state
 
 
 class ModelRegistryRepository(PostgresRepositoryBase):
-    def __init__(self, config=None) -> None:
-        super().__init__(schema_statements=[_CREATE_TABLE_SQL, _CREATE_INDEX_SQL], config=config)
+    def __init__(self, config=None, minconn: int = 1, maxconn: int = 3) -> None:
+        super().__init__(
+            schema_statements=[_CREATE_TABLE_SQL, _CREATE_INDEX_SQL], config=config, minconn=minconn, maxconn=maxconn,
+        )
 
     def save(self, entry: ModelRegistryEntry) -> int:
         started_at = time.perf_counter()
@@ -145,6 +148,64 @@ class ModelRegistryRepository(PostgresRepositoryBase):
             _COMPONENT, _MODULE, "update_promotion_state", started_at,
             model_id=model_id, promotion_state=promotion_state.value,
         )
+
+    # ── Locked group access (promote_to_active - see registry/service.py) ──
+    #
+    # Promoting a model to ACTIVE must never let two models end up ACTIVE
+    # at once for the same (label_name, horizon_days): demoting whatever
+    # was previously ACTIVE and activating the new one must happen
+    # atomically, and two concurrent promotions for the same group must
+    # serialize against each other (a TOCTOU race otherwise). Mirrors
+    # `portfolio.repository.PortfolioRepository.locked_portfolio` - a
+    # row-level lock scoped to one group, not a table-wide/global lock,
+    # so unrelated (label_name, horizon_days) groups stay fully concurrent.
+
+    @contextmanager
+    def locked_group(self, label_name: LabelName, horizon_days: int) -> Iterator["psycopg2.extensions.connection"]:
+        conn = self._pool.getconn()
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT id FROM ml_training_model_registry WHERE label_name = %s AND horizon_days = %s "
+                        "FOR UPDATE",
+                        (label_name.value, horizon_days),
+                    )
+                yield conn
+        finally:
+            self._pool.putconn(conn)
+
+    def get_locked(self, conn: "psycopg2.extensions.connection", model_id: str) -> Optional[ModelRegistryEntry]:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM ml_training_model_registry WHERE model_id = %s", (model_id,))
+            row = cur.fetchone()
+        return self._row_to_model(row) if row else None
+
+    def list_active_in_group_locked(
+        self, conn: "psycopg2.extensions.connection", label_name: LabelName, horizon_days: int,
+    ) -> List[ModelRegistryEntry]:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM ml_training_model_registry "
+                "WHERE label_name = %s AND horizon_days = %s AND promotion_state = %s",
+                (label_name.value, horizon_days, PromotionState.ACTIVE.value),
+            )
+            rows = cur.fetchall()
+        return [self._row_to_model(row) for row in rows]
+
+    def update_promotion_state_locked(
+        self, conn: "psycopg2.extensions.connection", model_id: str, promotion_state: PromotionState,
+        approved_by: Optional[str], promoted_at,
+    ) -> None:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE ml_training_model_registry
+                SET promotion_state = %s, approved_by = %s, promoted_at = %s
+                WHERE model_id = %s
+                """,
+                (promotion_state.value, approved_by, promoted_at, model_id),
+            )
 
     @staticmethod
     def _row_to_model(row: dict) -> ModelRegistryEntry:

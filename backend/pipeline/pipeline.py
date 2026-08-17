@@ -83,9 +83,17 @@ class Pipeline:
         self.learning_service = learning_service or LearningService()
         self.executor = executor or ParallelEngineExecutor(config=self.config)
 
-    def run(self, symbol: str) -> PipelineResponse:
+    def run(self, symbol: str, engines: Optional[List[VotingEngineProtocol]] = None) -> PipelineResponse:
+        """`engines`, when given, is this call's own engine composition -
+        never stored on `self` (see PipelineContext.engines' docstring
+        for why: `self.engines` is shared singleton state read
+        concurrently by every in-flight request, `context.engines` is
+        local to this call's stack). Falls back to the fixed set this
+        `Pipeline` was constructed with when omitted, for callers (tests,
+        ad-hoc scripts) that construct a `Pipeline` directly with a
+        static engine list and never override it per call."""
         pipeline_started_at = time.perf_counter()
-        context = PipelineContext(symbol=symbol)
+        context = PipelineContext(symbol=symbol, engines=engines if engines is not None else self.engines)
 
         self._load_features_stage(context)
         self._engines_stage(context, symbol)
@@ -120,7 +128,7 @@ class Pipeline:
 
     def _engines_stage(self, context: PipelineContext, symbol: str) -> None:
         started_at = time.perf_counter()
-        context.execution_results = self.executor.collect_votes(self.engines, symbol)
+        context.execution_results = self.executor.collect_votes(context.engines, symbol)
         context.record_stage("engines", (time.perf_counter() - started_at) * 1000)
 
     def _decision_stage(self, context: PipelineContext, symbol: str) -> None:
@@ -132,7 +140,7 @@ class Pipeline:
         weights = {vote.engine_name: self.weight_provider.get_weight(vote.engine_name) for vote in votes}
         aggregation = aggregate_votes(votes, weights)
 
-        data_sufficiency = (len(votes) / len(self.engines)) if self.engines else 0.0
+        data_sufficiency = (len(votes) / len(context.engines)) if context.engines else 0.0
 
         context.decision_output = DecisionOutput(
             symbol=symbol,
@@ -183,7 +191,7 @@ class Pipeline:
         engines_succeeded = sum(
             1 for result in context.execution_results if result.status == EngineExecutionStatus.SUCCESS
         )
-        degraded = engines_succeeded < len(self.engines)
+        degraded = engines_succeeded < len(context.engines)
 
         return PipelineResponse(
             symbol=context.symbol,
@@ -203,7 +211,7 @@ class Pipeline:
                 pipeline_version=self.config.pipeline_version,
                 total_duration_ms=total_duration_ms,
                 stage_durations_ms=context.stage_durations_ms,
-                engines_available=len(self.engines),
+                engines_available=len(context.engines),
                 engines_succeeded=engines_succeeded,
                 degraded=degraded,
                 timestamp=decision_output.timestamp,

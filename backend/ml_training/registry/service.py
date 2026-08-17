@@ -36,7 +36,23 @@ class ModelRegistryService:
         promotion_service: Optional[PromotionService] = None,
     ) -> None:
         self.repository = repository or ModelRegistryRepository()
-        self.promotion_service = promotion_service or PromotionService()
+        # Lazy, not `promotion_service or PromotionService()`: constructing
+        # a PromotionService touches research_lab (its base repository
+        # opens its own Postgres pool and runs DDL as a side effect of
+        # __init__). model_serving constructs a ModelRegistryService on
+        # every cold start (model_serving/loader.py:ModelLoader) and must
+        # never transitively execute research_lab code just by starting
+        # up - see model_serving/__init__.py's isolation guarantee. Only
+        # recommend_promotion() below - a training/research workflow
+        # operation the live serving path never calls - actually needs
+        # one, so it's built there, on first real use, not here.
+        self._promotion_service = promotion_service
+
+    @property
+    def promotion_service(self) -> PromotionService:
+        if self._promotion_service is None:
+            self._promotion_service = PromotionService()
+        return self._promotion_service
 
     def register(self, entry: ModelRegistryEntry) -> ModelRegistryEntry:
         """Registers a freshly-trained model. Always starts life as
@@ -67,10 +83,56 @@ class ModelRegistryService:
 
     def promote_to_active(self, model_id: str, approved_by: str) -> ModelRegistryEntry:
         """SHADOW -> ACTIVE. Requires a non-blank human approver -
-        never invoked automatically by this platform itself."""
+        never invoked automatically by this platform itself.
+
+        Unlike `start_shadow`/`archive` (handled by the plain
+        `_transition` below), this demotes whatever was previously
+        ACTIVE for the same `(label_name, horizon_days)` to ARCHIVED as
+        part of the SAME locked transaction, and holds a row lock on
+        that whole group for the duration - so two concurrent
+        `promote_to_active` calls targeting the same group always
+        serialize, and at most one model is ever ACTIVE for a given
+        `(label_name, horizon_days)` at once (see
+        `ModelRegistryRepository.locked_group`, mirroring
+        `portfolio.repository.locked_portfolio`). A different
+        `(label_name, horizon_days)` group is entirely unaffected."""
         if not approved_by or not approved_by.strip():
             raise InvalidPromotionError("promoting a model to ACTIVE requires a non-blank approved_by")
-        return self._transition(model_id, PromotionState.ACTIVE, approved_by=approved_by)
+
+        preview = self.repository.get(model_id)
+        if preview is None:
+            raise InvalidPromotionError(f"no registered model with model_id {model_id!r}")
+
+        with self.repository.locked_group(preview.label_name, preview.horizon_days) as conn:
+            entry = self.repository.get_locked(conn, model_id)
+            if entry is None:
+                raise InvalidPromotionError(f"no registered model with model_id {model_id!r}")
+            lifecycle.validate_transition(entry.promotion_state, PromotionState.ACTIVE)
+
+            promoted_at = datetime.now(timezone.utc)
+            for other in self.repository.list_active_in_group_locked(conn, entry.label_name, entry.horizon_days):
+                if other.model_id == model_id:
+                    continue
+                self.repository.update_promotion_state_locked(
+                    conn, other.model_id, PromotionState.ARCHIVED, approved_by, other.promoted_at,
+                )
+                log_event(
+                    logger, component="ml_training", module="ml_training.registry.service", operation="transition",
+                    status=STATUS_SUCCESS, model_id=other.model_id, from_state=PromotionState.ACTIVE.value,
+                    to_state=PromotionState.ARCHIVED.value, reason="superseded_by", superseded_by=model_id,
+                )
+
+            self.repository.update_promotion_state_locked(conn, model_id, PromotionState.ACTIVE, approved_by, promoted_at)
+
+        log_event(
+            logger, component="ml_training", module="ml_training.registry.service", operation="transition",
+            status=STATUS_SUCCESS, model_id=model_id, from_state=entry.promotion_state.value,
+            to_state=PromotionState.ACTIVE.value,
+        )
+        entry.promotion_state = PromotionState.ACTIVE
+        entry.approved_by = approved_by
+        entry.promoted_at = promoted_at
+        return entry
 
     def archive(self, model_id: str, approved_by: Optional[str] = None) -> ModelRegistryEntry:
         """CANDIDATE/SHADOW/ACTIVE -> ARCHIVED. Terminal - an archived

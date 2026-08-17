@@ -296,7 +296,7 @@ class PortfolioDashboard(BaseModel):
 class CreatePortfolioRequest(BaseModel):
     name: str
     base_currency: str = "USD"
-    owner: Optional[str] = None  # used only when Firebase auth is not configured
+    owner: Optional[str] = None  # deprecated: ignored - owner is always the authenticated caller
 
 
 class DepositRequest(BaseModel):

@@ -2,6 +2,7 @@
 Real PostgreSQL throughout; a deterministic fake price fetcher is
 injected into `PriceService` so unrealized-P&L/snapshot assertions
 don't depend on live market data."""
+import threading
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -251,3 +252,146 @@ def test_service_defaults_to_real_dependencies():
     service = PortfolioService()
     assert isinstance(service.repository, PortfolioRepository)
     assert isinstance(service.price_service, PriceService)
+
+
+# ── Concurrency (money-path race-condition regression) ───────────────────
+#
+# buy()/sell()/withdraw() replay the transaction history to check a
+# precondition (enough cash, enough position) and then append a new
+# transaction. Without locking, N concurrent callers on the SAME
+# portfolio can all replay the same pre-transaction state, all pass the
+# check, and all commit - overspending cash or overselling a position.
+# `PortfolioRepository.locked_portfolio` closes this with a per-portfolio
+# `SELECT ... FOR UPDATE` row lock (see repository.py) so these threads
+# serialize against each other while a *different* portfolio_id would
+# not be blocked at all.
+
+_CONCURRENT_THREADS = 10
+
+
+@pytest.fixture
+def concurrent_repository():
+    # A dedicated, larger pool: each of the threads below holds a
+    # connection for the duration of its locked transaction, so the
+    # default pool (maxconn=5) would spuriously exhaust under this
+    # fixture's own concurrency rather than exercising the lock itself.
+    repo = PortfolioRepository(maxconn=_CONCURRENT_THREADS + 2)
+    yield repo
+    conn = repo._pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM portfolio_transactions WHERE portfolio_id IN "
+                "(SELECT id FROM portfolio_portfolios WHERE owner LIKE %s)", (f"{_OWNER_PREFIX}%",),
+            )
+            cur.execute("DELETE FROM portfolio_portfolios WHERE owner LIKE %s", (f"{_OWNER_PREFIX}%",))
+    finally:
+        repo._pool.putconn(conn)
+        repo.close()
+
+
+@pytest.fixture
+def concurrent_service(concurrent_repository, price_service):
+    return PortfolioService(repository=concurrent_repository, price_service=price_service)
+
+
+def _run_concurrently(fn, count):
+    results = []
+    lock = threading.Lock()
+
+    def _wrapped():
+        try:
+            fn()
+            with lock:
+                results.append("OK")
+        except (InsufficientCashError, InsufficientPositionError):
+            with lock:
+                results.append("REJECTED")
+
+    threads = [threading.Thread(target=_wrapped) for _ in range(count)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return results
+
+
+def test_concurrent_buys_on_same_portfolio_cannot_double_spend_cash(concurrent_service):
+    portfolio = concurrent_service.create_portfolio(owner=_owner("race-buy"), name="Race")
+    # Enough cash for exactly one of the N concurrent buys below.
+    concurrent_service.deposit(portfolio.id, 1000.0)
+
+    results = _run_concurrently(
+        lambda: concurrent_service.buy(portfolio.id, "AAPL", 10, 100.0), _CONCURRENT_THREADS,
+    )
+
+    assert results.count("OK") == 1
+    assert results.count("REJECTED") == _CONCURRENT_THREADS - 1
+    assert concurrent_service.get_cash_balance(portfolio.id) == pytest.approx(0.0)
+    assert concurrent_service.get_position(portfolio.id, "AAPL").quantity == 10.0
+
+
+def test_concurrent_sells_on_same_portfolio_cannot_oversell_position(concurrent_service):
+    portfolio = concurrent_service.create_portfolio(owner=_owner("race-sell"), name="Race")
+    concurrent_service.deposit(portfolio.id, 100000.0)
+    # Enough shares held for exactly one of the N concurrent full sells below.
+    concurrent_service.buy(portfolio.id, "AAPL", 10, 100.0)
+
+    results = _run_concurrently(
+        lambda: concurrent_service.sell(portfolio.id, "AAPL", 10, 100.0), _CONCURRENT_THREADS,
+    )
+
+    assert results.count("OK") == 1
+    assert results.count("REJECTED") == _CONCURRENT_THREADS - 1
+    assert concurrent_service.get_position(portfolio.id, "AAPL").quantity == 0.0
+
+
+def test_concurrent_withdrawals_on_same_portfolio_cannot_double_spend_cash(concurrent_service):
+    portfolio = concurrent_service.create_portfolio(owner=_owner("race-withdraw"), name="Race")
+    # Enough cash for exactly one of the N concurrent withdrawals below.
+    concurrent_service.deposit(portfolio.id, 1000.0)
+
+    results = _run_concurrently(
+        lambda: concurrent_service.withdraw(portfolio.id, 1000.0), _CONCURRENT_THREADS,
+    )
+
+    assert results.count("OK") == 1
+    assert results.count("REJECTED") == _CONCURRENT_THREADS - 1
+    assert concurrent_service.get_cash_balance(portfolio.id) == pytest.approx(0.0)
+
+
+def test_concurrent_operations_on_different_portfolios_are_not_serialized_against_each_other(concurrent_service):
+    # locked_portfolio() takes a row lock scoped to ONE portfolio_id, not
+    # a table-wide or global lock - two different portfolios must be able
+    # to complete concurrent buys without either blocking on the other's
+    # transaction. Each buy sleeps (via a slow price lookup substitute is
+    # unnecessary - real work is fast) so we instead just prove both
+    # complete correctly when launched at the same time; a global lock
+    # would still pass this functionally, so the real "no global lock"
+    # guarantee is architectural (see repository.py:locked_portfolio
+    # docstring) - this test guards the functional outcome.
+    portfolio_a = concurrent_service.create_portfolio(owner=_owner("race-independent-a"), name="A")
+    portfolio_b = concurrent_service.create_portfolio(owner=_owner("race-independent-b"), name="B")
+    concurrent_service.deposit(portfolio_a.id, 10000.0)
+    concurrent_service.deposit(portfolio_b.id, 10000.0)
+
+    errors = []
+
+    def _buy(portfolio_id):
+        try:
+            concurrent_service.buy(portfolio_id, "AAPL", 10, 100.0)
+        except Exception as exc:  # pragma: no cover - failure path only
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=_buy, args=(portfolio_a.id,)),
+        threading.Thread(target=_buy, args=(portfolio_b.id,)),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+    assert concurrent_service.get_position(portfolio_a.id, "AAPL").quantity == 10.0
+    assert concurrent_service.get_position(portfolio_b.id, "AAPL").quantity == 10.0

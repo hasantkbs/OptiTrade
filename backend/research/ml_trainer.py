@@ -11,6 +11,8 @@ Gereksinimler:
 
 import sys
 import os
+import shutil
+import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
@@ -34,6 +36,13 @@ from core.indicators import (
 LOOKBACK = 60
 FORWARD_DAYS = 5
 THRESHOLD_UP = 1.0
+
+# A freshly retrained model is only allowed to replace the live model
+# if its cross-validated accuracy isn't more than this many percentage
+# points worse than the model it would replace - retraining on noisy
+# daily data must never silently ship a regression to production (see
+# _deploy_if_not_regressed below).
+MAX_ACCURACY_REGRESSION = 0.01
 
 SYMBOLS = [
     "THYAO.IS", "GARAN.IS", "ASELS.IS", "KCHOL.IS", "EREGL.IS",
@@ -115,6 +124,55 @@ def build_dataset(symbol: str) -> Tuple[np.ndarray, np.ndarray]:
         y.append(label)
 
     return np.array(X, dtype=np.float32), np.array(y, dtype=np.int32)
+
+
+def _deploy_if_not_regressed(model_path: str, package: dict, joblib_module) -> bool:
+    """Replaces the live-served model file at `model_path` with `package`
+    only if doing so can't ship a silent accuracy regression, and does
+    so without ever leaving a partially-written/corrupt file behind.
+
+    - Compares `package["cv_accuracy_mean"]` against whatever model is
+      currently live (if any) and refuses to deploy if the new model is
+      worse by more than MAX_ACCURACY_REGRESSION.
+    - Keeps a `<model_path>.bak` copy of the previous live model before
+      swapping, so a bad deploy can be manually rolled back by copying
+      the backup over `model_path`.
+    - Writes the new model to a temp file first and `os.replace()`s it
+      into place - `os.replace` is atomic on the same filesystem, so a
+      reader never observes a half-written file.
+
+    Returns True if the new model was deployed, False if it was
+    rejected for regressing.
+    """
+    if os.path.exists(model_path):
+        try:
+            previous = joblib_module.load(model_path)
+            previous_accuracy = previous.get("cv_accuracy_mean")
+        except Exception:
+            previous_accuracy = None
+
+        if previous_accuracy is not None:
+            new_accuracy = package["cv_accuracy_mean"]
+            if new_accuracy < previous_accuracy - MAX_ACCURACY_REGRESSION:
+                print(
+                    f"[ATLANDI] Yeni model canli modelden daha kotu "
+                    f"({new_accuracy*100:.1f}% < {previous_accuracy*100:.1f}% - "
+                    f"{MAX_ACCURACY_REGRESSION*100:.0f}pp tolerans) - dagitim iptal edildi."
+                )
+                return False
+
+        shutil.copy2(model_path, model_path + ".bak")
+
+    fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(model_path) or ".", suffix=".joblib.tmp")
+    os.close(fd)
+    try:
+        joblib_module.dump(package, tmp_path)
+        os.replace(tmp_path, model_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+    return True
 
 
 def train():
@@ -203,7 +261,7 @@ def train():
 
     os.makedirs("models", exist_ok=True)
     model_path = os.path.join("models", "xgb_signal_model.joblib")
-    joblib.dump({
+    package = {
         "model": model,
         "feature_names": FEATURE_NAMES,
         "lookback": LOOKBACK,
@@ -213,8 +271,9 @@ def train():
         "cv_accuracy_std": float(cv_scores.std()),
         "train_samples": len(X_train),
         "test_samples": len(X_test),
-    }, model_path)
-    print(f"\nModel kaydedildi: {model_path}")
+    }
+    if _deploy_if_not_regressed(model_path, package, joblib):
+        print(f"\nModel kaydedildi: {model_path}")
     print("=" * 65)
 
 

@@ -224,4 +224,32 @@ class ScanReport(BaseModel):
     checked_count: int = Field(..., ge=0)
     triggered_count: int = Field(..., ge=0)
     outcomes: List[AlertCheckOutcome] = Field(default_factory=list)
-    duration_ms: float = Field(..., ge=0.0)
+
+
+# ── API request models (mirrors portfolio.models's "API request models") ──
+
+
+class CreateWatchlistRequest(BaseModel):
+    name: str
+
+
+class AddWatchlistItemRequest(BaseModel):
+    symbol: str
+    is_favorite: bool = False
+    folder: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    notes: str = ""
+
+
+class CreateAlertRequest(BaseModel):
+    category: AlertCategory
+    alert_type: AlertType
+    parameters: Dict[str, float] = Field(default_factory=dict)
+    watchlist_id: Optional[int] = None
+    symbol: Optional[str] = None
+    portfolio_id: Optional[int] = None
+    cooldown_minutes: int = Field(default=60, ge=0)
+
+
+class SetAlertEnabledRequest(BaseModel):
+    enabled: bool

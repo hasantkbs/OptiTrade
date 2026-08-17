@@ -79,7 +79,25 @@ from portfolio.models import (
     Transaction,
     WithdrawRequest,
 )
-from watchlist import WatchlistService
+from watchlist import AlertScheduler, WatchlistService
+from watchlist.exceptions import (
+    AlertNotFoundError,
+    InsufficientAlertDataError,
+    InvalidAlertError,
+    WatchlistError,
+    WatchlistItemNotFoundError,
+    WatchlistNotFoundError,
+)
+from watchlist.models import (
+    AddWatchlistItemRequest,
+    Alert,
+    CreateAlertRequest,
+    CreateWatchlistRequest,
+    ScanReport,
+    SetAlertEnabledRequest,
+    Watchlist,
+    WatchlistItem,
+)
 from users import (
     APIKeyService,
     AuditService,
@@ -271,27 +289,74 @@ app.include_router(api_v1_router)
 # ── Background Tasks ──────────────────────────────────────────────────────────
 
 async def self_evolution_loop() -> None:
-    """Günlük doğrulama ve haftalık eğitim yapan arka plan döngüsü."""
+    """Günlük doğrulama ve haftalık eğitim yapan arka plan döngüsü.
+
+    validate_predictions()/train_model() are synchronous and slow
+    (network + CPU-bound) - run through the executor thread pool (see
+    _run_in_executor below), same as every other blocking call in this
+    file, so a daily validation/retraining cycle never freezes the
+    event loop (and therefore every concurrent request) for its
+    duration."""
     while True:
         try:
             logger.info("Kendi kendini geliştirme döngüsü çalışıyor...")
             # 1. Tahminleri doğrula
-            validated = validate_predictions()
+            validated = await _run_in_executor(validate_predictions)
             if validated > 0:
                 logger.info(f"{validated} tahmin doğrulandı.")
-            
+
             # 2. Haftalık eğitimi kontrol et (Her Pazar gecesi gibi basit bir mantık veya her 7 günde bir)
             # Şimdilik basitçe her gün bir kez kontrol edip haftalık tetikleme yapabiliriz
             # Ya da doğrudan her gün eğitimi yenileyebiliriz (veri seti küçükse)
             # Kullanıcının isteği üzerine günlük ve haftalık test/eğitim:
-            train_model()
+            await _run_in_executor(train_model)
             logger.info("Model güncel verilerle yeniden eğitildi.")
-            
+
         except Exception as e:
             logger.error(f"Self-evolution döngüsünde hata: {e}")
-        
+
         # 24 saat bekle (86400 saniye)
         await asyncio.sleep(86400)
+
+
+_WATCHLIST_ALERT_SCAN_INTERVAL_SECONDS = 60
+_PAPER_TRADING_FILL_SCAN_INTERVAL_SECONDS = 30
+
+
+async def alert_scan_loop() -> None:
+    """Periodically runs every enabled alert through
+    `AlertScheduler.run_scan` (watchlist/scheduler.py) - previously
+    instantiated at startup but never invoked by anything, so no price/
+    technical/decision/news/portfolio alert could ever actually fire."""
+    while True:
+        await asyncio.sleep(_WATCHLIST_ALERT_SCAN_INTERVAL_SECONDS)
+        if _watchlist_scheduler is None:
+            continue
+        try:
+            report = await _run_in_executor(_watchlist_scheduler.run_scan)
+            if report.triggered_count:
+                logger.info(f"Alert taraması: {report.triggered_count} alert tetiklendi.")
+        except Exception as e:
+            logger.error(f"Alert tarama döngüsünde hata: {e}")
+
+
+async def paper_trading_fill_loop() -> None:
+    """Periodically runs every resting LIMIT/STOP/TAKE_PROFIT order
+    through `PaperTradingScheduler.scan_pending_orders`
+    (paper_trading/scheduler.py) - previously instantiated at startup
+    but never invoked by anything, so a resting order was accepted and
+    reported as "pending" but could never actually fill."""
+    while True:
+        await asyncio.sleep(_PAPER_TRADING_FILL_SCAN_INTERVAL_SECONDS)
+        if _paper_trading_scheduler is None:
+            continue
+        try:
+            fills = await _run_in_executor(_paper_trading_scheduler.scan_pending_orders)
+            if fills:
+                logger.info(f"Paper trading: {len(fills)} bekleyen emir dolduruldu.")
+        except Exception as e:
+            logger.error(f"Paper trading dolum döngüsünde hata: {e}")
+
 
 @app.on_event("startup")
 async def startup_event() -> None:
@@ -331,7 +396,7 @@ async def startup_event() -> None:
 
     global _users_repository, _users_authentication, _users_authorization, _users_sessions
     global _users_organizations, _users_teams, _users_api_keys, _users_preferences
-    global _users_audit, _users_service, _users_watchlist_bridge
+    global _users_audit, _users_service, _users_watchlist_bridge, _watchlist_scheduler
     try:
         _users_repository = UsersRepository()
         _users_sessions = SessionService(_users_repository)
@@ -342,6 +407,10 @@ async def startup_event() -> None:
         _users_audit = AuditService(_users_repository)
         _users_api_keys = APIKeyService(_users_repository, _users_authorization, _users_audit)
         _users_watchlist_bridge = WatchlistService()
+        # Reuses _users_watchlist_bridge's own repository/connection pool
+        # (same convention as portfolio_sync's watchlist_repository= above)
+        # instead of opening a second one just for the scheduler.
+        _watchlist_scheduler = AlertScheduler(repository=_users_watchlist_bridge.repository)
         _users_preferences = PreferencesService(
             _users_repository, portfolio_service=_portfolio_service, watchlist_service=_users_watchlist_bridge,
         )
@@ -397,6 +466,8 @@ async def startup_event() -> None:
     except Exception as e:
         logger.error(f"Analytics & Dashboard Platform baslatilamadi: {e}")
     asyncio.create_task(self_evolution_loop())
+    asyncio.create_task(alert_scan_loop())
+    asyncio.create_task(paper_trading_fill_loop())
 
 @app.get("/ml/performance")
 def get_ml_performance(days: int = 30) -> Dict[str, Any]:
@@ -448,6 +519,7 @@ _users_preferences: Optional[PreferencesService] = None
 _users_audit: Optional[AuditService] = None
 _users_service: Optional[UserService] = None
 _users_watchlist_bridge: Optional[WatchlistService] = None
+_watchlist_scheduler: Optional[AlertScheduler] = None
 
 # Paper Trading & Trade Journal Platform — same convention.
 _paper_trading_repository: Optional[PaperTradingRepository] = None
@@ -480,21 +552,12 @@ async def _run_in_executor(func, *args):
     return await loop.run_in_executor(_executor, func, *args)
 
 
-def _resolve_portfolio_owner(uid: Optional[str], fallback_owner: Optional[str]) -> str:
-    owner = uid or fallback_owner
-    if not owner:
-        raise HTTPException(
-            status_code=401, detail="Portfoy sahibi belirlenemedi (giris yapin veya owner belirtin)."
-        )
-    return owner
-
-
-def _authorize_portfolio_access(portfolio_obj: Portfolio, uid: Optional[str]) -> None:
-    # Firebase not configured (uid is always None in that mode, see
-    # verify_firebase_token) - every other endpoint in this file is
-    # equally permissive in that mode, so ownership is only enforced
-    # once a real, verified uid exists to check against.
-    if uid is not None and portfolio_obj.owner != uid:
+def _authorize_portfolio_access(portfolio_obj: Portfolio, user: UsersUser) -> None:
+    # Same identity (Users-platform email) and check as
+    # _get_owned_portfolio_for_dashboard below - a portfolio's owner must
+    # never be compared against two different identity systems (Firebase
+    # uid vs. Users-platform email) depending on which endpoint is hit.
+    if portfolio_obj.owner != user.email:
         raise HTTPException(status_code=403, detail="Bu portfoye erisim izniniz yok.")
 
 
@@ -1071,42 +1134,38 @@ def portfolio_optimize(request: Request, body: PortfolioOptRequest,
 @app.post("/portfolios", response_model=Portfolio)
 @limiter.limit("10/minute")
 async def create_portfolio(
-    request: Request, body: CreatePortfolioRequest, uid: Optional[str] = Depends(verify_firebase_token),
+    request: Request, body: CreatePortfolioRequest, user: UsersUser = Depends(_get_current_user),
 ) -> Portfolio:
     _require_portfolio_service()
-    owner = _resolve_portfolio_owner(uid, body.owner)
     try:
-        return await _run_in_executor(_portfolio_service.create_portfolio, owner, body.name, body.base_currency)
+        return await _run_in_executor(_portfolio_service.create_portfolio, user.email, body.name, body.base_currency)
     except PortfolioError as e:
         raise _map_portfolio_error(e)
 
 @app.get("/portfolios", response_model=List[Portfolio])
 @limiter.limit("30/minute")
-async def list_portfolios(
-    request: Request, owner: Optional[str] = None, uid: Optional[str] = Depends(verify_firebase_token),
-) -> List[Portfolio]:
+async def list_portfolios(request: Request, user: UsersUser = Depends(_get_current_user)) -> List[Portfolio]:
     _require_portfolio_service()
-    resolved_owner = _resolve_portfolio_owner(uid, owner)
     try:
-        return await _run_in_executor(_portfolio_service.list_portfolios, resolved_owner)
+        return await _run_in_executor(_portfolio_service.list_portfolios, user.email)
     except PortfolioError as e:
         raise _map_portfolio_error(e)
 
-async def _get_authorized_portfolio(portfolio_id: int, uid: Optional[str]) -> Portfolio:
+async def _get_authorized_portfolio(portfolio_id: int, user: UsersUser) -> Portfolio:
     try:
         portfolio_obj = await _run_in_executor(_portfolio_service.get_portfolio, portfolio_id)
     except PortfolioError as e:
         raise _map_portfolio_error(e)
-    _authorize_portfolio_access(portfolio_obj, uid)
+    _authorize_portfolio_access(portfolio_obj, user)
     return portfolio_obj
 
 @app.post("/portfolios/{portfolio_id}/deposit", response_model=Transaction)
 @limiter.limit("20/minute")
 async def portfolio_deposit(
-    request: Request, portfolio_id: int, body: DepositRequest, uid: Optional[str] = Depends(verify_firebase_token),
+    request: Request, portfolio_id: int, body: DepositRequest, user: UsersUser = Depends(_get_current_user),
 ) -> Transaction:
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         return await _run_in_executor(
             _portfolio_service.deposit, portfolio_id, body.amount, body.currency, None, body.notes,
@@ -1117,10 +1176,10 @@ async def portfolio_deposit(
 @app.post("/portfolios/{portfolio_id}/withdraw", response_model=Transaction)
 @limiter.limit("20/minute")
 async def portfolio_withdraw(
-    request: Request, portfolio_id: int, body: WithdrawRequest, uid: Optional[str] = Depends(verify_firebase_token),
+    request: Request, portfolio_id: int, body: WithdrawRequest, user: UsersUser = Depends(_get_current_user),
 ) -> Transaction:
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         return await _run_in_executor(
             _portfolio_service.withdraw, portfolio_id, body.amount, body.currency, None, body.notes,
@@ -1131,10 +1190,10 @@ async def portfolio_withdraw(
 @app.post("/portfolios/{portfolio_id}/buy", response_model=Transaction)
 @limiter.limit("20/minute")
 async def portfolio_buy(
-    request: Request, portfolio_id: int, body: TradeRequest, uid: Optional[str] = Depends(verify_firebase_token),
+    request: Request, portfolio_id: int, body: TradeRequest, user: UsersUser = Depends(_get_current_user),
 ) -> Transaction:
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         return await _run_in_executor(
             _portfolio_service.buy, portfolio_id, body.symbol, body.quantity, body.price, body.fee, body.tax,
@@ -1146,10 +1205,10 @@ async def portfolio_buy(
 @app.post("/portfolios/{portfolio_id}/sell", response_model=Transaction)
 @limiter.limit("20/minute")
 async def portfolio_sell(
-    request: Request, portfolio_id: int, body: TradeRequest, uid: Optional[str] = Depends(verify_firebase_token),
+    request: Request, portfolio_id: int, body: TradeRequest, user: UsersUser = Depends(_get_current_user),
 ) -> Transaction:
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         return await _run_in_executor(
             _portfolio_service.sell, portfolio_id, body.symbol, body.quantity, body.price, body.fee, body.tax,
@@ -1161,10 +1220,10 @@ async def portfolio_sell(
 @app.post("/portfolios/{portfolio_id}/dividend", response_model=Transaction)
 @limiter.limit("20/minute")
 async def portfolio_dividend(
-    request: Request, portfolio_id: int, body: DividendRequest, uid: Optional[str] = Depends(verify_firebase_token),
+    request: Request, portfolio_id: int, body: DividendRequest, user: UsersUser = Depends(_get_current_user),
 ) -> Transaction:
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         return await _run_in_executor(
             _portfolio_service.record_dividend, portfolio_id, body.symbol, body.amount, body.tax, None, None,
@@ -1176,10 +1235,10 @@ async def portfolio_dividend(
 @app.get("/portfolios/{portfolio_id}/positions", response_model=List[PositionAnalytics])
 @limiter.limit("30/minute")
 async def portfolio_positions(
-    request: Request, portfolio_id: int, uid: Optional[str] = Depends(verify_firebase_token),
+    request: Request, portfolio_id: int, user: UsersUser = Depends(_get_current_user),
 ) -> List[PositionAnalytics]:
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         return await _run_in_executor(_portfolio_analytics.analyze_positions, portfolio_id)
     except PortfolioError as e:
@@ -1188,10 +1247,10 @@ async def portfolio_positions(
 @app.get("/portfolios/{portfolio_id}/risk", response_model=RiskAnalytics)
 @limiter.limit("15/minute")
 async def portfolio_risk(
-    request: Request, portfolio_id: int, uid: Optional[str] = Depends(verify_firebase_token),
+    request: Request, portfolio_id: int, user: UsersUser = Depends(_get_current_user),
 ) -> RiskAnalytics:
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         return await _run_in_executor(_portfolio_risk.analyze, portfolio_id, None)
     except PortfolioError as e:
@@ -1200,14 +1259,14 @@ async def portfolio_risk(
 @app.post("/portfolios/{portfolio_id}/optimize", response_model=OptimizationResult)
 @limiter.limit("10/minute")
 async def portfolio_optimize_holdings(
-    request: Request, portfolio_id: int, body: OptimizeRequest, uid: Optional[str] = Depends(verify_firebase_token),
+    request: Request, portfolio_id: int, body: OptimizeRequest, user: UsersUser = Depends(_get_current_user),
 ) -> OptimizationResult:
     """Portfolio-aware optimization over a caller-supplied candidate
     symbol list - distinct from the legacy, portfolio-less
     `/portfolio/optimize` above. `portfolio_id` is only used for
     authorization here; the optimization itself is symbol-based."""
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         return await _run_in_executor(
             _portfolio_optimization.optimize, body.symbols, body.strategy, body.risk_tolerance,
@@ -1219,10 +1278,10 @@ async def portfolio_optimize_holdings(
 @app.post("/portfolios/{portfolio_id}/rebalance", response_model=RebalancePlan)
 @limiter.limit("15/minute")
 async def portfolio_rebalance(
-    request: Request, portfolio_id: int, body: RebalanceRequest, uid: Optional[str] = Depends(verify_firebase_token),
+    request: Request, portfolio_id: int, body: RebalanceRequest, user: UsersUser = Depends(_get_current_user),
 ) -> RebalancePlan:
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         return await _run_in_executor(
             _portfolio_rebalancing.build_plan, portfolio_id, body.target_weights_pct, body.trigger,
@@ -1234,10 +1293,10 @@ async def portfolio_rebalance(
 @app.post("/portfolios/{portfolio_id}/scenario", response_model=ScenarioResult)
 @limiter.limit("15/minute")
 async def portfolio_scenario(
-    request: Request, portfolio_id: int, body: ScenarioRequest, uid: Optional[str] = Depends(verify_firebase_token),
+    request: Request, portfolio_id: int, body: ScenarioRequest, user: UsersUser = Depends(_get_current_user),
 ) -> ScenarioResult:
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         if body.scenario_type == ScenarioType.MARKET_CRASH:
             return await _run_in_executor(
@@ -1263,10 +1322,10 @@ async def portfolio_scenario(
 @limiter.limit("15/minute")
 async def portfolio_recommendations(
     request: Request, portfolio_id: int, body: RecommendationsRequest,
-    uid: Optional[str] = Depends(verify_firebase_token),
+    user: UsersUser = Depends(_get_current_user),
 ) -> List[Recommendation]:
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         return await _run_in_executor(
             _portfolio_recommendations.generate, portfolio_id, body.target_weights_pct, None, None,
@@ -1277,10 +1336,10 @@ async def portfolio_recommendations(
 @app.get("/portfolios/{portfolio_id}/dashboard", response_model=PortfolioDashboard)
 @limiter.limit("15/minute")
 async def portfolio_dashboard(
-    request: Request, portfolio_id: int, uid: Optional[str] = Depends(verify_firebase_token),
+    request: Request, portfolio_id: int, user: UsersUser = Depends(_get_current_user),
 ) -> PortfolioDashboard:
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         return await _run_in_executor(_portfolio_dashboard.build, portfolio_id, None)
     except PortfolioError as e:
@@ -1290,10 +1349,10 @@ async def portfolio_dashboard(
 @limiter.limit("30/minute")
 async def portfolio_transaction_history(
     request: Request, portfolio_id: int, symbol: Optional[str] = None,
-    uid: Optional[str] = Depends(verify_firebase_token),
+    user: UsersUser = Depends(_get_current_user),
 ) -> List[Transaction]:
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         return await _run_in_executor(_portfolio_service.list_transactions, portfolio_id, symbol)
     except PortfolioError as e:
@@ -1302,14 +1361,207 @@ async def portfolio_transaction_history(
 @app.post("/portfolios/{portfolio_id}/snapshot", response_model=PortfolioSnapshot)
 @limiter.limit("10/minute")
 async def portfolio_take_snapshot(
-    request: Request, portfolio_id: int, uid: Optional[str] = Depends(verify_firebase_token),
+    request: Request, portfolio_id: int, user: UsersUser = Depends(_get_current_user),
 ) -> PortfolioSnapshot:
     _require_portfolio_service()
-    await _get_authorized_portfolio(portfolio_id, uid)
+    await _get_authorized_portfolio(portfolio_id, user)
     try:
         return await _run_in_executor(_portfolio_service.take_snapshot, portfolio_id)
     except PortfolioError as e:
         raise _map_portfolio_error(e)
+
+# ── Watchlist & Alert Platform ───────────────────────────────────────────────────
+# Previously a fully-built, fully-tested subsystem with zero HTTP surface -
+# `watchlist.WatchlistService`/`AlertScheduler` existed and worked, but
+# nothing in main.py ever let a caller create a watchlist or an alert, and
+# the scheduler that evaluates alerts was never invoked (see
+# alert_scan_loop above). Same auth/ownership convention as the Portfolio
+# Intelligence Platform (Depends(_get_current_user), owner is always the
+# authenticated caller's email, ownership checked on every access).
+
+def _require_watchlist_service() -> None:
+    if _users_watchlist_bridge is None:
+        raise HTTPException(status_code=503, detail="Watchlist servisi henuz hazir degil.")
+
+
+def _map_watchlist_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, (WatchlistNotFoundError, WatchlistItemNotFoundError, AlertNotFoundError)):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, (InvalidAlertError, InsufficientAlertDataError)):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, WatchlistError):
+        return HTTPException(status_code=500, detail=str(exc))
+    return HTTPException(status_code=500, detail=str(exc))
+
+
+async def _get_authorized_watchlist(watchlist_id: int, user: UsersUser) -> Watchlist:
+    try:
+        watchlist_obj = await _run_in_executor(_users_watchlist_bridge.get_watchlist, watchlist_id)
+    except WatchlistError as e:
+        raise _map_watchlist_error(e)
+    if watchlist_obj.owner != user.email:
+        raise HTTPException(status_code=403, detail="Bu izleme listesine erisim izniniz yok.")
+    return watchlist_obj
+
+
+async def _get_authorized_alert(alert_id: int, user: UsersUser) -> Alert:
+    try:
+        alert_obj = await _run_in_executor(_users_watchlist_bridge.get_alert, alert_id)
+    except WatchlistError as e:
+        raise _map_watchlist_error(e)
+    if alert_obj.owner != user.email:
+        raise HTTPException(status_code=403, detail="Bu alerte erisim izniniz yok.")
+    return alert_obj
+
+
+@app.post("/watchlists", response_model=Watchlist)
+@limiter.limit("10/minute")
+async def create_watchlist(
+    request: Request, body: CreateWatchlistRequest, user: UsersUser = Depends(_get_current_user),
+) -> Watchlist:
+    _require_watchlist_service()
+    try:
+        return await _run_in_executor(_users_watchlist_bridge.create_watchlist, user.email, body.name)
+    except WatchlistError as e:
+        raise _map_watchlist_error(e)
+
+@app.get("/watchlists", response_model=List[Watchlist])
+@limiter.limit("30/minute")
+async def list_watchlists(request: Request, user: UsersUser = Depends(_get_current_user)) -> List[Watchlist]:
+    _require_watchlist_service()
+    try:
+        return await _run_in_executor(_users_watchlist_bridge.list_watchlists, user.email)
+    except WatchlistError as e:
+        raise _map_watchlist_error(e)
+
+@app.get("/watchlists/{watchlist_id}", response_model=Watchlist)
+@limiter.limit("30/minute")
+async def get_watchlist(
+    request: Request, watchlist_id: int, user: UsersUser = Depends(_get_current_user),
+) -> Watchlist:
+    _require_watchlist_service()
+    return await _get_authorized_watchlist(watchlist_id, user)
+
+@app.delete("/watchlists/{watchlist_id}")
+@limiter.limit("10/minute")
+async def delete_watchlist(
+    request: Request, watchlist_id: int, user: UsersUser = Depends(_get_current_user),
+) -> Dict[str, str]:
+    _require_watchlist_service()
+    await _get_authorized_watchlist(watchlist_id, user)
+    try:
+        await _run_in_executor(_users_watchlist_bridge.delete_watchlist, watchlist_id)
+    except WatchlistError as e:
+        raise _map_watchlist_error(e)
+    return {"status": "deleted"}
+
+@app.get("/watchlists/{watchlist_id}/items", response_model=List[WatchlistItem])
+@limiter.limit("30/minute")
+async def list_watchlist_items(
+    request: Request, watchlist_id: int, user: UsersUser = Depends(_get_current_user),
+) -> List[WatchlistItem]:
+    _require_watchlist_service()
+    await _get_authorized_watchlist(watchlist_id, user)
+    try:
+        return await _run_in_executor(_users_watchlist_bridge.list_items, watchlist_id)
+    except WatchlistError as e:
+        raise _map_watchlist_error(e)
+
+@app.post("/watchlists/{watchlist_id}/items", response_model=WatchlistItem)
+@limiter.limit("20/minute")
+async def add_watchlist_item(
+    request: Request, watchlist_id: int, body: AddWatchlistItemRequest,
+    user: UsersUser = Depends(_get_current_user),
+) -> WatchlistItem:
+    _require_watchlist_service()
+    await _get_authorized_watchlist(watchlist_id, user)
+    try:
+        return await _run_in_executor(
+            _users_watchlist_bridge.add_symbol, watchlist_id, body.symbol, body.is_favorite, body.folder,
+            body.tags, body.notes,
+        )
+    except WatchlistError as e:
+        raise _map_watchlist_error(e)
+
+@app.delete("/watchlists/{watchlist_id}/items/{symbol}")
+@limiter.limit("20/minute")
+async def remove_watchlist_item(
+    request: Request, watchlist_id: int, symbol: str, user: UsersUser = Depends(_get_current_user),
+) -> Dict[str, str]:
+    _require_watchlist_service()
+    await _get_authorized_watchlist(watchlist_id, user)
+    try:
+        await _run_in_executor(_users_watchlist_bridge.remove_symbol, watchlist_id, symbol)
+    except WatchlistError as e:
+        raise _map_watchlist_error(e)
+    return {"status": "deleted"}
+
+@app.post("/alerts", response_model=Alert)
+@limiter.limit("15/minute")
+async def create_alert(
+    request: Request, body: CreateAlertRequest, user: UsersUser = Depends(_get_current_user),
+) -> Alert:
+    _require_watchlist_service()
+    if body.watchlist_id is not None:
+        await _get_authorized_watchlist(body.watchlist_id, user)
+    try:
+        return await _run_in_executor(
+            _users_watchlist_bridge.create_alert, user.email, body.category, body.alert_type, body.parameters,
+            body.watchlist_id, body.symbol, body.portfolio_id, body.cooldown_minutes,
+        )
+    except WatchlistError as e:
+        raise _map_watchlist_error(e)
+
+@app.get("/alerts", response_model=List[Alert])
+@limiter.limit("30/minute")
+async def list_alerts(
+    request: Request, watchlist_id: Optional[int] = None, user: UsersUser = Depends(_get_current_user),
+) -> List[Alert]:
+    _require_watchlist_service()
+    try:
+        return await _run_in_executor(_users_watchlist_bridge.list_alerts, user.email, watchlist_id)
+    except WatchlistError as e:
+        raise _map_watchlist_error(e)
+
+@app.get("/alerts/{alert_id}", response_model=Alert)
+@limiter.limit("30/minute")
+async def get_alert(request: Request, alert_id: int, user: UsersUser = Depends(_get_current_user)) -> Alert:
+    _require_watchlist_service()
+    return await _get_authorized_alert(alert_id, user)
+
+@app.patch("/alerts/{alert_id}/enabled", response_model=Alert)
+@limiter.limit("20/minute")
+async def set_alert_enabled(
+    request: Request, alert_id: int, body: SetAlertEnabledRequest, user: UsersUser = Depends(_get_current_user),
+) -> Alert:
+    _require_watchlist_service()
+    await _get_authorized_alert(alert_id, user)
+    try:
+        return await _run_in_executor(_users_watchlist_bridge.set_alert_enabled, alert_id, body.enabled)
+    except WatchlistError as e:
+        raise _map_watchlist_error(e)
+
+@app.delete("/alerts/{alert_id}")
+@limiter.limit("20/minute")
+async def delete_alert(request: Request, alert_id: int, user: UsersUser = Depends(_get_current_user)) -> Dict[str, str]:
+    _require_watchlist_service()
+    await _get_authorized_alert(alert_id, user)
+    try:
+        await _run_in_executor(_users_watchlist_bridge.delete_alert, alert_id)
+    except WatchlistError as e:
+        raise _map_watchlist_error(e)
+    return {"status": "deleted"}
+
+@app.post("/alerts/scan", response_model=ScanReport)
+@limiter.limit("5/minute")
+async def scan_my_alerts(request: Request, user: UsersUser = Depends(_get_current_user)) -> ScanReport:
+    """On-demand scan of just the caller's own alerts - the same
+    AlertScheduler.run_scan the periodic alert_scan_loop calls for
+    everyone, scoped to owner=user.email so a caller can't trigger
+    (or learn about) anyone else's alerts."""
+    if _watchlist_scheduler is None:
+        raise HTTPException(status_code=503, detail="Alert scheduler henuz hazir degil.")
+    return await _run_in_executor(_watchlist_scheduler.run_scan, user.email)
 
 # ── Scan (parallel) ────────────────────────────────────────────────────────────
 
@@ -1398,7 +1650,8 @@ def get_chart(
 # ── Authentication ───────────────────────────────────────────────────────────
 
 @app.post("/auth/register", response_model=UserResponse)
-def auth_register(body: RegisterRequest) -> UserResponse:
+@limiter.limit("20/minute")
+def auth_register(request: Request, body: RegisterRequest) -> UserResponse:
     _require_users_service()
     try:
         return UserResponse.model_validate(
@@ -1408,6 +1661,7 @@ def auth_register(body: RegisterRequest) -> UserResponse:
         raise _map_users_error(e)
 
 @app.post("/auth/login", response_model=TokenPairResponse)
+@limiter.limit("30/minute")
 def auth_login(request: Request, body: LoginRequest) -> TokenPairResponse:
     _require_users_service()
     try:
@@ -1417,6 +1671,7 @@ def auth_login(request: Request, body: LoginRequest) -> TokenPairResponse:
         raise _map_users_error(e)
 
 @app.post("/auth/refresh", response_model=TokenPairResponse)
+@limiter.limit("60/minute")
 def auth_refresh(request: Request, body: RefreshRequest) -> TokenPairResponse:
     _require_users_service()
     try:
@@ -1426,19 +1681,22 @@ def auth_refresh(request: Request, body: RefreshRequest) -> TokenPairResponse:
         raise _map_users_error(e)
 
 @app.post("/auth/logout")
-def auth_logout(body: LogoutRequest) -> Dict[str, str]:
+@limiter.limit("60/minute")
+def auth_logout(request: Request, body: LogoutRequest) -> Dict[str, str]:
     _require_users_service()
     _users_authentication.logout(body.refresh_token)
     return {"status": "ok"}
 
 @app.post("/auth/password-reset/request")
-def auth_password_reset_request(body: PasswordResetRequestSchema) -> Dict[str, str]:
+@limiter.limit("5/minute")
+def auth_password_reset_request(request: Request, body: PasswordResetRequestSchema) -> Dict[str, str]:
     _require_users_service()
     _users_authentication.request_password_reset(body.email)
     return {"status": "ok"}
 
 @app.post("/auth/password-reset/confirm")
-def auth_password_reset_confirm(body: PasswordResetConfirmRequest) -> Dict[str, str]:
+@limiter.limit("10/minute")
+def auth_password_reset_confirm(request: Request, body: PasswordResetConfirmRequest) -> Dict[str, str]:
     _require_users_service()
     try:
         _users_authentication.reset_password(body.token, body.new_password)
