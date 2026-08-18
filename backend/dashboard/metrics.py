@@ -1,16 +1,21 @@
 """
 OptiTrade Analytics & Dashboard Platform — shared statistical formulas.
 
-Generalizes the per-trade Sharpe/Sortino/max-drawdown math already
-proven in `paper_trading/analytics.py` into pure, series-agnostic
-functions so `portfolio_dashboard.py`/`paper_trading_dashboard.py`/
-`engine_dashboard.py` all share one implementation instead of each
-recomputing it.
+Sharpe/Sortino/max-drawdown delegate to `core.performance_metrics` (the
+single canonical implementation shared with `research_lab`, see that
+module's docstring) rather than recomputing their own formulas - this
+used to be a second, independently-drifting implementation. Only the
+edge-case presentation contract (returning `None` when there isn't
+enough data to compute a meaningful ratio, and this module's own
+equity-curve/fraction conventions for drawdown) lives here; the actual
+arithmetic is the canonical one.
 """
 from __future__ import annotations
 
 import statistics
 from typing import List, Optional
+
+from core import performance_metrics
 
 
 def returns_from_equity_curve(equity_curve: List[float]) -> List[float]:
@@ -25,36 +30,40 @@ def returns_from_equity_curve(equity_curve: List[float]) -> List[float]:
 
 
 def compute_sharpe_ratio(returns: List[float]) -> Optional[float]:
+    """`None` below mirrors this module's own long-standing "not enough
+    data to mean anything" contract; whenever a real ratio IS computed,
+    it's `core.performance_metrics.sharpe_ratio`'s value exactly (the
+    two formulas are mathematically identical for the default
+    risk_free_rate=0.0 case - dashboard's mean/stdev(returns) is the
+    same division as canonical's mean(excess)/std(excess) once
+    excess == returns)."""
     if len(returns) < 2:
         return None
-    stdev = statistics.stdev(returns)
-    if stdev == 0:
+    if statistics.stdev(returns) == 0:
         return None
-    return statistics.mean(returns) / stdev
+    return performance_metrics.sharpe_ratio(returns)
 
 
 def compute_sortino_ratio(returns: List[float]) -> Optional[float]:
+    """`None` only for the "can't compute at all" case (fewer than two
+    returns) - a period series with no downside at all is a real,
+    meaningful result (`core.performance_metrics.sortino_ratio`'s
+    capped value), not an absence of data."""
     if len(returns) < 2:
         return None
-    downside = [r for r in returns if r < 0]
-    if not downside:
-        return None
-    downside_deviation = statistics.pstdev(downside) if len(downside) > 1 else abs(downside[0])
-    if downside_deviation == 0:
-        return None
-    return statistics.mean(returns) / downside_deviation
+    return performance_metrics.sortino_ratio(returns)
 
 
 def compute_max_drawdown(equity_curve: List[float]) -> float:
-    if not equity_curve:
-        return 0.0
-    peak = equity_curve[0]
-    max_dd = 0.0
-    for value in equity_curve:
-        peak = max(peak, value)
-        if peak > 0:
-            max_dd = max(max_dd, (peak - value) / peak)
-    return max_dd
+    """Same equity-curve-in/fraction-out contract this function has
+    always had - internally converts to the canonical per-period-
+    percent-return convention (`core.performance_metrics.max_drawdown`)
+    and back, rather than re-deriving the peak-to-trough walk itself.
+    Peak-to-trough drawdown *ratio* is scale-invariant, so this is
+    numerically identical to computing it directly off the equity
+    values."""
+    returns_pct = [r * 100.0 for r in returns_from_equity_curve(equity_curve)]
+    return performance_metrics.max_drawdown(returns_pct) / 100.0
 
 
 def compute_win_rate(outcomes: List[bool]) -> float:
