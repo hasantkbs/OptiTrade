@@ -89,6 +89,14 @@ class LearningService:
     def get_accuracy(self, engine_name: str, engine_version: str, window: RollingWindow) -> Optional[AccuracyMetrics]:
         return self.repository.get_latest_accuracy(engine_name, engine_version, window)
 
+    def get_accuracy_for_windows(
+        self, engine_name: str, engine_version: str, windows: List[RollingWindow],
+    ) -> dict:
+        """`get_accuracy` for every window in `windows` in a single
+        query instead of one per window - see `LearningRepository.
+        get_latest_accuracy_for_windows`."""
+        return self.repository.get_latest_accuracy_for_windows(engine_name, engine_version, windows)
+
     def get_accuracy_history(
         self, engine_name: str, engine_version: str, window: RollingWindow, limit: int = 10,
     ) -> List[AccuracyMetrics]:

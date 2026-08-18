@@ -25,7 +25,7 @@ import logging
 import time
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Iterator, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import psycopg2
 import psycopg2.pool
@@ -413,6 +413,42 @@ class LearningRepository:
             raise LearningPersistenceError(f"failed to query accuracy history: {exc}") from exc
         self._log_success("get_accuracy_history", started_at, engine_name=engine_name, row_count=len(rows))
         return [self._row_to_accuracy_metrics(row) for row in rows]
+
+    def get_latest_accuracy_for_windows(
+        self, engine_name: str, engine_version: str, windows: List[RollingWindow],
+    ) -> Dict[RollingWindow, AccuracyMetrics]:
+        """The same answer as calling `get_latest_accuracy` once per
+        window in `windows`, but as a single round trip - callers that
+        need every window for one engine (e.g. a dashboard building an
+        accuracy-by-window snapshot per engine) would otherwise issue
+        one query per window per engine, an O(engines x windows) query
+        count. `DISTINCT ON (window_name)` picks the most recent row
+        per window in one query, identically to `get_accuracy_history(
+        ..., limit=1)` picking the most recent row for a single window."""
+        if not windows:
+            return {}
+        started_at = time.perf_counter()
+        window_values = [window.value for window in windows]
+        try:
+            with self._connection() as conn, conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT DISTINCT ON (window_name) *
+                    FROM learning_accuracy_metrics
+                    WHERE engine_name = %s AND engine_version = %s AND window_name = ANY(%s)
+                    ORDER BY window_name, computed_at DESC
+                    """,
+                    (engine_name, engine_version, window_values),
+                )
+                rows = cur.fetchall()
+        except psycopg2.Error as exc:
+            self._log_error("get_latest_accuracy_for_windows", exc, started_at, engine_name=engine_name)
+            raise LearningPersistenceError(f"failed to query accuracy for windows: {exc}") from exc
+        self._log_success(
+            "get_latest_accuracy_for_windows", started_at, engine_name=engine_name, row_count=len(rows),
+        )
+        metrics = [self._row_to_accuracy_metrics(row) for row in rows]
+        return {m.window: m for m in metrics}
 
     # ── Weight updates ───────────────────────────────────────────────────
 

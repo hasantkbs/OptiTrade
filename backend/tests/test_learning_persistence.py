@@ -117,6 +117,65 @@ def test_get_latest_accuracy_returns_none_when_absent(repository):
     assert repository.get_latest_accuracy("NoSuchEngine", "v1", RollingWindow.SEVEN_DAY) is None
 
 
+def test_get_latest_accuracy_for_windows_matches_individual_lookups(repository):
+    for window, accuracy_value in ((RollingWindow.SEVEN_DAY, 0.5), (RollingWindow.THIRTY_DAY, 0.6), (RollingWindow.LIFETIME, 0.7)):
+        repository.save_accuracy_metrics(AccuracyMetrics(
+            engine_name=_ENGINE, engine_version="v1", window=window, sample_count=10,
+            accuracy=accuracy_value, precision=0.6, recall=0.6, calibration_error=0.1,
+            confidence_reliability=0.9, expected_return_error=1.0, volatility_error=2.0,
+        ))
+
+    by_window = repository.get_latest_accuracy_for_windows(
+        _ENGINE, "v1", [RollingWindow.SEVEN_DAY, RollingWindow.THIRTY_DAY, RollingWindow.NINETY_DAY, RollingWindow.LIFETIME],
+    )
+
+    assert set(by_window.keys()) == {RollingWindow.SEVEN_DAY, RollingWindow.THIRTY_DAY, RollingWindow.LIFETIME}
+    assert by_window[RollingWindow.SEVEN_DAY].accuracy == pytest.approx(0.5)
+    assert by_window[RollingWindow.THIRTY_DAY].accuracy == pytest.approx(0.6)
+    assert by_window[RollingWindow.LIFETIME].accuracy == pytest.approx(0.7)
+    # NINETY_DAY was never saved - matches get_latest_accuracy's own "absent -> not present" semantics.
+    for window in by_window:
+        individual = repository.get_latest_accuracy(_ENGINE, "v1", window)
+        assert individual.accuracy == pytest.approx(by_window[window].accuracy)
+
+
+def test_get_latest_accuracy_for_windows_only_returns_the_most_recent_row_per_window(repository):
+    for accuracy_value in (0.4, 0.5, 0.6):
+        repository.save_accuracy_metrics(AccuracyMetrics(
+            engine_name=_ENGINE, engine_version="v1", window=RollingWindow.LIFETIME, sample_count=10,
+            accuracy=accuracy_value, precision=0.6, recall=0.6, calibration_error=0.1,
+            confidence_reliability=0.9, expected_return_error=1.0, volatility_error=2.0,
+        ))
+    by_window = repository.get_latest_accuracy_for_windows(_ENGINE, "v1", [RollingWindow.LIFETIME])
+    assert by_window[RollingWindow.LIFETIME].accuracy == pytest.approx(0.6)
+
+
+def test_get_latest_accuracy_for_windows_returns_empty_dict_when_absent(repository):
+    assert repository.get_latest_accuracy_for_windows("NoSuchEngine", "v1", list(RollingWindow)) == {}
+
+
+def test_get_latest_accuracy_for_windows_returns_empty_dict_for_empty_window_list(repository):
+    assert repository.get_latest_accuracy_for_windows(_ENGINE, "v1", []) == {}
+
+
+def test_get_latest_accuracy_for_windows_issues_a_single_query_not_one_per_window(repository, monkeypatch):
+    """The whole point of this method: replace an O(windows) query
+    count with O(1) - a dashboard building one engine's accuracy
+    snapshot across every RollingWindow must not open one connection
+    per window."""
+    connection_count = 0
+    real_connection = repository._connection
+
+    def _counting_connection():
+        nonlocal connection_count
+        connection_count += 1
+        return real_connection()
+
+    monkeypatch.setattr(repository, "_connection", _counting_connection)
+    repository.get_latest_accuracy_for_windows(_ENGINE, "v1", list(RollingWindow))
+    assert connection_count == 1
+
+
 def test_accuracy_history_orders_most_recent_first(repository):
     for accuracy_value in (0.5, 0.6, 0.7):
         metrics = AccuracyMetrics(

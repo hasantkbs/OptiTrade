@@ -81,6 +81,40 @@ def _cleanup_learning(learning_repo):
     FeatureStoreService().online_store._client.delete(f"feature_store:{_ENGINE}:engine_accuracy_score")
 
 
+def test_build_fetches_accuracy_in_one_batched_call_per_engine_not_one_per_window(service, learning_repo, monkeypatch):
+    """Production audit MEDIUM #7: `_engine_snapshot` used to call
+    `LearningService.get_accuracy` once per `RollingWindow` per engine
+    (an O(engines x windows) query count). It must now call the
+    batched `get_accuracy_for_windows` exactly once per engine, and
+    never fall back to the old per-window method."""
+    _seed_learning_cycle(learning_repo)
+    try:
+        batched_calls = []
+        per_window_calls = []
+        real_batched = service._learning_service.get_accuracy_for_windows
+        real_per_window = service._learning_service.get_accuracy
+
+        def _spy_batched(engine_name, engine_version, windows):
+            batched_calls.append((engine_name, engine_version))
+            return real_batched(engine_name, engine_version, windows)
+
+        def _spy_per_window(*args, **kwargs):
+            per_window_calls.append((args, kwargs))
+            return real_per_window(*args, **kwargs)
+
+        monkeypatch.setattr(service._learning_service, "get_accuracy_for_windows", _spy_batched)
+        monkeypatch.setattr(service._learning_service, "get_accuracy", _spy_per_window)
+
+        view = service.build()
+
+        engine_count = len(view.engines)
+        assert engine_count > 0
+        assert len(batched_calls) == engine_count
+        assert per_window_calls == []
+    finally:
+        _cleanup_learning(learning_repo)
+
+
 def test_build_returns_engine_snapshots_with_accuracy_and_weight(service, learning_repo):
     _seed_learning_cycle(learning_repo)
     try:

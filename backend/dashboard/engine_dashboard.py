@@ -92,11 +92,9 @@ class EngineDashboardService:
         return view
 
     def _engine_snapshot(self, engine_name: str, engine_version: str) -> EngineAccuracySnapshot:
-        accuracy_by_window = {}
-        for window in RollingWindow:
-            metrics = self._learning_service.get_accuracy(engine_name, engine_version, window)
-            if metrics is not None:
-                accuracy_by_window[window] = metrics
+        accuracy_by_window = self._learning_service.get_accuracy_for_windows(
+            engine_name, engine_version, list(RollingWindow)
+        )
 
         weight_update = self._learning_repository.get_latest_weight_update(engine_name, engine_version)
         drift_signals = self._learning_repository.get_recent_drift_signals(engine_name, engine_version, limit=1)
