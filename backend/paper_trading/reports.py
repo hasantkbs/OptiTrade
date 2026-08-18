@@ -1,30 +1,12 @@
 """OptiTrade Paper Trading & Trade Journal Platform — daily/weekly/monthly/yearly reports."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
+from datetime import datetime, timezone
+from typing import Optional
 
+from core.report_periods import period_bounds as _period_bounds
 from paper_trading.analytics import AnalyticsService, compute_profit_factor
 from paper_trading.models import ClosedTrade, PaperAccount, ReportPeriod, TradeReport
-
-
-def _period_bounds(period: ReportPeriod, reference: datetime) -> Tuple[datetime, datetime]:
-    reference = reference.astimezone(timezone.utc)
-    if period == ReportPeriod.DAILY:
-        start = reference.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=1)
-    elif period == ReportPeriod.WEEKLY:
-        start = (reference - timedelta(days=reference.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=7)
-    elif period == ReportPeriod.MONTHLY:
-        start = reference.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        end = start.replace(year=start.year + 1, month=1) if start.month == 12 else start.replace(month=start.month + 1)
-    elif period == ReportPeriod.YEARLY:
-        start = reference.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        end = start.replace(year=start.year + 1)
-    else:
-        raise ValueError(f"unknown report period {period!r}")
-    return start, end
 
 
 class ReportService:

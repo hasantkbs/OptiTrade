@@ -108,3 +108,12 @@ def test_report_period_boundaries_are_exclusive_of_next_period(repo, report_serv
     assert report.total_trades == 1
     assert report.period_start == datetime(2026, 7, 1, tzinfo=timezone.utc)
     assert report.period_end == datetime(2026, 8, 1, tzinfo=timezone.utc)
+
+
+def test_unknown_period_raises():
+    # production audit MEDIUM #2: paper_trading/reports.py's _period_bounds
+    # now delegates to the shared core.report_periods.period_bounds -
+    # this proves the re-exported alias still raises exactly as before.
+    from paper_trading.reports import _period_bounds
+    with pytest.raises(ValueError):
+        _period_bounds("not-a-period", datetime.now(timezone.utc))
