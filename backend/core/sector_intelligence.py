@@ -21,7 +21,9 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
+
+from core.cache_manager import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -151,8 +153,7 @@ class SectorResult:
 
 
 # Önbellek: sektör bazlı, 15 dakika
-_SECTOR_CACHE: Dict[str, Tuple[float, SectorResult]] = {}
-_SECTOR_CACHE_TTL = 900  # 15 dk
+_SECTOR_CACHE: TTLCache = TTLCache(ttl_seconds=900)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -212,9 +213,9 @@ def analyze_sector(
     Paralel yfinance çağrıları ile ~3-5 saniyede tamamlanır.
     """
     ck = f"{sector_key}:{market}"
-    if use_cache and ck in _SECTOR_CACHE:
-        ts, cached = _SECTOR_CACHE[ck]
-        if time.time() - ts < _SECTOR_CACHE_TTL:
+    if use_cache:
+        cached = _SECTOR_CACHE.get(ck)
+        if cached is not None:
             return cached
 
     defn = SECTOR_DEFINITIONS.get(sector_key)
@@ -242,7 +243,7 @@ def analyze_sector(
                 ))
 
     result = _compute_sector_result(sector_key, defn, market, snapshots)
-    _SECTOR_CACHE[ck] = (time.time(), result)
+    _SECTOR_CACHE.set(ck, result)
     return result
 
 
