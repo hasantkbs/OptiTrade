@@ -8,7 +8,7 @@ from typing import List, Optional
 import pandas as pd
 
 from core.structured_logging import STATUS_SUCCESS, log_event
-from feature_store.service import FeatureStoreService
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 from research_lab.datasets import builder
 from research_lab.datasets.repository import DatasetRepository
 from research_lab.models import DatasetDefinition
@@ -26,7 +26,7 @@ class DatasetService:
         feature_store: Optional[FeatureStoreService] = None,
         repository: Optional[DatasetRepository] = None,
     ) -> None:
-        self.feature_store = feature_store or FeatureStoreService()
+        self.feature_store = feature_store or get_default_feature_store_service()
         self.repository = repository or DatasetRepository()
 
     def define(

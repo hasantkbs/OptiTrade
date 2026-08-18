@@ -29,7 +29,7 @@ from dashboard.models import (
     TrainingRunSnapshot,
 )
 from dashboard.repository import DashboardRepository
-from feature_store.service import FeatureStoreService
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 
 logger = logging.getLogger(__name__)
 _MODULE = "dashboard.model_dashboard"
@@ -47,7 +47,7 @@ class ModelDashboardService:
         config: Optional[DashboardConfig] = None,
     ) -> None:
         self._repository = repository
-        self._feature_store = feature_store or FeatureStoreService()
+        self._feature_store = feature_store or get_default_feature_store_service()
         self._config = config or DashboardConfig.from_env()
 
     def build(self, feature_importance_model_ids: Optional[List[str]] = None) -> MLDashboardView:

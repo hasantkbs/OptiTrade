@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from core.structured_logging import STATUS_SUCCESS, log_event
-from feature_store.service import FeatureStoreService
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 from research_lab.config import ResearchLabConfig
 from research_lab.feature_analysis import correlation, drift, importance, stability
 from research_lab.feature_analysis.repository import FeatureAnalysisRepository
@@ -31,7 +31,7 @@ class FeatureAnalysisService:
         repository: Optional[FeatureAnalysisRepository] = None,
         config: Optional[ResearchLabConfig] = None,
     ) -> None:
-        self.feature_store = feature_store or FeatureStoreService()
+        self.feature_store = feature_store or get_default_feature_store_service()
         self.repository = repository or FeatureAnalysisRepository()
         self.config = config or ResearchLabConfig.from_env()
 

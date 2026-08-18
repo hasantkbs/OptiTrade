@@ -162,7 +162,7 @@ from users.schemas import (
     UpdateProfileRequest,
     UserResponse,
 )
-from feature_store.service import FeatureStoreService
+from feature_store.service import get_default_feature_store_service
 from paper_trading import (
     JournalService,
     PaperTradingRepository,
@@ -421,7 +421,7 @@ async def startup_event() -> None:
     global _paper_trading_repository, _paper_trading_service, _paper_trading_scheduler
     try:
         _paper_trading_repository = PaperTradingRepository()
-        feature_store_service = FeatureStoreService()
+        feature_store_service = get_default_feature_store_service()
         portfolio_sync = PortfolioSyncService(
             _paper_trading_repository, _portfolio_service, watchlist_service=_users_watchlist_bridge,
             watchlist_repository=_users_watchlist_bridge.repository if _users_watchlist_bridge else None,

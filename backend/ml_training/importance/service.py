@@ -22,7 +22,7 @@ import numpy as np
 
 from core.structured_logging import STATUS_SUCCESS, log_event
 from feature_store.models import FeatureValue
-from feature_store.service import FeatureStoreService
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 from ml_training.config import MLTrainingConfig
 from ml_training.importance import permutation_analyzer, shap_analyzer
 from ml_training.models import FeatureImportanceEntry, ImportanceMethod
@@ -40,7 +40,7 @@ class FeatureImportanceService:
         config: Optional[MLTrainingConfig] = None,
     ) -> None:
         self.config = config or MLTrainingConfig.from_env()
-        self.feature_store = feature_store or FeatureStoreService()
+        self.feature_store = feature_store or get_default_feature_store_service()
         self.feature_analysis_service = feature_analysis_service or FeatureAnalysisService(
             feature_store=self.feature_store,
         )

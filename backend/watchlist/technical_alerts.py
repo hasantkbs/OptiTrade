@@ -21,7 +21,7 @@ from engines.technical.config import (
     FEATURE_RSI,
     FEATURE_VOLUME_RATIO,
 )
-from feature_store.service import FeatureStoreService
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 from watchlist.config import WatchlistConfig
 from watchlist.exceptions import InsufficientAlertDataError, InvalidAlertError
 from watchlist.models import Alert, AlertCategory, AlertTriggerEvent, AlertType
@@ -35,7 +35,7 @@ class TechnicalAlertEvaluator:
         self, feature_store: Optional[FeatureStoreService] = None, config: Optional[WatchlistConfig] = None,
     ) -> None:
         self.config = config or WatchlistConfig.from_env()
-        self.feature_store = feature_store or FeatureStoreService()
+        self.feature_store = feature_store or get_default_feature_store_service()
 
     def evaluate(self, alert: Alert) -> Tuple[Optional[AlertTriggerEvent], Dict[str, float]]:
         if alert.category != AlertCategory.TECHNICAL:

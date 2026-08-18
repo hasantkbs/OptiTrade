@@ -24,7 +24,7 @@ from decision_engine.registry import VotingEngineRegistry
 from decision_engine.repository import PostgresExecutionRepository
 from decision_engine.validation import validate_vote
 from decision_engine.weighting import AccuracyWeightProvider
-from feature_store.service import FeatureStoreService
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class DecisionEngine:
         # caller that registers engines onto it after construction.
         self.registry = registry if registry is not None else VotingEngineRegistry()
         self.config = config or DecisionEngineConfig.from_env()
-        self.feature_store = feature_store or FeatureStoreService()
+        self.feature_store = feature_store or get_default_feature_store_service()
         self.execution_repository: ExecutionRepositoryProtocol = (
             execution_repository or PostgresExecutionRepository()
         )

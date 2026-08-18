@@ -33,7 +33,7 @@ from typing import Dict, List, Optional
 
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from decision_engine.interfaces import VotingEngineProtocol
-from feature_store.service import FeatureStoreService
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 from ml_training.models import LabelName, ModelRegistryEntry, PromotionState
 from model_serving.cache import ModelMetadataCache
 from model_serving.config import ModelServingConfig
@@ -69,7 +69,7 @@ class PredictionService:
         )
         self.rollback_service = rollback_service or RollbackService()
         self.health_monitor = health_monitor or HealthMonitor(loader=self.loader, cache=self.cache, config=self.config)
-        self.feature_store = feature_store or FeatureStoreService()
+        self.feature_store = feature_store or get_default_feature_store_service()
 
     # ── Startup ──────────────────────────────────────────────────────────
 

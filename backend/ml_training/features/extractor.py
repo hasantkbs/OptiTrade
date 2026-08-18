@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from core.structured_logging import STATUS_SUCCESS, log_event
-from feature_store.service import FeatureStoreService
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 from ml_training.features import categories
 from ml_training.models import FeatureVector
 
@@ -29,7 +29,7 @@ class FeatureExtractor:
     Never computes a single feature value itself."""
 
     def __init__(self, feature_store: Optional[FeatureStoreService] = None) -> None:
-        self.feature_store = feature_store or FeatureStoreService()
+        self.feature_store = feature_store or get_default_feature_store_service()
 
     def extract(self, symbol: str, as_of: Optional[datetime] = None) -> FeatureVector:
         as_of = as_of or datetime.now(timezone.utc)

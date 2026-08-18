@@ -24,7 +24,7 @@ from typing import List, Optional, Tuple
 from core.structured_logging import STATUS_SUCCESS, log_event
 from decision_engine.config import DecisionEngineConfig
 from feature_store.models import FeatureValue
-from feature_store.service import FeatureStoreService
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 from learning.config import LearningConfig
 from learning.models import EngineOutcomeRecord, WeightingPolicy, WeightUpdate
 from learning.persistence import LearningRepository
@@ -42,7 +42,7 @@ class WeightCalculator:
         config: Optional[LearningConfig] = None,
         decision_engine_config: Optional[DecisionEngineConfig] = None,
     ) -> None:
-        self.feature_store = feature_store or FeatureStoreService()
+        self.feature_store = feature_store or get_default_feature_store_service()
         self.repository = repository or LearningRepository()
         self.config = config or LearningConfig.from_env()
         self._decision_engine_config = decision_engine_config or DecisionEngineConfig.from_env()

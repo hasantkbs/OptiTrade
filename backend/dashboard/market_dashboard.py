@@ -12,7 +12,7 @@ from core.sector_intelligence import get_sector_overview
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from dashboard.config import DashboardConfig
 from dashboard.models import MarketDashboardView, NewsImpactSnapshot, SectorSnapshot
-from feature_store.service import FeatureStoreService
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 
 logger = logging.getLogger(__name__)
 _MODULE = "dashboard.market_dashboard"
@@ -29,7 +29,7 @@ class MarketDashboardService:
         config: Optional[DashboardConfig] = None,
     ) -> None:
         self._regime_scanner = regime_scanner or MarketRegimeScanner()
-        self._feature_store = feature_store or FeatureStoreService()
+        self._feature_store = feature_store or get_default_feature_store_service()
         self._config = config or DashboardConfig.from_env()
 
     def build(self, symbols: Optional[List[str]] = None, market: str = "US") -> MarketDashboardView:
