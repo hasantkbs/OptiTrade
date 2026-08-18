@@ -14,13 +14,12 @@ from __future__ import annotations
 import json
 import logging
 import time
-from contextlib import contextmanager
-from typing import Iterator, List, Optional
+from typing import List, Optional
 
 import psycopg2
-import psycopg2.pool
 from psycopg2.extras import RealDictCursor
 
+from core.postgres_repository_base import PostgresRepositoryBase
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from decision_engine.exceptions import ExecutionPersistenceError
 from decision_engine.models import DecisionOutput
@@ -51,7 +50,7 @@ CREATE INDEX IF NOT EXISTS ix_decision_engine_executions_lookup
 """
 
 
-class PostgresExecutionRepository:
+class PostgresExecutionRepository(PostgresRepositoryBase):
     """Stores and retrieves completed `DecisionOutput`s."""
 
     def __init__(
@@ -60,30 +59,12 @@ class PostgresExecutionRepository:
         minconn: int = 1,
         maxconn: int = 5,
     ) -> None:
-        self._config = config or FeatureStoreConfig.from_env()
-        self._pool = psycopg2.pool.ThreadedConnectionPool(
-            minconn,
-            maxconn,
-            host=self._config.postgres_host,
-            port=self._config.postgres_port,
-            dbname=self._config.postgres_db,
-            user=self._config.postgres_user,
-            password=self._config.postgres_password,
+        super().__init__(
+            schema_statements=[_CREATE_TABLE_SQL, _CREATE_INDEX_SQL],
+            config=config,
+            minconn=minconn,
+            maxconn=maxconn,
         )
-        self._init_schema()
-
-    @contextmanager
-    def _connection(self) -> Iterator["psycopg2.extensions.connection"]:
-        conn = self._pool.getconn()
-        try:
-            yield conn
-        finally:
-            self._pool.putconn(conn)
-
-    def _init_schema(self) -> None:
-        with self._connection() as conn, conn, conn.cursor() as cur:
-            cur.execute(_CREATE_TABLE_SQL)
-            cur.execute(_CREATE_INDEX_SQL)
 
     def save(self, output: DecisionOutput) -> None:
         started_at = time.perf_counter()
@@ -189,12 +170,3 @@ class PostgresExecutionRepository:
             )
             for row in rows
         ]
-
-    def ping(self) -> bool:
-        with self._connection() as conn, conn, conn.cursor() as cur:
-            cur.execute("SELECT 1")
-            cur.fetchone()
-        return True
-
-    def close(self) -> None:
-        self._pool.closeall()

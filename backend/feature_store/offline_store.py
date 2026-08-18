@@ -17,14 +17,13 @@ from __future__ import annotations
 
 import logging
 import time
-from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Iterator, List, Optional
+from typing import List, Optional
 
 import psycopg2
-import psycopg2.pool
 from psycopg2.extras import RealDictCursor
 
+from core.postgres_repository_base import PostgresRepositoryBase
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from feature_store.config import FeatureStoreConfig
 from feature_store.exceptions import FeatureStoreError
@@ -52,7 +51,7 @@ CREATE INDEX IF NOT EXISTS ix_feature_store_lookup
 """
 
 
-class PostgresOfflineStore:
+class PostgresOfflineStore(PostgresRepositoryBase):
     """Offline (durable, versioned, point-in-time-queryable) feature store
     backed by PostgreSQL. Thread-safe: uses a `ThreadedConnectionPool`
     since the application already runs analysis work across a
@@ -64,34 +63,12 @@ class PostgresOfflineStore:
         minconn: int = 1,
         maxconn: int = 5,
     ) -> None:
-        self._config = config or FeatureStoreConfig.from_env()
-        self._pool = psycopg2.pool.ThreadedConnectionPool(
-            minconn,
-            maxconn,
-            host=self._config.postgres_host,
-            port=self._config.postgres_port,
-            dbname=self._config.postgres_db,
-            user=self._config.postgres_user,
-            password=self._config.postgres_password,
+        super().__init__(
+            schema_statements=[_CREATE_TABLE_SQL, _CREATE_INDEX_SQL],
+            config=config,
+            minconn=minconn,
+            maxconn=maxconn,
         )
-        self._init_schema()
-
-    @contextmanager
-    def _connection(self) -> Iterator["psycopg2.extensions.connection"]:
-        """Acquires a pooled connection and always returns it — including
-        when acquisition itself fails (e.g. the pool is closed or
-        exhausted), which is why this wraps `getconn()` too, not just the
-        query that follows it."""
-        conn = self._pool.getconn()
-        try:
-            yield conn
-        finally:
-            self._pool.putconn(conn)
-
-    def _init_schema(self) -> None:
-        with self._connection() as conn, conn, conn.cursor() as cur:
-            cur.execute(_CREATE_TABLE_SQL)
-            cur.execute(_CREATE_INDEX_SQL)
 
     def insert(self, record: FeatureRecord) -> None:
         started_at = time.perf_counter()
@@ -277,13 +254,3 @@ class PostgresOfflineStore:
             row_count=len(rows),
         )
         return [FeatureRecord(**dict(row)) for row in rows]
-
-    def ping(self) -> bool:
-        """Connectivity check used by `FeatureStoreService.health_check()`."""
-        with self._connection() as conn, conn, conn.cursor() as cur:
-            cur.execute("SELECT 1")
-            cur.fetchone()
-        return True
-
-    def close(self) -> None:
-        self._pool.closeall()
