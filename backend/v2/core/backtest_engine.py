@@ -1,3 +1,4 @@
+import asyncio
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
@@ -25,12 +26,15 @@ async def run_v2_backtest_history(symbol: str, days: int = 60) -> List[Dict[str,
         PivotPointsIndicator(weight=1.0)
     ])
 
-    # Fetch 1h data for backtest
-    ticker = yf.Ticker(symbol)
+    # Fetch 1h data for backtest - yfinance does synchronous HTTP under
+    # the hood, so this must be dispatched off the event-loop thread
+    # (asyncio.to_thread), same as v2/api/router.py's own fetches.
     end_date = datetime.now()
     start_date = end_date - timedelta(days=days + 15) # Buffer for indicators
-    
-    data = ticker.history(start=start_date, end=end_date, interval="1h")
+
+    data = await asyncio.to_thread(
+        lambda: yf.Ticker(symbol).history(start=start_date, end=end_date, interval="1h")
+    )
     if data.empty:
         return []
 
