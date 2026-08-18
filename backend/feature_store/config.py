@@ -14,6 +14,8 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from core.infra_config import postgres_settings_from_env, redis_settings_from_env
+
 
 @dataclass(frozen=True)
 class FeatureStoreConfig:
@@ -37,15 +39,20 @@ class FeatureStoreConfig:
         # engines), so it loads backend/.env itself too. Idempotent and
         # harmless if the environment is already populated.
         load_dotenv()
+        postgres_host, postgres_port, postgres_db, postgres_user, postgres_password = postgres_settings_from_env()
+        # "FEATURE_STORE" as its own prefix here just reduces to reading
+        # FEATURE_STORE_REDIS_* directly - this package IS the shared
+        # Redis settings' source, so there's no separate override tier.
+        redis_host, redis_port, redis_db = redis_settings_from_env("FEATURE_STORE")
         return cls(
-            postgres_host=os.getenv("FEATURE_STORE_POSTGRES_HOST", "localhost"),
-            postgres_port=int(os.getenv("FEATURE_STORE_POSTGRES_PORT", "5432")),
-            postgres_db=os.getenv("FEATURE_STORE_POSTGRES_DB", "optitrade"),
-            postgres_user=os.getenv("FEATURE_STORE_POSTGRES_USER", "optitrade_user"),
-            postgres_password=os.getenv("FEATURE_STORE_POSTGRES_PASSWORD", ""),
-            redis_host=os.getenv("FEATURE_STORE_REDIS_HOST", "localhost"),
-            redis_port=int(os.getenv("FEATURE_STORE_REDIS_PORT", "6379")),
-            redis_db=int(os.getenv("FEATURE_STORE_REDIS_DB", "0")),
+            postgres_host=postgres_host,
+            postgres_port=postgres_port,
+            postgres_db=postgres_db,
+            postgres_user=postgres_user,
+            postgres_password=postgres_password,
+            redis_host=redis_host,
+            redis_port=redis_port,
+            redis_db=redis_db,
             online_ttl_seconds=int(
                 os.getenv("FEATURE_STORE_ONLINE_TTL_SECONDS", str(15 * 60))
             ),

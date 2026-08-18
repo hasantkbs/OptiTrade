@@ -70,6 +70,35 @@ def test_verify_password_rejects_malformed_hash():
     assert not verify_password("anything", "not-a-valid-hash")
 
 
+def test_new_password_hashes_use_the_hardened_default_iteration_count():
+    """Production audit LOW batch: PBKDF2 iterations raised from
+    260,000 to 600,000 (OWASP's current minimum for PBKDF2-HMAC-SHA256)
+    for newly-hashed passwords."""
+    hashed = hash_password("MyPassw0rd")
+    _, iterations, _, _ = hashed.split("$")
+    assert int(iterations) == 600_000
+    assert UsersConfig().pbkdf2_iterations == 600_000
+
+
+def test_an_old_lower_iteration_hash_still_verifies():
+    """Backward compatibility: verify_password reads the iteration
+    count embedded in the hash string itself, so a password hashed
+    under the OLD (260,000) default before this change must keep
+    authenticating existing users without a forced rehash/migration."""
+    old_config = UsersConfig(pbkdf2_iterations=260_000)
+    old_hash = hash_password("MyPassw0rd", old_config)
+    assert "$260000$" in old_hash
+    assert verify_password("MyPassw0rd", old_hash)
+    assert not verify_password("WrongPassword1", old_hash)
+
+
+def test_hash_password_respects_a_custom_iteration_count():
+    custom_config = UsersConfig(pbkdf2_iterations=100_000)
+    hashed = hash_password("MyPassw0rd", custom_config)
+    assert "$100000$" in hashed
+    assert verify_password("MyPassw0rd", hashed)
+
+
 # ── Opaque tokens ────────────────────────────────────────────────────────
 
 def test_generate_opaque_token_is_unique():

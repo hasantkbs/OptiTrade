@@ -16,6 +16,7 @@ from typing import Dict, Optional
 
 import redis
 
+from core.infra_config import redis_socket_timeout_seconds
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from dashboard.config import DashboardConfig
 from dashboard.engine_dashboard import EngineDashboardService
@@ -45,9 +46,10 @@ class DashboardScheduler:
         self._market_dashboard_service = market_dashboard_service
         self._engine_dashboard_service = engine_dashboard_service
         self._config = config or DashboardConfig.from_env()
+        timeout = redis_socket_timeout_seconds()
         self._client = redis_client or redis.Redis(
             host=self._config.redis_host, port=self._config.redis_port, db=self._config.redis_db,
-            decode_responses=True,
+            decode_responses=True, socket_timeout=timeout, socket_connect_timeout=timeout,
         )
 
     def refresh_overview_cache(self) -> OverviewMetrics:

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from core.infra_config import postgres_settings_from_env, redis_settings_from_env
+
 
 @dataclass(frozen=True)
 class DashboardConfig:
@@ -37,16 +39,18 @@ class DashboardConfig:
     @classmethod
     def from_env(cls) -> "DashboardConfig":
         load_dotenv()
+        redis_host, redis_port, redis_db = redis_settings_from_env("DASHBOARD")
+        postgres_host, postgres_port, postgres_db, postgres_user, postgres_password = postgres_settings_from_env()
         return cls(
-            redis_host=os.getenv("DASHBOARD_REDIS_HOST", os.getenv("FEATURE_STORE_REDIS_HOST", "localhost")),
-            redis_port=int(os.getenv("DASHBOARD_REDIS_PORT", os.getenv("FEATURE_STORE_REDIS_PORT", "6379"))),
-            redis_db=int(os.getenv("DASHBOARD_REDIS_DB", os.getenv("FEATURE_STORE_REDIS_DB", "0"))),
+            redis_host=redis_host,
+            redis_port=redis_port,
+            redis_db=redis_db,
             overview_cache_ttl_seconds=int(os.getenv("DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS", "30")),
             dashboard_cache_ttl_seconds=int(os.getenv("DASHBOARD_CACHE_TTL_SECONDS", "30")),
-            postgres_host=os.getenv("FEATURE_STORE_POSTGRES_HOST", "localhost"),
-            postgres_port=int(os.getenv("FEATURE_STORE_POSTGRES_PORT", "5432")),
-            postgres_db=os.getenv("FEATURE_STORE_POSTGRES_DB", "optitrade"),
-            postgres_user=os.getenv("FEATURE_STORE_POSTGRES_USER", "optitrade_user"),
-            postgres_password=os.getenv("FEATURE_STORE_POSTGRES_PASSWORD", ""),
+            postgres_host=postgres_host,
+            postgres_port=postgres_port,
+            postgres_db=postgres_db,
+            postgres_user=postgres_user,
+            postgres_password=postgres_password,
             recent_history_limit=int(os.getenv("DASHBOARD_RECENT_HISTORY_LIMIT", "50")),
         )

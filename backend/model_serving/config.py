@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from core.infra_config import redis_settings_from_env
+
 
 @dataclass(frozen=True)
 class ModelServingConfig:
@@ -36,10 +38,11 @@ class ModelServingConfig:
     @classmethod
     def from_env(cls) -> "ModelServingConfig":
         load_dotenv()
+        redis_host, redis_port, redis_db = redis_settings_from_env("MODEL_SERVING")
         return cls(
-            redis_host=os.getenv("MODEL_SERVING_REDIS_HOST", os.getenv("FEATURE_STORE_REDIS_HOST", "localhost")),
-            redis_port=int(os.getenv("MODEL_SERVING_REDIS_PORT", os.getenv("FEATURE_STORE_REDIS_PORT", "6379"))),
-            redis_db=int(os.getenv("MODEL_SERVING_REDIS_DB", os.getenv("FEATURE_STORE_REDIS_DB", "0"))),
+            redis_host=redis_host,
+            redis_port=redis_port,
+            redis_db=redis_db,
             cache_ttl_seconds=int(os.getenv("MODEL_SERVING_CACHE_TTL_SECONDS", "30")),
             reload_check_interval_seconds=float(os.getenv("MODEL_SERVING_RELOAD_CHECK_INTERVAL_SECONDS", "5.0")),
             max_parallel_workers=int(os.getenv("MODEL_SERVING_MAX_PARALLEL_WORKERS", "8")),

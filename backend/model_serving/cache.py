@@ -28,6 +28,7 @@ from typing import List, Optional, Tuple
 
 import redis
 
+from core.infra_config import redis_socket_timeout_seconds
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from ml_training.models import LabelName, ModelRegistryEntry
 from model_serving.config import ModelServingConfig
@@ -49,9 +50,11 @@ class ModelMetadataCache:
         client: Optional["redis.Redis"] = None,
     ) -> None:
         self.config = config or ModelServingConfig.from_env()
+        timeout = redis_socket_timeout_seconds()
         self._client = client or redis.Redis(
             host=self.config.redis_host, port=self.config.redis_port,
             db=self.config.redis_db, decode_responses=True,
+            socket_timeout=timeout, socket_connect_timeout=timeout,
         )
 
     def get_active_entry(self, label_name: LabelName, horizon_days: int) -> Optional[ModelRegistryEntry]:

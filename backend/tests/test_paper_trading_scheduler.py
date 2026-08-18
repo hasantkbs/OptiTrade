@@ -91,6 +91,32 @@ def test_scan_pending_orders_triggers_limit_buy(repo, sync, order_service):
     assert fills[0].symbol == "BTC-USD"
 
 
+def test_scan_pending_orders_fills_a_triggered_limit_order_at_the_market_price_not_the_limit_price(
+    repo, sync, order_service,
+):
+    """Production audit LOW batch finding #3 ("can a client-supplied
+    price override the simulated execution model?"): confirmed NOT a
+    bug, but was previously unverified by an explicit assertion - every
+    existing trigger test checked only that a fill happened, never
+    what price it filled at. A BUY LIMIT at 100.0 with the real market
+    at 90.0 must fill near 90.0 (market price + simulated slippage/
+    spread), never at or near the client's 100.0 limit_price - the
+    limit_price is only ever a trigger threshold (see
+    ExecutionEngine.is_triggered), never the execution price itself
+    (see ExecutionEngine.simulate_execution_price)."""
+    account = _account(sync, 20)
+    order_service.create_order(account.id, "BTC-USD", OrderSide.BUY, OrderType.LIMIT, 0.1, limit_price=100.0)
+    scheduler = PaperTradingScheduler(repo, sync, price_service=_FakePriceService({"BTC-USD": 90.0}))
+    fills = scheduler.scan_pending_orders()
+
+    assert len(fills) == 1
+    fill_price = fills[0].price
+    # Default slippage_bps=5.0 + spread_bps/2=5.0 = 10bps adverse move
+    # against the trader on a BUY: 90.0 * 1.001 = 90.09.
+    assert fill_price == pytest.approx(90.09, abs=0.5)
+    assert fill_price < 95.0  # nowhere near the 100.0 client-supplied limit_price
+
+
 def test_scan_pending_orders_does_not_trigger_when_condition_not_met(repo, sync, order_service):
     account = _account(sync, 3)
     order_service.create_order(account.id, "BTC-USD", OrderSide.BUY, OrderType.LIMIT, 0.1, limit_price=100.0)

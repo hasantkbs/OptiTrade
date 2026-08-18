@@ -474,15 +474,32 @@ def get_ml_performance(days: int = 30) -> Dict[str, Any]:
     return get_performance_stats(days=days)
 
 # ── Symbol Lists ───────────────────────────────────────────────────────────────
-BIST_SYMBOLS = [
+_DEFAULT_BIST_SYMBOLS = [
     "THYAO.IS", "GARAN.IS", "ASELS.IS", "KCHOL.IS", "SISE.IS",
     "EREGL.IS", "BIMAS.IS", "AKBNK.IS", "YKBNK.IS", "TUPRS.IS",
     "TOASO.IS", "FROTO.IS", "SAHOL.IS", "PGSUS.IS", "TAVHL.IS",
 ]
-CRYPTO_SYMBOLS = [
+_DEFAULT_CRYPTO_SYMBOLS = [
     "BTC-USD", "ETH-USD", "BNB-USD", "SOL-USD", "AVAX-USD",
     "XRP-USD", "ADA-USD", "DOT-USD", "LINK-USD", "DOGE-USD",
 ]
+
+
+def _symbols_from_env(env_var: str, default: List[str]) -> List[str]:
+    """`env_var` as a comma-separated symbol list, falling back to
+    `default` exactly (no env var set, or set empty) - matches this
+    file's own existing `ALLOWED_ORIGINS` convention. Public-symbol
+    coverage (/scan/bist, /scan/crypto, /symbols/bist, /symbols/crypto)
+    is operator-configurable without a code change, with today's
+    hardcoded lists preserved as the default."""
+    raw = os.getenv(env_var, "")
+    if not raw.strip():
+        return default
+    return [s.strip().upper() for s in raw.split(",") if s.strip()]
+
+
+BIST_SYMBOLS = _symbols_from_env("BIST_SYMBOLS", _DEFAULT_BIST_SYMBOLS)
+CRYPTO_SYMBOLS = _symbols_from_env("CRYPTO_SYMBOLS", _DEFAULT_CRYPTO_SYMBOLS)
 BUY_CODES  = {"STRONG_BUY", "BUY"}
 SELL_CODES = {"STRONG_SELL", "SELL"}
 

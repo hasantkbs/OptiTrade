@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from core.infra_config import redis_settings_from_env
+
 
 @dataclass(frozen=True)
 class WatchlistConfig:
@@ -55,10 +57,11 @@ class WatchlistConfig:
     @classmethod
     def from_env(cls) -> "WatchlistConfig":
         load_dotenv()
+        redis_host, redis_port, redis_db = redis_settings_from_env("WATCHLIST")
         return cls(
-            redis_host=os.getenv("WATCHLIST_REDIS_HOST", os.getenv("FEATURE_STORE_REDIS_HOST", "localhost")),
-            redis_port=int(os.getenv("WATCHLIST_REDIS_PORT", os.getenv("FEATURE_STORE_REDIS_PORT", "6379"))),
-            redis_db=int(os.getenv("WATCHLIST_REDIS_DB", os.getenv("FEATURE_STORE_REDIS_DB", "0"))),
+            redis_host=redis_host,
+            redis_port=redis_port,
+            redis_db=redis_db,
             rsi_overbought=float(os.getenv("WATCHLIST_RSI_OVERBOUGHT", "70.0")),
             rsi_oversold=float(os.getenv("WATCHLIST_RSI_OVERSOLD", "30.0")),
             bollinger_upper_percent_b=float(os.getenv("WATCHLIST_BOLLINGER_UPPER_PERCENT_B", "1.0")),

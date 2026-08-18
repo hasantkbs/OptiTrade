@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 
+from core.infra_config import redis_settings_from_env
+
 logger = logging.getLogger(__name__)
 
 # A hardcoded, publicly-known JWT secret (this file is committed to
@@ -47,7 +49,12 @@ class UsersConfig:
     refresh_token_expires_seconds: int = 30 * 24 * 60 * 60
     password_reset_token_expires_seconds: int = 60 * 60
     invitation_expires_seconds: int = 7 * 24 * 60 * 60
-    pbkdf2_iterations: int = 260_000
+    # OWASP Password Storage Cheat Sheet's current (2023) minimum for
+    # PBKDF2-HMAC-SHA256; verify_password reads the iteration count
+    # from the hash string itself, so raising this default only affects
+    # NEWLY hashed passwords - every existing hash (created under the
+    # old, lower default) keeps verifying exactly as before.
+    pbkdf2_iterations: int = 600_000
 
     # Redis session cache
     redis_host: str = "localhost"
@@ -65,6 +72,7 @@ class UsersConfig:
     @classmethod
     def from_env(cls) -> "UsersConfig":
         load_dotenv()
+        redis_host, redis_port, redis_db = redis_settings_from_env("USERS")
         return cls(
             jwt_secret=os.getenv("USERS_JWT_SECRET") or _get_or_generate_ephemeral_jwt_secret(),
             jwt_algorithm=os.getenv("USERS_JWT_ALGORITHM", "HS256"),
@@ -76,10 +84,10 @@ class UsersConfig:
                 os.getenv("USERS_PASSWORD_RESET_TOKEN_EXPIRES_SECONDS", str(60 * 60))
             ),
             invitation_expires_seconds=int(os.getenv("USERS_INVITATION_EXPIRES_SECONDS", str(7 * 24 * 60 * 60))),
-            pbkdf2_iterations=int(os.getenv("USERS_PBKDF2_ITERATIONS", "260000")),
-            redis_host=os.getenv("USERS_REDIS_HOST", os.getenv("FEATURE_STORE_REDIS_HOST", "localhost")),
-            redis_port=int(os.getenv("USERS_REDIS_PORT", os.getenv("FEATURE_STORE_REDIS_PORT", "6379"))),
-            redis_db=int(os.getenv("USERS_REDIS_DB", os.getenv("FEATURE_STORE_REDIS_DB", "0"))),
+            pbkdf2_iterations=int(os.getenv("USERS_PBKDF2_ITERATIONS", "600000")),
+            redis_host=redis_host,
+            redis_port=redis_port,
+            redis_db=redis_db,
             session_cache_ttl_seconds=int(os.getenv("USERS_SESSION_CACHE_TTL_SECONDS", "300")),
             default_max_members=int(os.getenv("USERS_DEFAULT_MAX_MEMBERS", "10")),
             default_max_teams=int(os.getenv("USERS_DEFAULT_MAX_TEAMS", "5")),

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from core.infra_config import redis_settings_from_env
+
 
 @dataclass(frozen=True)
 class PortfolioConfig:
@@ -42,6 +44,7 @@ class PortfolioConfig:
     @classmethod
     def from_env(cls) -> "PortfolioConfig":
         load_dotenv()
+        redis_host, redis_port, redis_db = redis_settings_from_env("PORTFOLIO")
         return cls(
             default_base_currency=os.getenv("PORTFOLIO_DEFAULT_BASE_CURRENCY", "USD"),
             benchmark_symbol=os.getenv("PORTFOLIO_BENCHMARK_SYMBOL", "^GSPC"),
@@ -49,9 +52,9 @@ class PortfolioConfig:
             var_confidence_level=float(os.getenv("PORTFOLIO_VAR_CONFIDENCE_LEVEL", "0.95")),
             lookback_days=int(os.getenv("PORTFOLIO_LOOKBACK_DAYS", "252")),
             trading_days_per_year=int(os.getenv("PORTFOLIO_TRADING_DAYS_PER_YEAR", "252")),
-            redis_host=os.getenv("PORTFOLIO_REDIS_HOST", os.getenv("FEATURE_STORE_REDIS_HOST", "localhost")),
-            redis_port=int(os.getenv("PORTFOLIO_REDIS_PORT", os.getenv("FEATURE_STORE_REDIS_PORT", "6379"))),
-            redis_db=int(os.getenv("PORTFOLIO_REDIS_DB", os.getenv("FEATURE_STORE_REDIS_DB", "0"))),
+            redis_host=redis_host,
+            redis_port=redis_port,
+            redis_db=redis_db,
             price_cache_ttl_seconds=int(os.getenv("PORTFOLIO_PRICE_CACHE_TTL_SECONDS", "60")),
             default_rebalance_threshold_pct=float(os.getenv("PORTFOLIO_DEFAULT_REBALANCE_THRESHOLD_PCT", "5.0")),
             default_rebalance_interval_days=int(os.getenv("PORTFOLIO_DEFAULT_REBALANCE_INTERVAL_DAYS", "30")),

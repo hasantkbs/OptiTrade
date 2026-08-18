@@ -16,6 +16,7 @@ from typing import Optional
 
 import redis
 
+from core.infra_config import redis_socket_timeout_seconds
 from core.structured_logging import STATUS_ERROR, log_event
 from users.config import UsersConfig
 from users.models import Session
@@ -40,9 +41,11 @@ class SessionService:
     ) -> None:
         self._repository = repository
         self._config = config or UsersConfig.from_env()
+        timeout = redis_socket_timeout_seconds()
         self._client = client or redis.Redis(
             host=self._config.redis_host, port=self._config.redis_port,
             db=self._config.redis_db, decode_responses=True,
+            socket_timeout=timeout, socket_connect_timeout=timeout,
         )
 
     def get_active_session(self, refresh_token: str) -> Optional[Session]:

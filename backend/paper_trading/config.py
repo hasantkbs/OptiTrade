@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
+from core.infra_config import postgres_settings_from_env, redis_settings_from_env
+
 
 @dataclass(frozen=True)
 class PaperTradingConfig:
@@ -43,6 +45,8 @@ class PaperTradingConfig:
     @classmethod
     def from_env(cls) -> "PaperTradingConfig":
         load_dotenv()
+        redis_host, redis_port, redis_db = redis_settings_from_env("PAPER_TRADING")
+        postgres_host, postgres_port, postgres_db, postgres_user, postgres_password = postgres_settings_from_env()
         return cls(
             slippage_bps=float(os.getenv("PAPER_TRADING_SLIPPAGE_BPS", "5.0")),
             spread_bps=float(os.getenv("PAPER_TRADING_SPREAD_BPS", "10.0")),
@@ -54,14 +58,14 @@ class PaperTradingConfig:
             market_timezone=os.getenv("PAPER_TRADING_MARKET_TIMEZONE", "Europe/Istanbul"),
             market_open_hour=int(os.getenv("PAPER_TRADING_MARKET_OPEN_HOUR", "10")),
             market_close_hour=int(os.getenv("PAPER_TRADING_MARKET_CLOSE_HOUR", "18")),
-            redis_host=os.getenv("PAPER_TRADING_REDIS_HOST", os.getenv("FEATURE_STORE_REDIS_HOST", "localhost")),
-            redis_port=int(os.getenv("PAPER_TRADING_REDIS_PORT", os.getenv("FEATURE_STORE_REDIS_PORT", "6379"))),
-            redis_db=int(os.getenv("PAPER_TRADING_REDIS_DB", os.getenv("FEATURE_STORE_REDIS_DB", "0"))),
+            redis_host=redis_host,
+            redis_port=redis_port,
+            redis_db=redis_db,
             position_cache_ttl_seconds=int(os.getenv("PAPER_TRADING_POSITION_CACHE_TTL_SECONDS", "15")),
             analytics_cache_ttl_seconds=int(os.getenv("PAPER_TRADING_ANALYTICS_CACHE_TTL_SECONDS", "60")),
-            postgres_host=os.getenv("FEATURE_STORE_POSTGRES_HOST", "localhost"),
-            postgres_port=int(os.getenv("FEATURE_STORE_POSTGRES_PORT", "5432")),
-            postgres_db=os.getenv("FEATURE_STORE_POSTGRES_DB", "optitrade"),
-            postgres_user=os.getenv("FEATURE_STORE_POSTGRES_USER", "optitrade_user"),
-            postgres_password=os.getenv("FEATURE_STORE_POSTGRES_PASSWORD", ""),
+            postgres_host=postgres_host,
+            postgres_port=postgres_port,
+            postgres_db=postgres_db,
+            postgres_user=postgres_user,
+            postgres_password=postgres_password,
         )

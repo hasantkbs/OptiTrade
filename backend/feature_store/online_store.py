@@ -25,6 +25,7 @@ from typing import Optional
 
 import redis
 
+from core.infra_config import redis_socket_timeout_seconds
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from feature_store.config import FeatureStoreConfig
 from feature_store.models import FeatureRecord
@@ -47,11 +48,14 @@ class RedisOnlineStore:
         client: Optional["redis.Redis"] = None,
     ) -> None:
         self._config = config or FeatureStoreConfig.from_env()
+        timeout = redis_socket_timeout_seconds()
         self._client = client or redis.Redis(
             host=self._config.redis_host,
             port=self._config.redis_port,
             db=self._config.redis_db,
             decode_responses=True,
+            socket_timeout=timeout,
+            socket_connect_timeout=timeout,
         )
 
     def get_latest(self, symbol: str, feature_name: str) -> Optional[FeatureRecord]:
