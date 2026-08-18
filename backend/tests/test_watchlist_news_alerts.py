@@ -148,6 +148,33 @@ def test_sector_check_ignores_symbols_with_no_articles(redis_client):
     assert state["sector_impact"] == pytest.approx(0.9)
 
 
+def test_sector_check_skips_a_symbol_whose_analysis_fails_and_logs_it(redis_client, caplog):
+    """Production audit MEDIUM #9: a per-symbol News Engine failure
+    inside `_sector_check` used to be a bare `except Exception:
+    continue` with zero logging - indistinguishable from "checked and
+    found nothing," and a whole-sector outage would silently report
+    sector_impact=0.0 with no way to diagnose it. GARAN.IS is
+    intentionally left out of the fake engine's configured analyses so
+    `.analyze()` raises for it, exactly like a real News Engine
+    failure would."""
+    engine = _FakeNewsEngine({
+        "AKBNK.IS": _analysis("AKBNK.IS", impact=0.9, article_count=3),
+    })
+    evaluator = _evaluator(redis_client, engine, sector_symbols_provider=lambda sector: ["GARAN.IS", "AKBNK.IS"])
+
+    import logging
+    with caplog.at_level(logging.WARNING, logger="watchlist.news_alerts"):
+        event, state = evaluator.evaluate(
+            _alert(AlertType.NEWS_SECTOR, symbol="GARAN.IS", parameters={"threshold": 0.5}),
+        )
+
+    # The failing symbol is excluded, not fatal - the sector average is
+    # computed from whatever symbols DID succeed.
+    assert event is not None
+    assert state["sector_impact"] == pytest.approx(0.9)
+    assert any("GARAN.IS" in record.message for record in caplog.records)
+
+
 def test_sector_check_raises_for_an_unknown_sector(redis_client):
     evaluator = _evaluator(redis_client, _FakeNewsEngine({}), sector_symbols_provider=lambda sector: [])
     with pytest.raises(InsufficientAlertDataError):

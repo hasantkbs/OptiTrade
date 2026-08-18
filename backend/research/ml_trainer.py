@@ -22,6 +22,7 @@ from typing import List, Tuple, Optional
 import logging
 
 logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
 
 from core.indicators import (
     calculate_rsi,
@@ -104,8 +105,18 @@ def extract_features(window: pd.DataFrame) -> Optional[List[float]]:
 
 
 def build_dataset(symbol: str) -> Tuple[np.ndarray, np.ndarray]:
-    ticker = yf.Ticker(symbol)
-    hist = ticker.history(period="2y")
+    """Never raises - a single symbol's `yfinance` fetch failing (rate
+    limit, delisted ticker, network hiccup) must not abort a
+    multi-symbol training run any more than "insufficient history"
+    does (the pre-existing `len(hist) < ...` skip below). The failure
+    is still logged, not silently discarded, so a systemic fetch
+    problem (e.g. every symbol failing) remains visible."""
+    try:
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(period="2y")
+    except Exception as exc:
+        logger.warning(f"{symbol} için veri çekilemedi, atlanıyor: {exc}")
+        return np.array([]), np.array([])
     if hist is None or len(hist) < LOOKBACK + FORWARD_DAYS + 10:
         return np.array([]), np.array([])
 

@@ -29,6 +29,25 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
+def _try_load_base_model():
+    """Sürekli eğitim için: mevcut bir model varsa onu yükler (transfer
+    learning için baz alınır). Model dosyası bozuksa/uyumsuzsa
+    None döner - eğitim sıfırdan başlar - ama bu, sessizce
+    yutulmaz: bir uyarı loglanır, aksi halde bozuk bir model
+    dosyası hiçbir iz bırakmadan fark edilmeden es geçilirdi."""
+    from ml.chart_model import is_model_available, MODEL_PATH
+    if not is_model_available():
+        return None
+    try:
+        from tensorflow import keras
+        model = keras.models.load_model(MODEL_PATH)
+        logger.info("Mevcut model bulundu, incremental eğitim yapılacak.")
+        return model
+    except Exception as exc:
+        logger.warning(f"Mevcut model yüklenemedi, sıfırdan eğitilecek: {exc}")
+        return None
+
+
 def train(
     symbol: str = "BTC-USD",
     epochs: int = 50,
@@ -68,16 +87,9 @@ def train(
     ]
     
     all_X, all_y = [], []
-    
+
     # Sürekli eğitim için: Eğer mevcut bir model varsa onu yükle ve üzerine eğit (Transfer Learning)
-    from ml.chart_model import is_model_available, MODEL_PATH
-    base_model = None
-    if is_model_available():
-        try:
-            from tensorflow import keras
-            base_model = keras.models.load_model(MODEL_PATH)
-            logger.info("Mevcut model bulundu, incremental eğitim yapılacak.")
-        except: pass
+    base_model = _try_load_base_model()
 
     for sym in SYMBOLS:
         # ... (sembol işleme mantığı - önceki adımla aynı)

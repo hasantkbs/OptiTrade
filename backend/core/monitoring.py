@@ -63,36 +63,46 @@ def log_prediction(symbol: str, score: int, decision_code: str, price: float, wi
         logger.error(f"Tahmin kaydedilirken hata oluştu: {e}")
 
 def validate_predictions():
-    """Vadesi dolmuş tahminleri kontrol eder ve sonuçları günceller."""
+    """Vadesi dolmuş tahminleri kontrol eder ve sonuçları günceller.
+
+    Her tahmin için fiyat, ayrı bir yfinance ağ çağrısıyla çekilir - bu
+    yüzden tek bir sembol geçici olarak başarısız olsa bile (rate limit,
+    ağ hatası, vs.) döngünün geri kalanı etkilenmemeli ve o ana kadar
+    doğrulanmış satırlar kaybedilmemelidir. connection ise her durumda
+    (başarı veya hata) kapatılır."""
+    conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
+
         # Vadesi dolmuş ve henüz doğrulanmamış tahminleri al
         now = datetime.now().isoformat()
         cursor.execute("""
-            SELECT id, symbol, price_at_prediction, decision_code, prediction_window_days 
-            FROM predictions 
+            SELECT id, symbol, price_at_prediction, decision_code, prediction_window_days
+            FROM predictions
             WHERE target_date <= ? AND is_correct IS NULL
         """, (now,))
-        
+
         matured = cursor.fetchall()
         if not matured:
-            conn.close()
             return 0
 
         validated_count = 0
         for p_id, symbol, price_at_pred, code, window in matured:
-            # Güncel fiyatı çek (veya o tarihteki fiyatı)
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="1d")
-            if hist.empty:
+            try:
+                # Güncel fiyatı çek (veya o tarihteki fiyatı)
+                ticker = yf.Ticker(symbol)
+                hist = ticker.history(period="1d")
+                if hist.empty:
+                    continue
+            except Exception as e:
+                logger.warning(f"{symbol} (id={p_id}) için fiyat çekilemedi, atlanıyor: {e}")
                 continue
-            
+
             actual_price = float(hist["Close"].iloc[-1])
             return_pct = (actual_price - price_at_pred) / price_at_pred * 100
-            
-            # Başarı kriteri: 
+
+            # Başarı kriteri:
             # STRONG_BUY/BUY ise return > +1%
             # STRONG_SELL/SELL ise return < -1%
             # NEUTRAL ise return [-1%, +1%] arası
@@ -103,20 +113,22 @@ def validate_predictions():
                 is_correct = 1
             elif code == "NEUTRAL" and -1.0 <= return_pct <= 1.0:
                 is_correct = 1
-                
+
             cursor.execute("""
-                UPDATE predictions 
-                SET actual_price = ?, is_correct = ? 
+                UPDATE predictions
+                SET actual_price = ?, is_correct = ?
                 WHERE id = ?
             """, (actual_price, is_correct, p_id))
             validated_count += 1
-            
+
         conn.commit()
-        conn.close()
         return validated_count
     except Exception as e:
         logger.error(f"Tahminler doğrulanırken hata oluştu: {e}")
         return 0
+    finally:
+        if conn is not None:
+            conn.close()
 
 def get_performance_stats(days: int = 7) -> Dict:
     """Belirli bir gün sayısı için performans metriklerini döner."""

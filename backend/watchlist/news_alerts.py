@@ -151,7 +151,17 @@ class NewsAlertEvaluator:
         for symbol in symbols:
             try:
                 analysis = self._analyze(symbol)
-            except Exception:
+            except Exception as exc:
+                # Not logged before - a single symbol's News Engine
+                # failure was indistinguishable from "checked and
+                # found nothing", and a sector-wide outage (every
+                # symbol failing) was silently reported as
+                # sector_impact=0.0 with zero observability.
+                log_event(
+                    logger, component="watchlist", module="watchlist.news_alerts", operation="sector_check_analyze",
+                    status=STATUS_ERROR, symbol=symbol, sector=sector, error_type=type(exc).__name__,
+                    level=logging.WARNING,
+                )
                 continue
             if analysis.article_count > 0:
                 impacts.append(analysis.impact)
