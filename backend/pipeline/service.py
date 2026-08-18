@@ -46,7 +46,7 @@ import engines.technical  # noqa: F401
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from decision_engine.interfaces import VotingEngineProtocol
 from engine_registry.registry import EngineRegistry, default_registry
-from feature_store.service import FeatureStoreService
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 from model_serving.service import PredictionService
 from pipeline.config import PipelineConfig
 from pipeline.models import PipelineResponse
@@ -68,7 +68,7 @@ class PipelineService:
         config: Optional[PipelineConfig] = None,
     ) -> None:
         self.config = config or PipelineConfig.from_env()
-        self.feature_store = feature_store or FeatureStoreService()
+        self.feature_store = feature_store or get_default_feature_store_service()
         self.engine_registry = engine_registry or default_registry
         self.model_serving = model_serving or PredictionService()
         self.model_serving.warm_up()

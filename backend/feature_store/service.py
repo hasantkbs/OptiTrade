@@ -22,6 +22,7 @@ holds historical data.
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -186,3 +187,35 @@ class FeatureStoreService:
             offline_store_available=offline_ok,
         )
         return {"online_store_available": online_ok, "offline_store_available": offline_ok}
+
+
+_default_service: Optional["FeatureStoreService"] = None
+_default_service_lock = threading.Lock()
+
+
+def get_default_feature_store_service() -> "FeatureStoreService":
+    """The process-wide shared `FeatureStoreService` - one Redis client,
+    one Postgres connection pool - used as the fallback by every
+    caller that doesn't explicitly inject its own (Technical/
+    Fundamental/News Engine feature adapters, `PipelineService`, ...).
+
+    Before this, each of those independently did `feature_store or
+    FeatureStoreService()`, so a real process ended up with as many
+    separate Redis clients and Postgres `ThreadedConnectionPool`s as
+    there were un-injected consumers - all pointed at the exact same
+    Redis/Postgres instance for no benefit. Callers that explicitly
+    pass their own `feature_store=...` (as most tests already do) are
+    completely unaffected - this is purely the default-construction
+    fallback, resolved lazily (not at import time) so importing this
+    module never opens a connection by itself.
+
+    Thread-safe, double-checked-locking initialization - matches the
+    lazy-construction convention already used for engine feature
+    adapters ("constructed lazily... so merely importing/registering
+    the engine never opens a database connection")."""
+    global _default_service
+    if _default_service is None:
+        with _default_service_lock:
+            if _default_service is None:
+                _default_service = FeatureStoreService()
+    return _default_service

@@ -30,7 +30,7 @@ from engines.news.config import (
 )
 from engines.news.models import AggregatedNewsSignal
 from feature_store.models import FeatureValue
-from feature_store.service import FeatureStoreService
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class NewsFeatureAdapter:
         feature_store: Optional[FeatureStoreService] = None,
         config: Optional[NewsEngineConfig] = None,
     ) -> None:
-        self.feature_store = feature_store or FeatureStoreService()
+        self.feature_store = feature_store or get_default_feature_store_service()
         self.config = config or NewsEngineConfig.from_env()
 
     def get_analysis(self, symbol: str) -> AggregatedNewsSignal:

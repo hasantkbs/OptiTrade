@@ -24,8 +24,6 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -66,16 +64,10 @@ from engines.fundamental.config import (
     FundamentalEngineConfig,
 )
 from feature_store.models import FeatureValue
-from feature_store.service import FeatureStoreService
+from feature_store.resolution import FeatureResolution, resolve_features
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class FeatureResolution:
-    values: Dict[str, float] = field(default_factory=dict)
-    from_cache: List[str] = field(default_factory=list)
-    computed_fresh: List[str] = field(default_factory=list)
 
 
 def _row(df: Optional[pd.DataFrame], label: str) -> Optional[pd.Series]:
@@ -128,29 +120,13 @@ class FundamentalFeatureAdapter:
         feature_store: Optional[FeatureStoreService] = None,
         config: Optional[FundamentalEngineConfig] = None,
     ) -> None:
-        self.feature_store = feature_store or FeatureStoreService()
+        self.feature_store = feature_store or get_default_feature_store_service()
         self.config = config or FundamentalEngineConfig.from_env()
 
     def get_features(self, symbol: str) -> FeatureResolution:
-        resolution = FeatureResolution()
-        missing: List[str] = []
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=self.config.max_feature_age_seconds)
-
-        for name in ALL_FEATURE_NAMES:
-            record = self.feature_store.get_latest_feature(symbol, name)
-            if record is not None and record.event_timestamp >= cutoff:
-                resolution.values[name] = record.value
-                resolution.from_cache.append(name)
-            else:
-                missing.append(name)
-
-        if missing:
-            fresh = self._compute_all(symbol)
-            for name in missing:
-                if name in fresh:
-                    resolution.values[name] = fresh[name]
-                    resolution.computed_fresh.append(name)
-
+        resolution = resolve_features(
+            self.feature_store, symbol, ALL_FEATURE_NAMES, self.config.max_feature_age_seconds, self._compute_all,
+        )
         log_event(
             logger, component="fundamental_engine", module="engines.fundamental.feature_adapter",
             operation="get_features", status=STATUS_SUCCESS, symbol=symbol,

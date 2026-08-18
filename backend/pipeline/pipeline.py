@@ -35,7 +35,7 @@ from decision_engine.interfaces import ExecutionRepositoryProtocol, VotingEngine
 from decision_engine.models import DecisionOutput
 from decision_engine.weighting import AccuracyWeightProvider
 from explanation_engine.service import ExplanationEngine
-from feature_store.service import FeatureStoreService
+from feature_store.service import FeatureStoreService, get_default_feature_store_service
 from learning.service import LearningService
 from pipeline.config import PipelineConfig
 from pipeline.context import PipelineContext
@@ -71,7 +71,7 @@ class Pipeline:
     ) -> None:
         self.config = config or PipelineConfig.from_env()
         self.engines = engines
-        self.feature_store = feature_store or FeatureStoreService()
+        self.feature_store = feature_store or get_default_feature_store_service()
 
         from decision_engine.config import DecisionEngineConfig
         from decision_engine.repository import PostgresExecutionRepository
