@@ -1,6 +1,6 @@
 import asyncio
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from typing import List, Dict, Any
+from typing import List
 import yfinance as yf
 import pandas as pd
 from datetime import datetime
@@ -12,7 +12,7 @@ from v2.indicators.ict.killzones import KillzoneIndicator
 from v2.indicators.ict.fvg import FVGIndicator
 from v2.indicators.ict.market_structure import MarketStructureIndicator
 from v2.indicators.levels.pivots import PivotPointsIndicator
-from v2.models.schemas import EngineResult, SignalSide
+from v2.models.schemas import BacktestPoint, EngineResult, SignalSide
 from v2.ml.predictor import MLPredictorV2
 
 router = APIRouter(prefix="/v2", tags=["v2 Engine"])
@@ -87,7 +87,7 @@ async def analyze_symbol(symbol: str, period: str = "60d", interval: str = "1h")
 
 from v2.core.backtest_engine import run_v2_backtest_history
 
-@router.get("/backtest/{symbol}", response_model=List[Dict[str, Any]])
+@router.get("/backtest/{symbol}", response_model=List[BacktestPoint])
 async def get_backtest_history(symbol: str, days: int = 30):
     try:
         resolved = resolve_symbol(symbol)

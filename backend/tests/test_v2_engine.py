@@ -7,6 +7,7 @@ readable JSON log event with the documented fields.
 """
 import json
 import logging
+from datetime import datetime
 
 import pandas as pd
 import pytest
@@ -49,6 +50,22 @@ async def test_analyze_return_value_is_unchanged_by_the_logging_addition(caplog)
     assert result.aggregated_score == pytest.approx(0.5)
     assert result.confidence == pytest.approx(0.8)
     assert len(result.signals) == 1
+
+
+@pytest.mark.asyncio
+async def test_analyze_result_timestamp_is_utc_aware_not_naive():
+    """API contract audit: `EngineResult.timestamp` (a plain `str`
+    field - see v2/models/schemas.py) must carry an explicit UTC offset
+    so a mobile client can parse it unambiguously. Previously built from
+    a naive `datetime.now().isoformat()` (server local time, no offset)."""
+    engine = TradingEngineV2([
+        FakeIndicator("fake1", score=0.5, confidence=0.8, side=SignalSide.BUY),
+    ])
+    result = await engine.analyze("BTC-USD", _make_ohlcv())
+
+    parsed = datetime.fromisoformat(result.timestamp)
+    assert parsed.tzinfo is not None
+    assert parsed.utcoffset().total_seconds() == 0
 
 
 @pytest.mark.asyncio

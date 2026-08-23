@@ -121,5 +121,5 @@ class TradingEngineV2:
             confidence=aggregation["confidence"],
             signals=indicator_results,
             risk_score=risk_score,
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now(timezone.utc).isoformat()
         )

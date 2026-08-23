@@ -2,7 +2,7 @@ import asyncio
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List
 from v2.core.engine import TradingEngineV2
 from v2.indicators.volume.vwap import VWAPIndicator
 from v2.indicators.trend.ema import EMAIndicator
@@ -10,8 +10,9 @@ from v2.indicators.ict.killzones import KillzoneIndicator
 from v2.indicators.ict.fvg import FVGIndicator
 from v2.indicators.ict.market_structure import MarketStructureIndicator
 from v2.indicators.levels.pivots import PivotPointsIndicator
+from v2.models.schemas import BacktestPoint
 
-async def run_v2_backtest_history(symbol: str, days: int = 60) -> List[Dict[str, Any]]:
+async def run_v2_backtest_history(symbol: str, days: int = 60) -> List[BacktestPoint]:
     """
     Runs V2 engine analysis on historical data to generate a signal timeline.
     Returns: List of points with price, signal, score, and equity.
@@ -76,12 +77,12 @@ async def run_v2_backtest_history(symbol: str, days: int = 60) -> List[Dict[str,
             position = -1
             entry_price = current_p
             
-        results.append({
-            "timestamp": ts.isoformat(),
-            "price": round(current_p, 4),
-            "score": round(score, 3),
-            "signal": signal,
-            "equity": round(equity, 2)
-        })
+        results.append(BacktestPoint(
+            timestamp=ts.isoformat(),
+            price=round(current_p, 4),
+            score=round(score, 3),
+            signal=signal,
+            equity=round(equity, 2),
+        ))
 
     return results

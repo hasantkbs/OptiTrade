@@ -130,6 +130,27 @@ def test_login_history_and_sessions(client, cleanup):
     assert len(r.json()) == 1
 
 
+def test_login_history_respects_a_custom_limit(client, cleanup):
+    """API contract audit (pagination): the underlying repository
+    already supported a `limit` param - it just wasn't reachable from
+    the endpoint. A second login must be visible with limit=2."""
+    _, headers = _register_and_login(client, "history-limit")
+    r = client.post("/auth/login", json={"email": _email("history-limit"), "password": "MyPassw0rd1"})
+    assert r.status_code == 200
+
+    r = client.get("/users/me/login-history", params={"limit": 2}, headers=headers)
+    assert r.status_code == 200
+    assert len(r.json()) == 2
+
+
+def test_login_history_rejects_an_out_of_range_limit(client, cleanup):
+    _, headers = _register_and_login(client, "history-badlimit")
+    r = client.get("/users/me/login-history", params={"limit": 0}, headers=headers)
+    assert r.status_code == 422
+    r = client.get("/users/me/login-history", params={"limit": 10_000}, headers=headers)
+    assert r.status_code == 422
+
+
 def test_preferences_flow(client, cleanup):
     _, headers = _register_and_login(client, "prefs")
     r = client.get("/users/me/preferences", headers=headers)
@@ -220,6 +241,13 @@ def test_invitation_and_membership_flow(client, cleanup):
     r = client.get(f"/organizations/{org_id}/audit-log", headers=owner_headers)
     assert r.status_code == 200
     assert len(r.json()) > 0
+
+    r = client.get(f"/organizations/{org_id}/audit-log", params={"limit": 1}, headers=owner_headers)
+    assert r.status_code == 200
+    assert len(r.json()) == 1
+
+    r = client.get(f"/organizations/{org_id}/audit-log", params={"limit": 0}, headers=owner_headers)
+    assert r.status_code == 422
 
 
 def test_change_role_and_remove_member(client, cleanup):

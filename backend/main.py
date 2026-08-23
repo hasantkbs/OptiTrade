@@ -1806,8 +1806,13 @@ def users_update_me(body: UpdateProfileRequest, user: UsersUser = Depends(_get_c
         raise _map_users_error(e)
 
 @app.get("/users/me/login-history", response_model=List[LoginHistoryEntryResponse])
-def users_login_history(user: UsersUser = Depends(_get_current_user)) -> List[LoginHistoryEntryResponse]:
-    return [LoginHistoryEntryResponse.model_validate(entry) for entry in _users_repository.list_login_history(user.id)]
+def users_login_history(
+    limit: int = Query(50, ge=1, le=200), user: UsersUser = Depends(_get_current_user),
+) -> List[LoginHistoryEntryResponse]:
+    return [
+        LoginHistoryEntryResponse.model_validate(entry)
+        for entry in _users_repository.list_login_history(user.id, limit=limit)
+    ]
 
 @app.get("/users/me/sessions", response_model=List[SessionResponse])
 def users_sessions(user: UsersUser = Depends(_get_current_user)) -> List[SessionResponse]:
@@ -2070,10 +2075,16 @@ def organizations_list_team_members(
 # ── Audit log ────────────────────────────────────────────────────────────────
 
 @app.get("/organizations/{organization_id}/audit-log", response_model=List[AuditLogEntryResponse])
-def organizations_audit_log(organization_id: int, user: UsersUser = Depends(_get_current_user)) -> List[AuditLogEntryResponse]:
+def organizations_audit_log(
+    organization_id: int, limit: int = Query(100, ge=1, le=500),
+    user: UsersUser = Depends(_get_current_user),
+) -> List[AuditLogEntryResponse]:
     try:
         _users_authorization.check_permission(user.id, organization_id, UsersPermission.MANAGE_MEMBERS)
-        return [AuditLogEntryResponse.model_validate(e) for e in _users_audit.list_for_organization(organization_id)]
+        return [
+            AuditLogEntryResponse.model_validate(e)
+            for e in _users_audit.list_for_organization(organization_id, limit=limit)
+        ]
     except UserPlatformError as e:
         raise _map_users_error(e)
 

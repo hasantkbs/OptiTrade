@@ -23,6 +23,7 @@ from fastapi import HTTPException
 
 import v2.api.router as v2_router
 import v2.core.backtest_engine as v2_backtest
+from v2.models.schemas import BacktestPoint, SignalSide
 
 
 def _ohlcv(rows: int = 60) -> pd.DataFrame:
@@ -190,6 +191,33 @@ async def test_get_backtest_history_still_returns_500_for_a_genuine_unexpected_e
         await v2_router.get_backtest_history("AAPL", days=30)
 
     assert exc_info.value.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_run_v2_backtest_history_returns_typed_backtest_points(monkeypatch):
+    """API contract audit: GET /v2/backtest/{symbol} was previously
+    typed response_model=List[Dict[str, Any]] - no field-level OpenAPI
+    schema at all. Each point must now be a real BacktestPoint with the
+    documented fields, same values as before."""
+    class _FastTicker:
+        def __init__(self, symbol):
+            pass
+
+        def history(self, start, end, interval):
+            return _ohlcv(rows=80)
+
+    monkeypatch.setattr(v2_backtest.yf, "Ticker", _FastTicker)
+
+    result = await v2_backtest.run_v2_backtest_history("AAPL", days=10)
+
+    assert len(result) > 0
+    assert all(isinstance(point, BacktestPoint) for point in result)
+    first = result[0]
+    assert isinstance(first.timestamp, str)
+    assert isinstance(first.price, float)
+    assert isinstance(first.score, float)
+    assert first.signal in {SignalSide.BUY, SignalSide.SELL, SignalSide.NEUTRAL}
+    assert isinstance(first.equity, float)
 
 
 @pytest.mark.asyncio
