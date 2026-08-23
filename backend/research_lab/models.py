@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -313,4 +313,65 @@ class Report(BaseModel):
     period_start: Optional[datetime] = None
     period_end: Optional[datetime] = None
     content: Dict = Field(default_factory=dict)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ── Decision Engine Validation ──────────────────────────────────────────
+
+
+class SimulatedTrade(BaseModel):
+    """One realized trade reconstructed from an already-evaluated LIVE
+    `learning.models.LearningSample` - never re-executed against
+    historical data, never fabricated. Only BUY decisions become trades:
+    this codebase has no short-selling mechanism anywhere
+    (`paper_trading.models.OrderSide` is BUY/SELL-to-close only), so a
+    SELL decision is a directional signal only, not a position this
+    layer can honestly cost-simulate - see
+    `research_lab.validation.trade_builder`."""
+
+    symbol: str
+    decided_at: datetime
+    evaluation_horizon_days: int
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    gross_return_pct: float
+    commission_pct: float = Field(..., ge=0.0)
+    slippage_spread_pct: float = Field(..., ge=0.0)
+    tax_pct: float = Field(..., ge=0.0)
+    net_return_pct: float
+    net_pnl: float
+
+
+class ValidationReport(BaseModel):
+    """The full quantitative validation result for the live Decision
+    Engine's actual historical track record over `[window_start,
+    window_end]` - reconstructed exclusively from already-realized
+    Continuous Learning outcomes (`learning_samples` where
+    `source=LIVE` and `evaluated=TRUE`), cost-adjusted via
+    `paper_trading.execution.ExecutionEngine`. Never a synthetic replay:
+    every trade counted here is a decision the live system genuinely
+    made, at the confidence/horizon it genuinely used, scored against
+    the same forward-only realized-price methodology Continuous
+    Learning already uses to grade itself."""
+
+    symbol: Optional[str] = None
+    window_start: datetime
+    window_end: datetime
+    trade_count: int = Field(default=0, ge=0)
+    hold_count: int = Field(default=0, ge=0)
+    sell_signal_count: int = Field(default=0, ge=0)
+    has_sufficient_samples: bool = False
+    win_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    profit_factor: Optional[float] = None
+    expectancy_pct: float = 0.0
+    sharpe_ratio: float = 0.0
+    sortino_ratio: float = 0.0
+    max_drawdown: float = Field(default=0.0, ge=0.0)
+    exposure_pct: float = Field(default=0.0, ge=0.0, le=100.0)
+    equity_curve: List[Tuple[datetime, float]] = Field(default_factory=list)
+    monthly_returns: Dict[str, float] = Field(default_factory=dict)
+    yearly_returns: Dict[str, float] = Field(default_factory=dict)
+    benchmark_symbol: Optional[str] = None
+    benchmark_return_pct: Optional[float] = None
+    benchmark_sharpe_ratio: Optional[float] = None
+    position_size_notional: float = 0.0
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -292,6 +292,38 @@ class LearningRepository:
         self._log_success("get_pending_samples", started_at, pending_count=len(rows))
         return [self._row_to_sample(row) for row in rows]
 
+    def get_evaluated_samples(
+        self, source: SampleSource, since: datetime, limit: int = 1000,
+    ) -> List[LearningSample]:
+        """Evaluated (realized-outcome-known) decision-level samples for
+        `source` decided at-or-after `since`, oldest first - the read
+        side `research_lab.validation` uses to reconstruct the live
+        Decision Engine's actual historical track record without
+        re-executing anything or fabricating data. `evaluated = TRUE`
+        already guarantees `evaluation_horizon_days` had genuinely
+        elapsed by the time `learning.evaluator.OutcomeEvaluator` scored
+        it (see `get_pending_samples`'s own WHERE clause) - no look-
+        ahead risk here, only a read of already-realized outcomes."""
+        started_at = time.perf_counter()
+        try:
+            with self._connection() as conn, conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT * FROM learning_samples
+                    WHERE evaluated = TRUE AND source = %s AND decided_at >= %s
+                    ORDER BY decided_at ASC
+                    LIMIT %s
+                    """,
+                    (source.value, since, limit),
+                )
+                rows = cur.fetchall()
+        except psycopg2.Error as exc:
+            self._log_error("get_evaluated_samples", exc, started_at, source=source.value)
+            raise LearningPersistenceError(f"failed to query evaluated samples: {exc}") from exc
+
+        self._log_success("get_evaluated_samples", started_at, source=source.value, evaluated_count=len(rows))
+        return [self._row_to_sample(row) for row in rows]
+
     def mark_sample_evaluated(
         self, sample_id: int, actual_return: float, actual_volatility: float,
         correct: bool, evaluated_at: datetime,

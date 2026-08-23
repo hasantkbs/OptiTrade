@@ -37,6 +37,14 @@ class ResearchLabConfig:
     weekly_report_lookback_days: int = 7
     monthly_report_lookback_days: int = 30
 
+    # Decision-engine validation (research_lab/validation) - reuses
+    # paper_trading.execution.ExecutionEngine's cost model (slippage/
+    # spread/commission/tax) against a fixed notional per trade, since
+    # learning_samples stores percent returns only, never prices.
+    validation_position_size_notional: float = 10_000.0
+    validation_benchmark_symbol: str = "SPY"
+    validation_min_samples_for_report: int = 5
+
     @classmethod
     def from_env(cls) -> "ResearchLabConfig":
         load_dotenv()
@@ -59,4 +67,11 @@ class ResearchLabConfig:
             ),
             weekly_report_lookback_days=int(os.getenv("RESEARCH_LAB_WEEKLY_REPORT_LOOKBACK_DAYS", "7")),
             monthly_report_lookback_days=int(os.getenv("RESEARCH_LAB_MONTHLY_REPORT_LOOKBACK_DAYS", "30")),
+            validation_position_size_notional=float(
+                os.getenv("RESEARCH_LAB_VALIDATION_POSITION_SIZE_NOTIONAL", "10000.0")
+            ),
+            validation_benchmark_symbol=os.getenv("RESEARCH_LAB_VALIDATION_BENCHMARK_SYMBOL", "SPY"),
+            validation_min_samples_for_report=int(
+                os.getenv("RESEARCH_LAB_VALIDATION_MIN_SAMPLES_FOR_REPORT", "5")
+            ),
         )

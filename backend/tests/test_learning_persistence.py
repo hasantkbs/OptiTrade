@@ -37,14 +37,14 @@ def repository():
         repo._pool.putconn(conn)
 
 
-def _sample(decided_at=None, horizon=5) -> LearningSample:
+def _sample(decided_at=None, horizon=5, source=SampleSource.LIVE) -> LearningSample:
     vote = EngineVote(
         engine_name=_ENGINE, engine_version="v1", prediction=Prediction.BUY,
         confidence=0.7, expected_return=2.0, volatility=15.0, evidence=["e"],
         timestamp=decided_at or datetime.now(timezone.utc),
     )
     return LearningSample(
-        symbol=_SYMBOL, source=SampleSource.LIVE, decision=Prediction.BUY, confidence=0.7,
+        symbol=_SYMBOL, source=source, decision=Prediction.BUY, confidence=0.7,
         expected_return=2.0, expected_volatility=15.0, engine_results=[vote], evidence=["e"],
         decided_at=decided_at or datetime.now(timezone.utc), evaluation_horizon_days=horizon,
     )
@@ -66,6 +66,66 @@ def test_get_pending_samples_includes_matured_samples(repository):
     repository.save_sample(_sample(decided_at=old, horizon=5))
     pending = repository.get_pending_samples(datetime.now(timezone.utc))
     assert any(p.symbol == _SYMBOL for p in pending)
+
+
+def test_get_evaluated_samples_excludes_unevaluated_samples(repository):
+    old = datetime.now(timezone.utc) - timedelta(days=10)
+    sample_id = repository.save_sample(_sample(decided_at=old, horizon=5))
+    # deliberately not marked evaluated
+
+    evaluated = repository.get_evaluated_samples(SampleSource.LIVE, since=old - timedelta(days=1))
+
+    assert all(s.id != sample_id for s in evaluated)
+
+
+def test_get_evaluated_samples_includes_evaluated_samples(repository):
+    old = datetime.now(timezone.utc) - timedelta(days=10)
+    sample_id = repository.save_sample(_sample(decided_at=old, horizon=5))
+    now = datetime.now(timezone.utc)
+    repository.mark_sample_evaluated(sample_id, actual_return=3.0, actual_volatility=10.0, correct=True, evaluated_at=now)
+
+    evaluated = repository.get_evaluated_samples(SampleSource.LIVE, since=old - timedelta(days=1))
+
+    matches = [s for s in evaluated if s.id == sample_id]
+    assert len(matches) == 1
+    assert matches[0].actual_return == 3.0
+    assert matches[0].evaluated is True
+
+
+def test_get_evaluated_samples_excludes_shadow_source(repository):
+    old = datetime.now(timezone.utc) - timedelta(days=10)
+    sample_id = repository.save_sample(_sample(decided_at=old, horizon=5, source=SampleSource.SHADOW))
+    now = datetime.now(timezone.utc)
+    repository.mark_sample_evaluated(sample_id, actual_return=3.0, actual_volatility=10.0, correct=True, evaluated_at=now)
+
+    live_only = repository.get_evaluated_samples(SampleSource.LIVE, since=old - timedelta(days=1))
+
+    assert all(s.id != sample_id for s in live_only)
+
+
+def test_get_evaluated_samples_excludes_samples_before_since(repository):
+    old = datetime.now(timezone.utc) - timedelta(days=10)
+    sample_id = repository.save_sample(_sample(decided_at=old, horizon=5))
+    now = datetime.now(timezone.utc)
+    repository.mark_sample_evaluated(sample_id, actual_return=3.0, actual_volatility=10.0, correct=True, evaluated_at=now)
+
+    too_recent_since = repository.get_evaluated_samples(SampleSource.LIVE, since=old + timedelta(days=1))
+
+    assert all(s.id != sample_id for s in too_recent_since)
+
+
+def test_get_evaluated_samples_orders_oldest_first(repository):
+    now = datetime.now(timezone.utc)
+    older = now - timedelta(days=10)
+    newer = now - timedelta(days=5)
+    for decided_at in (newer, older):
+        sample_id = repository.save_sample(_sample(decided_at=decided_at, horizon=1))
+        repository.mark_sample_evaluated(sample_id, actual_return=1.0, actual_volatility=1.0, correct=True, evaluated_at=now)
+
+    evaluated = repository.get_evaluated_samples(SampleSource.LIVE, since=older - timedelta(days=1))
+
+    ours = [s for s in evaluated if s.symbol == _SYMBOL]
+    assert [s.decided_at for s in ours] == sorted(s.decided_at for s in ours)
 
 
 def test_mark_sample_evaluated_updates_fields(repository):
