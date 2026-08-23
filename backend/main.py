@@ -1077,6 +1077,19 @@ def get_current_price(request: Request, symbol: str) -> Dict[str, Any]:
 @limiter.limit("30/minute")
 def analyze_symbol(request: Request, body: AnalysisRequest,
                    uid: Optional[str] = Depends(verify_firebase_token)) -> AnalysisResult:
+    """The original, pre-pipeline scoring endpoint (`core.analyzer.
+    analyze()` - its own self-contained indicators/pattern-recognition/
+    scoring/ML-confidence/news code, entirely independent of the
+    Technical/Fundamental/News voting architecture `pipeline.service.
+    PipelineService` runs). Deliberately NOT unified with the new
+    pipeline: existing clients depend on this exact `AnalysisResult`
+    shape and scoring behavior (see tests/test_main_backward_
+    compatibility.py's `test_legacy_analyze_endpoint_still_returns_the_
+    original_analysisresult_shape`), which routing through the new
+    pipeline would silently change. `pipeline.service.PipelineService`
+    (behind `/quant/analyze`) is the sole canonical production decision
+    path for anything that isn't this pinned legacy contract - see that
+    endpoint's own docstring."""
     result = analyze(symbol=body.symbol, potential_price=body.potential_price,
                      asset_type=body.asset_type)
     if result is None:

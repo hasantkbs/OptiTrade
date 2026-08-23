@@ -1,3 +1,19 @@
+"""
+OptiTrade — legacy scoring engine (pre-pipeline).
+
+Backs `main.py`'s `POST /analyze` only. Entirely self-contained (its own
+indicators, pattern recognition, scoring/decision/risk logic, ML
+confidence, and news analysis) and completely independent of the
+Technical/Fundamental/News voting architecture `pipeline.service.
+PipelineService` runs behind `/quant/analyze` - this is a deliberately
+preserved, separately-tested legacy decision path (see
+tests/test_main_backward_compatibility.py), not one the new pipeline
+was ever meant to replace or converge with. `pipeline.service.
+PipelineService` is the sole canonical path for production decisions
+outside this pinned legacy contract; nothing here should be extended to
+serve as a second implementation of the Decision Engine's own
+accuracy-weighted voting.
+"""
 from typing import Optional
 import logging
 

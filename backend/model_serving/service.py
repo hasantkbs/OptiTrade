@@ -139,14 +139,25 @@ class PredictionService:
         `pipeline.service.PipelineService` folds into its own engine
         list on every run (requirement 9). A model failing to load is
         logged (by `loader.py`) and simply excluded, never raised -
-        one broken model must never break live decisioning."""
+        one broken model must never break live decisioning.
+
+        `combos` is built as a `set` (to de-duplicate) but always
+        iterated `sorted()` - a plain `for label_name, horizon_days in
+        combos` would inherit Python's per-process hash-randomized
+        string/enum hashing (`LabelName` is a `str` `Enum`), so the
+        resulting engine list's order - and therefore
+        `PipelineResponse.engine_breakdown`/`DecisionOutput.
+        engine_results`'s order whenever more than one model is
+        ACTIVE - could differ between process restarts even for the
+        exact same set of ACTIVE models. Sorting makes that order
+        reproducible without changing which engines are included."""
         combos = {
             (entry.label_name, entry.horizon_days)
             for entry in self.loader.registry_service.list_by_state(PromotionState.ACTIVE, limit=500)
             if entry.label_name == LabelName.DIRECTION
         }
         engines: List[VotingEngineProtocol] = []
-        for label_name, horizon_days in combos:
+        for label_name, horizon_days in sorted(combos, key=lambda combo: (combo[0].value, combo[1])):
             try:
                 entry = self._resolve_serving_entry(label_name, horizon_days)
                 loaded_model = self.loader.load(entry)

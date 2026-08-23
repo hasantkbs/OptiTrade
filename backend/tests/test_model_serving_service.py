@@ -199,6 +199,34 @@ def test_get_active_engines_is_empty_when_nothing_is_active(service):
     assert service.get_active_engines() == []
 
 
+def test_get_active_engines_orders_deterministically_by_label_and_horizon(
+    service, registry_service, active_model, tmp_path,
+):
+    """Production-freeze audit: engine list order must not depend on
+    Python's per-process hash-randomized set iteration (LabelName is a
+    `str` Enum) - see get_active_engines()'s own docstring. `active_model`
+    is horizon_days=1; register a second ACTIVE model at horizon_days=3
+    for the same (DIRECTION) label and confirm the returned order is
+    always horizon-ascending, regardless of registration order."""
+    later_model_id = f"{_MODEL_ID_PREFIX}-horizon3"
+    artifact_path = str(tmp_path / "horizon3.joblib")
+    _fitted_trainer().save(artifact_path)
+    entry = ModelRegistryEntry(
+        model_id=later_model_id, algorithm=ModelAlgorithm.RANDOM_FOREST, version="v1", dataset_id=None,
+        hyperparameters={}, metrics=None, feature_list=_FEATURE_NAMES, label_name=LabelName.DIRECTION,
+        horizon_days=3, training_date=datetime.now(timezone.utc), promotion_state=PromotionState.CANDIDATE,
+        engine_name=f"MLModel:{later_model_id}", engine_version="v1", artifact_path=artifact_path,
+    )
+    registry_service.register(entry)
+    registry_service.start_shadow(later_model_id)
+    registry_service.promote_to_active(later_model_id, approved_by="svc-test")
+
+    engines = service.get_active_engines()
+    engine_names_in_order = [engine.engine_name for engine in engines]
+
+    assert engine_names_in_order == [active_model.engine_name, f"MLModel:{later_model_id}"]
+
+
 def test_rollback_changes_which_model_get_active_engines_serves(service, registry_service, active_model, tmp_path):
     rollback_target_id = f"{_MODEL_ID_PREFIX}-rollback-target"
     artifact_path = str(tmp_path / "rollback.joblib")
