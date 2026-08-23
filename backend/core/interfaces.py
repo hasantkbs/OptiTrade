@@ -18,6 +18,8 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from core.ai_trader_persona import TradeRecommendation
+from core.investor_persona import InvestorRecommendation
+from core.market_anomaly_detector import MarketAlert
 from core.regime_scanner import MarketRegime, ScannedSymbol
 from core.risk_manager import RiskLevels
 
@@ -25,6 +27,9 @@ from core.risk_manager import RiskLevels
 @runtime_checkable
 class RegimeScannerProtocol(Protocol):
     """Contract for the scanning layer (``core.regime_scanner.MarketRegimeScanner``)."""
+
+    def scan(self, symbols: List[str]) -> List[ScannedSymbol]:
+        ...
 
     def scan_and_filter(self, symbols: List[str]) -> List[ScannedSymbol]:
         ...
@@ -66,4 +71,37 @@ class TraderPersonaProtocol(Protocol):
         risk: RiskLevels,
         news_sentiment: Optional[Dict[str, Any]] = None,
     ) -> TradeRecommendation:
+        ...
+
+
+@runtime_checkable
+class InvestorPersonaProtocol(Protocol):
+    """Contract for the long-horizon recommendation layer
+    (``core.investor_persona.InvestorPersona``) - the ``profile="investor"``
+    counterpart to ``TraderPersonaProtocol``. No ``risk`` parameter: an
+    investor recommendation never carries entry/stop-loss/take-profit
+    levels."""
+
+    def generate_recommendation(
+        self,
+        symbol: str,
+        market_regime: MarketRegime,
+        analysis: Dict[str, Any],
+        news_sentiment: Optional[Dict[str, Any]] = None,
+    ) -> InvestorRecommendation:
+        ...
+
+
+@runtime_checkable
+class AnomalyDetectorProtocol(Protocol):
+    """Contract for the anomaly-detection layer
+    (``core.market_anomaly_detector.MarketAnomalyDetector``)."""
+
+    def detect(
+        self,
+        symbol: str,
+        regime: MarketRegime,
+        analysis: Dict[str, Any],
+        news_sentiment: Optional[Dict[str, Any]],
+    ) -> Optional[MarketAlert]:
         ...

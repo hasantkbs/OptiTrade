@@ -13,23 +13,25 @@ ertelenmiş (string) tip anotasyonları açıksa FastAPI/Pydantic bu isimleri
 (anında) değerlendirildiği için bu sorun oluşmuyor.
 """
 from functools import lru_cache
-from typing import List
+from typing import List, Literal, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.ai_trader_persona import TradeRecommendation
 from core.hybrid_engine import HybridTradingEngine
+from core.investor_persona import InvestorRecommendation
+from core.market_anomaly_detector import MarketAlert
 from core.rate_limiter import limiter
 
 router = APIRouter(prefix="/signals", tags=["Trading Signals"])
 
 
 class SignalsAnalyzeRequest(BaseModel):
-    """``POST /analyze`` için istek gövdesi."""
+    """``POST /analyze`` ve ``POST /alerts`` için ortak istek gövdesi."""
 
     model_config = ConfigDict(
-        json_schema_extra={"example": {"symbols": ["BTC-USD", "AAPL", "THYAO.IS"]}}
+        json_schema_extra={"example": {"symbols": ["BTC-USD", "AAPL", "THYAO.IS"], "profile": "trader"}}
     )
 
     symbols: List[str] = Field(
@@ -37,6 +39,14 @@ class SignalsAnalyzeRequest(BaseModel):
         min_length=1,
         max_length=20,
         description="Analiz edilecek sembol listesi (yfinance formatında, ör. BIST için '.IS' soneki).",
+    )
+    profile: Literal["trader", "investor"] = Field(
+        default="trader",
+        description=(
+            "'trader': kısa vadeli AL/SAT önerisi (giriş/stop-loss/take-profit). "
+            "'investor': 1 hafta / 1 ay / 1 yıl ufuklu, giriş/SL/TP içermeyen uzun "
+            "vadeli görüş. Yalnızca /analyze tarafından kullanılır, /alerts bu alanı yok sayar."
+        ),
     )
 
 
@@ -56,15 +66,21 @@ def get_engine() -> HybridTradingEngine:
 
 @router.post(
     "/analyze",
-    response_model=List[TradeRecommendation],
-    summary="Sembol listesi için hibrit AI ticaret önerisi üret",
+    response_model=List[Union[TradeRecommendation, InvestorRecommendation]],
+    summary="Sembol listesi için hibrit AI ticaret/yatırım önerisi üret",
     description=(
         "Verilen sembolleri piyasa rejimi taramasından geçirir; geçerli "
-        "olanlar için çoklu zaman dilimi teknik analiz ve ATR bazlı risk "
-        "seviyeleri hesaplar, haber duygusuyla birlikte Groq LLM'e sunarak "
-        "yapılandırılmış bir ticaret önerisi üretir.\n\n"
-        "Son 15 dakika içinde aynı sembol için üretilmiş bir öneri varsa, "
-        "LLM'e tekrar istek atılmadan doğrudan cache'ten döner.\n\n"
+        "olanlar için çoklu zaman dilimi teknik analiz hesaplar, haber "
+        "duygusuyla birlikte Groq LLM'e sunarak yapılandırılmış bir öneri "
+        "üretir.\n\n"
+        "``profile=\"trader\"`` (varsayılan): kısa vadeli AL/SAT önerisi, "
+        "ATR bazlı risk seviyeleri (giriş/stop-loss/take-profit) ile "
+        "birlikte.\n\n"
+        "``profile=\"investor\"``: giriş/SL/TP içermeyen, 1 hafta / 1 ay / "
+        "1 yıl ufuklarında ayrı AL/SAT/TUT yönü ve güven skoru içeren uzun "
+        "vadeli görüş.\n\n"
+        "Son 15 dakika içinde aynı sembol+profil için üretilmiş bir öneri "
+        "varsa, LLM'e tekrar istek atılmadan doğrudan cache'ten döner.\n\n"
         "Piyasa rejimi filtresini geçemeyen veya veri sağlanamayan "
         "semboller yanıtta yer almaz — dönen liste istekteki sembol "
         "sayısından kısa olabilir."
@@ -79,11 +95,38 @@ def analyze_signals(
     request: Request,
     body: SignalsAnalyzeRequest,
     engine: HybridTradingEngine = Depends(get_engine),
-) -> List[TradeRecommendation]:
-    recommendations = engine.run(body.symbols)
+) -> List[Union[TradeRecommendation, InvestorRecommendation]]:
+    recommendations = engine.run(body.symbols, profile=body.profile)
     if not recommendations:
         raise HTTPException(
             status_code=404,
             detail="Hiçbir sembol için öneri üretilemedi (piyasa rejimi filtresi, veri veya AI hatası).",
         )
     return recommendations
+
+
+@router.post(
+    "/alerts",
+    response_model=List[MarketAlert],
+    summary="Sembol listesi için ani piyasa değişikliği (fiyat/hacim/haber şoku) kontrolü",
+    description=(
+        "Verilen sembolleri piyasa rejimi filtresi UYGULANMADAN kontrol eder "
+        "(CHOPPY bir sembolün ani hacim/fiyat şoku göstermesi rejim "
+        "değişikliğinin habercisi olabilir). Fiyat/hacim şoku (anormal hacim "
+        "veya ATR'ye göre büyük fiyat hareketi) veya yüksek etkili haber "
+        "tespit edilen semboller döner.\n\n"
+        "Hiçbir uyarı tespit edilmezse boş liste döner — bu normal ve "
+        "beklenen bir sonuçtur, hata değildir (``/analyze``'ın aksine 404 "
+        "dönmez)."
+    ),
+    responses={
+        422: {"description": "İstek gövdesi geçersiz (ör. boş sembol listesi)."},
+    },
+)
+@limiter.limit("20/minute")
+def check_alerts(
+    request: Request,
+    body: SignalsAnalyzeRequest,
+    engine: HybridTradingEngine = Depends(get_engine),
+) -> List[MarketAlert]:
+    return engine.check_alerts(body.symbols)

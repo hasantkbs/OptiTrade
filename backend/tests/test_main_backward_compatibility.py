@@ -4,7 +4,7 @@ before the Quant Research Platform pipeline was wired in must continue
 to work exactly as before. Real PostgreSQL/Redis/network - no mocks,
 matching this project's established testing philosophy.
 """
-EXPECTED_ROUTE_COUNT = 133  # 120 pre-existing routes + 13 new Watchlist & Alert Platform routes
+EXPECTED_ROUTE_COUNT = 134  # 133 pre-existing routes + 1 new POST /api/v1/signals/alerts route
 
 
 def test_route_count_is_the_expected_36_plus_the_new_portfolio_routes(client):
