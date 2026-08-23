@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from engines.technical.config import FEATURE_TREND_STRENGTH
-from feature_store.models import FeatureValue
+from feature_store.models import FeatureRecord, FeatureValue
 from feature_store.service import FeatureStoreService
 from ml_training.config import MLTrainingConfig
 from ml_training.datasets.builder import DatasetBuilder
@@ -29,8 +29,18 @@ def feature_store():
     now = datetime.now(timezone.utc)
     for i in range(15):
         ts = now - timedelta(days=30 - i)
-        fs.write_feature(
-            FeatureValue(symbol=_SYMBOL, feature_name=FEATURE_TREND_STRENGTH, value=3.0, event_timestamp=ts)
+        # Inserted directly (not via write_feature(), which always stamps
+        # ingestion_timestamp=now()) so ingestion_timestamp is backdated
+        # too - DatasetBuilder queries with respect_ingestion_time=True,
+        # and a record "written" at the real test wall-clock "now" would
+        # look like a same-day backfill to every historical as_of cursor
+        # below, making it invisible to point-in-time queries that predate
+        # today.
+        fs.offline_store.insert(
+            FeatureRecord(
+                symbol=_SYMBOL, feature_name=FEATURE_TREND_STRENGTH, value=3.0,
+                event_timestamp=ts, ingestion_timestamp=ts,
+            )
         )
     yield fs
     conn = fs.offline_store._pool.getconn()
@@ -110,6 +120,34 @@ def test_build_is_point_in_time_correct_no_leakage(feature_store):
         # the sample's own as_of timestamp - the extractor's own
         # get_feature_as_of guarantee, exercised end-to-end here.
         assert sample.as_of <= now
+
+
+def test_build_excludes_a_same_day_backfilled_feature_from_a_historical_sample(feature_store):
+    """End-to-end leakage guard: a feature "backfilled" right now with a
+    historical event_timestamp (ingestion_timestamp left at "now", the
+    same shape a reprocessing job would produce) must not appear in a
+    training sample built for an as_of that predates when it was
+    actually ingested - production audit: point-in-time/look-ahead
+    leakage. `feature_store` fixture's own 15 real-time-simulated rows
+    (event_timestamp == ingestion_timestamp) are unaffected and still
+    populate every sample."""
+    now = datetime.now(timezone.utc)
+    feature_store.offline_store.insert(
+        FeatureRecord(
+            symbol=_SYMBOL, feature_name="backfilled_only_today", value=99.0,
+            event_timestamp=now - timedelta(days=25), ingestion_timestamp=now,
+        )
+    )
+
+    builder = _builder(feature_store)
+    samples, _ = builder.build(
+        [_SYMBOL], DatasetType.TRADER, now - timedelta(days=20), now - timedelta(days=19), step_days=1,
+    )
+
+    assert samples  # the fixture's real-time-simulated feature still produces samples
+    for sample in samples:
+        assert "backfilled_only_today" not in sample.features
+        assert FEATURE_TREND_STRENGTH in sample.features
 
 
 def test_build_skips_samples_when_label_generation_fails(feature_store):

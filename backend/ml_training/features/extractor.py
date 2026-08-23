@@ -31,13 +31,24 @@ class FeatureExtractor:
     def __init__(self, feature_store: Optional[FeatureStoreService] = None) -> None:
         self.feature_store = feature_store or get_default_feature_store_service()
 
-    def extract(self, symbol: str, as_of: Optional[datetime] = None) -> FeatureVector:
+    def extract(
+        self, symbol: str, as_of: Optional[datetime] = None, respect_ingestion_time: bool = False,
+    ) -> FeatureVector:
+        """`respect_ingestion_time=True` additionally excludes any
+        feature record ingested after `as_of` - guards a historical
+        `as_of` query against backfilled/reprocessed data (see
+        `feature_store.offline_store.PostgresOfflineStore.get_as_of`'s
+        docstring). Live inference (`as_of` defaults to "now") is
+        unaffected either way; `ml_training.datasets.builder.
+        DatasetBuilder` (training-dataset construction) opts in."""
         as_of = as_of or datetime.now(timezone.utc)
         feature_names = self.feature_store.list_feature_names(symbol)
 
         values = {}
         for name in feature_names:
-            record = self.feature_store.get_feature_as_of(symbol, name, as_of)
+            record = self.feature_store.get_feature_as_of(
+                symbol, name, as_of, respect_ingestion_time=respect_ingestion_time
+            )
             if record is not None:
                 values[name] = record.value
 

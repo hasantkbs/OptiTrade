@@ -64,7 +64,11 @@ class DatasetBuilder:
         cursor = start
         while cursor <= end:
             for symbol in symbols:
-                vector = self.feature_extractor.extract(symbol, cursor)
+                # respect_ingestion_time=True: this is the one production
+                # path that turns a historical as_of into training data, so
+                # it must not be fed a feature value backfilled/recomputed
+                # after the fact - see FeatureExtractor.extract's docstring.
+                vector = self.feature_extractor.extract(symbol, cursor, respect_ingestion_time=True)
                 if not vector.values:
                     continue
                 feature_names_seen.update(vector.values.keys())

@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from engines.technical.config import FEATURE_TREND_STRENGTH
-from feature_store.models import FeatureValue
+from feature_store.models import FeatureRecord, FeatureValue
 from feature_store.service import FeatureStoreService
 from ml_training.calibration.repository import CalibrationRepository
 from ml_training.calibration.service import CalibrationService
@@ -65,7 +65,17 @@ def feature_store():
     start = now - timedelta(days=_N_DAYS)
     for i in range(_N_DAYS):
         ts = start + timedelta(days=i)
-        fs.write_feature(FeatureValue(symbol=_SYMBOL, feature_name=FEATURE_TREND_STRENGTH, value=3.0, event_timestamp=ts))
+        # Inserted directly (not write_feature(), which always stamps
+        # ingestion_timestamp=now()) so ingestion_timestamp is backdated
+        # too - DatasetBuilder queries with respect_ingestion_time=True,
+        # and a record actually written at test wall-clock "now" would
+        # look like a same-day backfill to every as_of below.
+        fs.offline_store.insert(
+            FeatureRecord(
+                symbol=_SYMBOL, feature_name=FEATURE_TREND_STRENGTH, value=3.0,
+                event_timestamp=ts, ingestion_timestamp=ts,
+            )
+        )
     yield fs, start, now
     conn = fs.offline_store._pool.getconn()
     try:

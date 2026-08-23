@@ -41,7 +41,7 @@ class OfflineFeatureStoreProtocol(Protocol):
     def get_latest(self, symbol: str, feature_name: str) -> Optional[FeatureRecord]: ...
 
     def get_as_of(
-        self, symbol: str, feature_name: str, as_of: datetime
+        self, symbol: str, feature_name: str, as_of: datetime, respect_ingestion_time: bool = False,
     ) -> Optional[FeatureRecord]: ...
 
     def get_history(

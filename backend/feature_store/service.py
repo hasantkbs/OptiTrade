@@ -142,11 +142,16 @@ class FeatureStoreService:
         return result
 
     def get_feature_as_of(
-        self, symbol: str, feature_name: str, as_of: datetime
+        self, symbol: str, feature_name: str, as_of: datetime, respect_ingestion_time: bool = False,
     ) -> Optional[FeatureRecord]:
         """Point-in-time lookup — always goes to the offline store, never
-        the online cache, since the cache only ever holds the latest value."""
-        return self.offline_store.get_as_of(symbol, feature_name, as_of)
+        the online cache, since the cache only ever holds the latest
+        value. `respect_ingestion_time=True` additionally excludes any
+        record ingested after `as_of` (guards against backfilled/
+        reprocessed data leaking into a historical query) - see
+        `PostgresOfflineStore.get_as_of`'s docstring for why this is
+        opt-in rather than the default."""
+        return self.offline_store.get_as_of(symbol, feature_name, as_of, respect_ingestion_time=respect_ingestion_time)
 
     def get_feature_history(
         self, symbol: str, feature_name: str, start: datetime, end: datetime

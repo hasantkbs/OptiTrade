@@ -117,6 +117,49 @@ def test_later_writes_never_change_an_earlier_point_in_time_answer(store, symbol
     assert as_of_same_point_again.value == 1.0
 
 
+def test_get_as_of_by_default_returns_a_backfilled_row_ingestion_time_ignored(store, symbol):
+    """Default behavior (respect_ingestion_time=False) is unchanged: a
+    row "backfilled" right now with a historical event_timestamp is
+    still visible to a query for that historical as_of - preserves the
+    semantics the rest of this test suite (and other test modules) rely
+    on to simulate historical data by writing it "now" with a backdated
+    event_timestamp."""
+    now = datetime.now(timezone.utc)
+    # _record()'s ingestion_timestamp is always "now" (real wall-clock
+    # time), regardless of the backdated event_timestamp passed here -
+    # exactly what a same-day backfill/reprocessing job looks like.
+    store.insert(_record(symbol, value=42.0, event_timestamp=now - timedelta(days=10)))
+
+    result = store.get_as_of(symbol, "rsi_14", now - timedelta(days=9))
+    assert result is not None and result.value == 42.0
+
+
+def test_get_as_of_respect_ingestion_time_excludes_a_backfilled_row(store, symbol):
+    """The opt-in leakage guard: the same backfilled row must NOT be
+    visible to a historical as_of query that precedes when it was
+    actually ingested - it wasn't known yet at that point in real time."""
+    now = datetime.now(timezone.utc)
+    store.insert(_record(symbol, value=42.0, event_timestamp=now - timedelta(days=10)))
+
+    result = store.get_as_of(symbol, "rsi_14", now - timedelta(days=9), respect_ingestion_time=True)
+    assert result is None
+
+
+def test_get_as_of_respect_ingestion_time_still_returns_a_real_time_write(store, symbol):
+    """A genuinely real-time write (event_timestamp == ingestion_timestamp,
+    every current production write path) is completely unaffected by the
+    guard - it was known exactly when it says it was."""
+    now = datetime.now(timezone.utc)
+    record = FeatureRecord(
+        symbol=symbol, feature_name="rsi_14", value=7.0,
+        event_timestamp=now - timedelta(hours=1), ingestion_timestamp=now - timedelta(hours=1),
+    )
+    store.insert(record)
+
+    result = store.get_as_of(symbol, "rsi_14", now, respect_ingestion_time=True)
+    assert result is not None and result.value == 7.0
+
+
 def test_different_feature_names_on_the_same_symbol_are_independent(store, symbol):
     store.insert(_record(symbol, feature_name="rsi_14", value=1.0))
     store.insert(_record(symbol, feature_name="macd", value=2.0))

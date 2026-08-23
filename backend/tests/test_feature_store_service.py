@@ -58,11 +58,15 @@ class FakeOfflineStore:
     def get_latest(self, symbol: str, feature_name: str) -> Optional[FeatureRecord]:
         return self._data.get((symbol, feature_name))
 
-    def get_as_of(self, symbol: str, feature_name: str, as_of: datetime) -> Optional[FeatureRecord]:
+    def get_as_of(
+        self, symbol: str, feature_name: str, as_of: datetime, respect_ingestion_time: bool = False,
+    ) -> Optional[FeatureRecord]:
         record = self._data.get((symbol, feature_name))
-        if record is not None and record.event_timestamp <= as_of:
-            return record
-        return None
+        if record is None or record.event_timestamp > as_of:
+            return None
+        if respect_ingestion_time and record.ingestion_timestamp > as_of:
+            return None
+        return record
 
     def get_history(self, symbol: str, feature_name: str, start: datetime, end: datetime) -> List[FeatureRecord]:
         record = self._data.get((symbol, feature_name))

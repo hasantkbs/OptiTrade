@@ -110,6 +110,23 @@ def test_extract_is_point_in_time_correct(feature_store):
     assert past_vector.values["rsi_14"] == 40.0  # must not see the future value written "today"
 
 
+def test_extract_respect_ingestion_time_excludes_a_backfilled_value(feature_store):
+    """A feature "backfilled" right now with a historical event_timestamp
+    must not be visible to a historical as_of query once
+    respect_ingestion_time=True is passed through - it wasn't actually
+    known yet at that point in real time (production audit: point-in-time
+    leakage). Default behavior (the other tests above) is unaffected."""
+    now = datetime.now(timezone.utc)
+    feature_store.write_feature(
+        FeatureValue(symbol=_SYMBOL, feature_name="rsi_14", value=40.0, event_timestamp=now - timedelta(days=10))
+    )
+
+    past_vector = FeatureExtractor(feature_store=feature_store).extract(
+        _SYMBOL, as_of=now - timedelta(days=5), respect_ingestion_time=True,
+    )
+    assert "rsi_14" not in past_vector.values
+
+
 def test_extractor_defaults_to_real_feature_store():
     extractor = FeatureExtractor()
     assert isinstance(extractor.feature_store, FeatureStoreService)

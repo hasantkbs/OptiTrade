@@ -8,6 +8,25 @@ write path, so a point-in-time query made today returns the exact same
 answer it would have returned on the day in question, regardless of what
 has been written since.
 
+`get_as_of(..., respect_ingestion_time=True)` closes a real (if
+currently dormant - no production writer backdates `event_timestamp`
+today) leakage hole against backfilled/reprocessed data: with it, a row
+is only visible to an `as_of` query if it was also *ingested* by
+`as_of` (`ingestion_timestamp <= as_of`), not merely if its
+`event_timestamp` predates `as_of`. Without that, a row backfilled
+today with a historical `event_timestamp` (a reprocessing job, or a
+feature whose definition changed and got recomputed for past dates)
+would be visible to a training-dataset query built for that historical
+date - future information leaking into the past. Opt-in (default
+`False`) rather than the query's only behavior, because the existing
+test suite's `event_timestamp`-only semantics are relied on broadly to
+simulate historical data by writing it "now" with a backdated
+`event_timestamp` - flipping the default would break that convention
+project-wide for a leakage path nothing currently exercises.
+`ml_training.datasets.builder.DatasetBuilder` (the one production path
+that turns `as_of` queries into training data) opts in; live inference
+(`as_of` is always "now") is unaffected either way.
+
 Schema management follows this project's existing convention
 (`core/monitoring.py::init_db()`): idempotent `CREATE TABLE IF NOT
 EXISTS`/`CREATE INDEX IF NOT EXISTS` statements run once at construction,
@@ -124,20 +143,22 @@ class PostgresOfflineStore(PostgresRepositoryBase):
         return self.get_as_of(symbol, feature_name, datetime.now(timezone.utc))
 
     def get_as_of(
-        self, symbol: str, feature_name: str, as_of: datetime
+        self, symbol: str, feature_name: str, as_of: datetime, respect_ingestion_time: bool = False,
     ) -> Optional[FeatureRecord]:
         started_at = time.perf_counter()
+        ingestion_clause = " AND ingestion_timestamp <= %s" if respect_ingestion_time else ""
+        params = (symbol, feature_name, as_of, as_of) if respect_ingestion_time else (symbol, feature_name, as_of)
         try:
             with self._connection() as conn, conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
-                    """
+                    f"""
                     SELECT symbol, feature_name, value, version, event_timestamp, ingestion_timestamp
                     FROM feature_store_records
-                    WHERE symbol = %s AND feature_name = %s AND event_timestamp <= %s
+                    WHERE symbol = %s AND feature_name = %s AND event_timestamp <= %s{ingestion_clause}
                     ORDER BY event_timestamp DESC, ingestion_timestamp DESC
                     LIMIT 1
                     """,
-                    (symbol, feature_name, as_of),
+                    params,
                 )
                 row = cur.fetchone()
         except psycopg2.Error as exc:
