@@ -33,6 +33,7 @@ import hashlib
 import logging
 import os
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, Optional
@@ -99,7 +100,13 @@ class ModelLoader:
         self.registry_service = registry_service or ModelRegistryService()
         self.calibration_repository = calibration_repository or CalibrationRepository()
         self.cache = cache or ModelMetadataCache(config=self.config)
-        self._loaded: Dict[str, LoadedModel] = {}
+        # Ordered oldest-accessed-first -> most-recently-accessed-last, so
+        # capacity eviction (`_enforce_capacity`) always drops the least
+        # recently used entry. `_known_checksums` is intentionally a
+        # separate, unbounded dict (see its docstring note above) - it is
+        # tiny (one string per model_id ever loaded) and evicting it would
+        # defeat the tamper/corruption check `force_reload` relies on.
+        self._loaded: "OrderedDict[str, LoadedModel]" = OrderedDict()
         self._known_checksums: Dict[str, str] = {}
         self._last_load_error: Dict[str, str] = {}
         self.loading_failure_count = 0
@@ -155,6 +162,7 @@ class ModelLoader:
         trainer for `entry.model_id`."""
         existing = self._loaded.get(entry.model_id)
         if existing is not None and existing.entry.promoted_at == entry.promoted_at:
+            self._loaded.move_to_end(entry.model_id)
             return existing
 
         self._validate_entry_metadata(entry)
@@ -189,12 +197,27 @@ class ModelLoader:
             loaded_at=datetime.now(timezone.utc),
         )
         self._loaded[entry.model_id] = loaded
+        self._loaded.move_to_end(entry.model_id)
+        self._enforce_capacity()
         log_event(
             logger, component="model_serving", module="model_serving.loader", operation="load",
             status=STATUS_SUCCESS, model_id=entry.model_id, algorithm=entry.algorithm.value,
             is_calibrated=calibrated is not None, execution_time_ms=(time.perf_counter() - started_at) * 1000,
         )
         return loaded
+
+    def _enforce_capacity(self) -> None:
+        """Evicts the least-recently-used model(s) once `_loaded` exceeds
+        `config.loader_max_cached_models`. Only the in-process trainer is
+        dropped (same as `evict()`) - the known checksum is kept, so a
+        later reload of an evicted model_id still detects on-disk drift."""
+        max_size = self.config.loader_max_cached_models
+        while len(self._loaded) > max_size:
+            evicted_model_id, _ = self._loaded.popitem(last=False)
+            log_event(
+                logger, component="model_serving", module="model_serving.loader", operation="evict_lru",
+                status=STATUS_SUCCESS, model_id=evicted_model_id, cache_size=len(self._loaded), max_size=max_size,
+            )
 
     def warm_up(self) -> int:
         """Eagerly loads every currently-ACTIVE model. A single model

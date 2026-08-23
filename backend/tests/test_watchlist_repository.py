@@ -4,6 +4,8 @@ Regression tests for watchlist/repository.py's alert pagination
 OFFSET. Once more than 200 enabled alerts exist, newer alerts are never
 scanned"). Real PostgreSQL throughout.
 """
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from watchlist.models import Alert, AlertCategory, AlertType
@@ -78,3 +80,47 @@ def test_count_alerts_excludes_disabled_when_enabled_only(repository):
     repository.set_alert_enabled(ids[0], False)
     assert repository.count_alerts(owner=owner, enabled_only=True) == 4
     assert repository.count_alerts(owner=owner, enabled_only=False) == 5
+
+
+def test_purge_old_triggers_deletes_rows_past_retention(repository):
+    owner = f"{_OWNER_PREFIX}-purge-old"
+    alert_id = _save_alerts(repository, owner, 1)[0]
+    old = datetime.now(timezone.utc) - timedelta(days=200)
+    repository.save_trigger(alert_id, triggered_at=old, message="fired", evidence={})
+
+    try:
+        deleted = repository.purge_old_triggers(retention_days=180)
+        assert deleted == 1
+        assert repository.list_triggers(alert_id) == []
+    finally:
+        repository.delete_alert(alert_id)
+
+
+def test_purge_old_triggers_keeps_rows_within_retention(repository):
+    owner = f"{_OWNER_PREFIX}-purge-recent"
+    alert_id = _save_alerts(repository, owner, 1)[0]
+    recent = datetime.now(timezone.utc) - timedelta(days=5)
+    repository.save_trigger(alert_id, triggered_at=recent, message="fired", evidence={})
+
+    try:
+        deleted = repository.purge_old_triggers(retention_days=180)
+        assert deleted == 0
+        assert len(repository.list_triggers(alert_id)) == 1
+    finally:
+        repository.delete_alert(alert_id)
+
+
+def test_purge_old_triggers_uses_configured_default_when_no_argument_given(repository, monkeypatch):
+    import watchlist.repository as repository_module
+
+    monkeypatch.setattr(repository_module, "_DEFAULT_TRIGGER_HISTORY_RETENTION_DAYS", 30)
+    owner = f"{_OWNER_PREFIX}-purge-default"
+    alert_id = _save_alerts(repository, owner, 1)[0]
+    old = datetime.now(timezone.utc) - timedelta(days=40)
+    repository.save_trigger(alert_id, triggered_at=old, message="fired", evidence={})
+
+    try:
+        deleted = repository.purge_old_triggers()
+        assert deleted == 1
+    finally:
+        repository.delete_alert(alert_id)

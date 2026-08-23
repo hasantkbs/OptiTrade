@@ -22,7 +22,7 @@ from models.schemas import (
 )
 from core.analyzer import analyze
 from core.ml_predictor import get_model_info
-from core.monitoring import init_db, log_prediction, validate_predictions, get_performance_stats
+from core.monitoring import init_db, log_prediction, validate_predictions, get_performance_stats, purge_old_predictions
 from research.ml_trainer import train as train_model
 from core.advanced_analysis import run_monte_carlo, optimize_portfolio, compute_recommendation
 from core.session_analysis import compute_session_score, get_current_session, SESSIONS
@@ -358,6 +358,61 @@ async def paper_trading_fill_loop() -> None:
             logger.error(f"Paper trading dolum döngüsünde hata: {e}")
 
 
+_RETENTION_PURGE_INTERVAL_SECONDS = 86400  # once a day, matching self_evolution_loop's cadence
+
+
+async def retention_purge_loop() -> None:
+    """Daily bounded-data-growth purge (production audit LOW): every
+    table below is written continuously and, before this loop existed,
+    never pruned by anything - see each repository's own
+    `purge_old_*`/`purge_old_predictions` docstring for its retention
+    window and the safety guard around any row still awaiting
+    evaluation. Each repository's purge is isolated in its own try/
+    except (matching this file's other per-symbol/per-engine isolation
+    hardening) so one failing purge (e.g. a repository not yet
+    initialized) never skips the others."""
+    while True:
+        await asyncio.sleep(_RETENTION_PURGE_INTERVAL_SECONDS)
+        try:
+            deleted = await _run_in_executor(purge_old_predictions)
+            if deleted:
+                logger.info(f"Retention: {deleted} eski tahmin silindi.")
+        except Exception as e:
+            logger.error(f"Retention (predictions) döngüsünde hata: {e}")
+
+        try:
+            if _users_repository is not None:
+                deleted = await _run_in_executor(_users_repository.purge_old_audit_history)
+                if any(deleted.values()):
+                    logger.info(f"Retention: users audit history silindi: {deleted}")
+        except Exception as e:
+            logger.error(f"Retention (users audit history) döngüsünde hata: {e}")
+
+        try:
+            if _users_watchlist_bridge is not None:
+                deleted = await _run_in_executor(_users_watchlist_bridge.repository.purge_old_triggers)
+                if deleted:
+                    logger.info(f"Retention: {deleted} eski watchlist alert tetiklemesi silindi.")
+        except Exception as e:
+            logger.error(f"Retention (watchlist triggers) döngüsünde hata: {e}")
+
+        try:
+            if _pipeline_service is not None:
+                deleted = await _run_in_executor(_pipeline_service.pipeline.execution_repository.purge_old_executions)
+                if deleted:
+                    logger.info(f"Retention: {deleted} eski decision engine execution silindi.")
+        except Exception as e:
+            logger.error(f"Retention (decision engine executions) döngüsünde hata: {e}")
+
+        try:
+            if _pipeline_service is not None:
+                deleted = await _run_in_executor(_pipeline_service.pipeline.learning_service.repository.purge_old_history)
+                if any(deleted.values()):
+                    logger.info(f"Retention: continuous learning geçmişi silindi: {deleted}")
+        except Exception as e:
+            logger.error(f"Retention (continuous learning history) döngüsünde hata: {e}")
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
     init_db()
@@ -468,6 +523,7 @@ async def startup_event() -> None:
     asyncio.create_task(self_evolution_loop())
     asyncio.create_task(alert_scan_loop())
     asyncio.create_task(paper_trading_fill_loop())
+    asyncio.create_task(retention_purge_loop())
 
 @app.get("/ml/performance")
 def get_ml_performance(days: int = 30) -> Dict[str, Any]:

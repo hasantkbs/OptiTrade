@@ -153,3 +153,61 @@ def test_connection_is_closed_on_the_success_path_too(db_path, monkeypatch):
 
 def test_returns_zero_when_nothing_is_matured(db_path):
     assert monitoring.validate_predictions() == 0
+
+
+def _insert_prediction(db_path, symbol, timestamp_sql_offset, is_correct):
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            f"""
+            INSERT INTO predictions
+                (symbol, score, decision_code, price_at_prediction, timestamp, target_date, is_correct, prediction_window_days)
+            VALUES (?, 0, 'BUY', 100.0, datetime('now', '{timestamp_sql_offset}'), datetime('now', '-1 day'), ?, 5)
+            """,
+            (symbol, is_correct),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _symbol_still_present(db_path, symbol) -> bool:
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT 1 FROM predictions WHERE symbol = ?", (symbol,)).fetchone()
+    finally:
+        conn.close()
+    return row is not None
+
+
+def test_purge_deletes_validated_predictions_past_retention(db_path):
+    _insert_prediction(db_path, "OLD_VALIDATED", "-400 days", is_correct=1)
+    deleted = monitoring.purge_old_predictions(retention_days=365)
+    assert deleted == 1
+    assert not _symbol_still_present(db_path, "OLD_VALIDATED")
+
+
+def test_purge_keeps_validated_predictions_within_retention(db_path):
+    _insert_prediction(db_path, "RECENT_VALIDATED", "-10 days", is_correct=1)
+    deleted = monitoring.purge_old_predictions(retention_days=365)
+    assert deleted == 0
+    assert _symbol_still_present(db_path, "RECENT_VALIDATED")
+
+
+def test_purge_never_deletes_pending_predictions_regardless_of_age(db_path):
+    """A row with `is_correct IS NULL` is still awaiting
+    `validate_predictions()` - old age alone must never make it eligible
+    for deletion, since that would silently discard an unresolved
+    prediction that a later validation pass would otherwise still catch."""
+    _insert_prediction(db_path, "OLD_PENDING", "-400 days", is_correct=None)
+    deleted = monitoring.purge_old_predictions(retention_days=365)
+    assert deleted == 0
+    assert _symbol_still_present(db_path, "OLD_PENDING")
+
+
+def test_purge_uses_the_configured_default_when_no_argument_given(db_path, monkeypatch):
+    monkeypatch.setattr(monitoring, "PREDICTION_RETENTION_DAYS", 30)
+    _insert_prediction(db_path, "OLD_ENOUGH_FOR_30_DAY_DEFAULT", "-40 days", is_correct=0)
+    deleted = monitoring.purge_old_predictions()
+    assert deleted == 1
+    assert not _symbol_still_present(db_path, "OLD_ENOUGH_FOR_30_DAY_DEFAULT")

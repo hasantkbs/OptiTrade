@@ -289,5 +289,56 @@ def test_audit_log_record_and_query(repo):
     assert len(by_user) == 1
 
 
+def test_purge_old_audit_history_deletes_rows_past_retention(repo):
+    user_id = repo.save_user(_make_user("purge-old"))
+    org_id = repo.save_organization(Organization(name="Purge Org", owner_user_id=user_id))
+    old = datetime.now(timezone.utc) - timedelta(days=400)
+    repo.save_login_history(LoginHistoryEntry(user_id=user_id, email=_email("purge-old"), success=True, occurred_at=old))
+    repo.save_audit_entry(
+        AuditLogEntry(actor_user_id=user_id, organization_id=org_id, action=AuditAction.LOGIN, occurred_at=old)
+    )
+    api_key_id = repo.save_api_key(
+        APIKey(user_id=user_id, name="PurgeKey", key_prefix="otk_purg", key_hash="purgehash")
+    )
+    repo.save_api_key_usage(APIKeyUsageRecord(api_key_id=api_key_id, endpoint="/foo", status_code=200, occurred_at=old))
+
+    deleted = repo.purge_old_audit_history(retention_days=365)
+
+    assert deleted["users_login_history"] == 1
+    assert deleted["users_audit_log"] == 1
+    assert deleted["users_api_key_usage"] == 1
+    assert repo.list_login_history(user_id) == []
+    assert repo.list_audit_log(actor_user_id=user_id) == []
+    assert repo.list_api_key_usage(api_key_id) == []
+
+
+def test_purge_old_audit_history_keeps_rows_within_retention(repo):
+    user_id = repo.save_user(_make_user("purge-recent"))
+    recent = datetime.now(timezone.utc) - timedelta(days=10)
+    repo.save_login_history(
+        LoginHistoryEntry(user_id=user_id, email=_email("purge-recent"), success=True, occurred_at=recent)
+    )
+
+    deleted = repo.purge_old_audit_history(retention_days=365)
+
+    assert deleted["users_login_history"] == 0
+    assert len(repo.list_login_history(user_id)) == 1
+
+
+def test_purge_old_audit_history_uses_configured_default_when_no_argument_given(repo, monkeypatch):
+    import users.repository as repository_module
+
+    monkeypatch.setattr(repository_module, "_DEFAULT_AUDIT_HISTORY_RETENTION_DAYS", 30)
+    user_id = repo.save_user(_make_user("purge-default"))
+    old = datetime.now(timezone.utc) - timedelta(days=40)
+    repo.save_login_history(
+        LoginHistoryEntry(user_id=user_id, email=_email("purge-default"), success=True, occurred_at=old)
+    )
+
+    deleted = repo.purge_old_audit_history()
+
+    assert deleted["users_login_history"] == 1
+
+
 def test_ping(repo):
     assert repo.ping() is True

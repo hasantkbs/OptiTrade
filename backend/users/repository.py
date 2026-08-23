@@ -10,14 +10,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from contextlib import contextmanager
-from typing import Iterator, List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Dict, Iterator, List, Optional
 
 import psycopg2
 import psycopg2.pool
 from psycopg2.extras import RealDictCursor
 
+from core.infra_config import postgres_pool_size_from_env
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from feature_store.config import FeatureStoreConfig
 from users.exceptions import UserPlatformPersistenceError
@@ -48,6 +51,12 @@ logger = logging.getLogger(__name__)
 
 _MODULE = "users.repository"
 _COMPONENT = "users"
+
+# `users_login_history`, `users_audit_log`, and `users_api_key_usage` are
+# each written continuously and never pruned elsewhere. 365 days is a
+# common compliance-friendly audit retention default. See
+# `purge_old_audit_history()`.
+_DEFAULT_AUDIT_HISTORY_RETENTION_DAYS = int(os.getenv("USERS_AUDIT_HISTORY_RETENTION_DAYS", "365"))
 
 _SCHEMA_STATEMENTS = [
     """
@@ -208,7 +217,14 @@ _SCHEMA_STATEMENTS = [
 
 
 class UsersRepository:
-    def __init__(self, config: Optional[FeatureStoreConfig] = None, minconn: int = 1, maxconn: int = 5) -> None:
+    def __init__(
+        self, config: Optional[FeatureStoreConfig] = None,
+        minconn: Optional[int] = None, maxconn: Optional[int] = None,
+    ) -> None:
+        if minconn is None or maxconn is None:
+            env_minconn, env_maxconn = postgres_pool_size_from_env("USERS", 1, 5)
+            minconn = env_minconn if minconn is None else minconn
+            maxconn = env_maxconn if maxconn is None else maxconn
         self._config = config or FeatureStoreConfig.from_env()
         self._pool = psycopg2.pool.ThreadedConnectionPool(
             minconn, maxconn, host=self._config.postgres_host, port=self._config.postgres_port,
@@ -729,6 +745,28 @@ class UsersRepository:
             )
             for row in rows
         ]
+
+    def purge_old_audit_history(self, retention_days: Optional[int] = None) -> Dict[str, int]:
+        """Deletes rows older than the retention window from the three
+        pure audit/usage logs (`users_login_history`, `users_audit_log`,
+        `users_api_key_usage`) - none has a "pending" concept like
+        Continuous Learning's samples do, so age alone is a safe purge
+        criterion. Business/identity tables (`users_users`,
+        `users_sessions`, `users_api_keys`, etc.) are untouched. Returns
+        the number of rows deleted per table."""
+        retention_days = retention_days if retention_days is not None else _DEFAULT_AUDIT_HISTORY_RETENTION_DAYS
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        deleted: Dict[str, int] = {}
+        with self._connection() as conn, conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM users_login_history WHERE occurred_at < %s", (cutoff,))
+            deleted["users_login_history"] = cur.rowcount
+
+            cur.execute("DELETE FROM users_audit_log WHERE occurred_at < %s", (cutoff,))
+            deleted["users_audit_log"] = cur.rowcount
+
+            cur.execute("DELETE FROM users_api_key_usage WHERE occurred_at < %s", (cutoff,))
+            deleted["users_api_key_usage"] = cur.rowcount
+        return deleted
 
     # ── Internals ────────────────────────────────────────────────────────
 

@@ -5,7 +5,7 @@ feature_store.config.FeatureStoreConfig). Every test uses a unique,
 randomly-suffixed test symbol and deletes its own rows in teardown.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -38,17 +38,20 @@ def cleanup(repo, symbol):
         repo._pool.putconn(conn)
 
 
-def _output(symbol: str, decision=Prediction.BUY, confidence=0.7) -> DecisionOutput:
+def _output(symbol: str, decision=Prediction.BUY, confidence=0.7, timestamp=None) -> DecisionOutput:
     vote = EngineVote(
         engine_name="TechnicalEngine", engine_version="v1", prediction=decision,
         confidence=confidence, expected_return=1.5, volatility=2.0, evidence=["RSI oversold"],
     )
+    kwargs = {}
+    if timestamp is not None:
+        kwargs["timestamp"] = timestamp
     return DecisionOutput(
         symbol=symbol, decision=decision, confidence=confidence,
         expected_return=1.5, expected_volatility=2.0,
         aggregation_strategy_version="accuracy_weighted_v1",
         data_sufficiency=1.0, evidence=["TechnicalEngine: RSI oversold"],
-        engine_results=[vote],
+        engine_results=[vote], **kwargs,
     )
 
 
@@ -122,6 +125,38 @@ def test_save_wraps_a_real_database_error_in_executionpersistenceerror(repo, sym
             dbname=repo._config.postgres_db, user=repo._config.postgres_user,
             password=repo._config.postgres_password,
         )
+
+
+def test_purge_old_executions_deletes_rows_past_retention(repo, symbol):
+    old_timestamp = datetime.now(timezone.utc) - timedelta(days=400)
+    repo.save(_output(symbol, timestamp=old_timestamp))
+
+    deleted = repo.purge_old_executions(retention_days=365)
+
+    assert deleted >= 1
+    assert repo.get_recent(symbol) == []
+
+
+def test_purge_old_executions_keeps_rows_within_retention(repo, symbol):
+    recent_timestamp = datetime.now(timezone.utc) - timedelta(days=10)
+    repo.save(_output(symbol, timestamp=recent_timestamp))
+
+    repo.purge_old_executions(retention_days=365)
+
+    assert len(repo.get_recent(symbol)) == 1
+
+
+def test_purge_old_executions_uses_configured_default_when_no_argument_given(repo, symbol, monkeypatch):
+    import decision_engine.repository as repository_module
+
+    monkeypatch.setattr(repository_module, "_DEFAULT_EXECUTION_HISTORY_RETENTION_DAYS", 30)
+    old_timestamp = datetime.now(timezone.utc) - timedelta(days=40)
+    repo.save(_output(symbol, timestamp=old_timestamp))
+
+    deleted = repo.purge_old_executions()
+
+    assert deleted >= 1
+    assert repo.get_recent(symbol) == []
 
 
 def test_get_recent_wraps_a_real_database_error_in_executionpersistenceerror(repo, symbol):

@@ -52,3 +52,15 @@ def redis_socket_timeout_seconds() -> float:
     """Applied as both `socket_timeout` and `socket_connect_timeout` at
     every `redis.Redis(...)` construction site in this backend."""
     return float(os.getenv("REDIS_SOCKET_TIMEOUT_SECONDS", "5"))
+
+
+def postgres_pool_size_from_env(package_prefix: str, default_minconn: int, default_maxconn: int) -> Tuple[int, int]:
+    """(minconn, maxconn) for `package_prefix`'s `ThreadedConnectionPool`
+    (e.g. "USERS", "WATCHLIST") - every production repository previously
+    hardcoded these as Python default parameters with no way to tune pool
+    size without a code change. Falls back to each repository's own
+    existing default (unchanged) when no env var is set, so every current
+    deployment behaves identically until an operator opts in."""
+    minconn = int(os.getenv(f"{package_prefix}_POSTGRES_POOL_MIN", str(default_minconn)))
+    maxconn = int(os.getenv(f"{package_prefix}_POSTGRES_POOL_MAX", str(default_maxconn)))
+    return minconn, maxconn

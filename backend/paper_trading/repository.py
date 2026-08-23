@@ -17,6 +17,7 @@ import psycopg2
 import psycopg2.pool
 from psycopg2.extras import RealDictCursor
 
+from core.infra_config import postgres_pool_size_from_env
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from decision_engine.models import Prediction
 from paper_trading.config import PaperTradingConfig
@@ -132,7 +133,14 @@ _SCHEMA_STATEMENTS = [
 
 
 class PaperTradingRepository:
-    def __init__(self, config: Optional[PaperTradingConfig] = None, minconn: int = 1, maxconn: int = 5) -> None:
+    def __init__(
+        self, config: Optional[PaperTradingConfig] = None,
+        minconn: Optional[int] = None, maxconn: Optional[int] = None,
+    ) -> None:
+        if minconn is None or maxconn is None:
+            env_minconn, env_maxconn = postgres_pool_size_from_env("PAPER_TRADING", 1, 5)
+            minconn = env_minconn if minconn is None else minconn
+            maxconn = env_maxconn if maxconn is None else maxconn
         self._config = config or PaperTradingConfig.from_env()
         self._pool = psycopg2.pool.ThreadedConnectionPool(
             minconn, maxconn, host=self._config.postgres_host, port=self._config.postgres_port,

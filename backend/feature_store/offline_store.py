@@ -23,6 +23,7 @@ from typing import List, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+from core.infra_config import postgres_pool_size_from_env
 from core.postgres_repository_base import PostgresRepositoryBase
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from feature_store.config import FeatureStoreConfig
@@ -60,9 +61,13 @@ class PostgresOfflineStore(PostgresRepositoryBase):
     def __init__(
         self,
         config: Optional[FeatureStoreConfig] = None,
-        minconn: int = 1,
-        maxconn: int = 5,
+        minconn: Optional[int] = None,
+        maxconn: Optional[int] = None,
     ) -> None:
+        if minconn is None or maxconn is None:
+            env_minconn, env_maxconn = postgres_pool_size_from_env("FEATURE_STORE", 1, 5)
+            minconn = env_minconn if minconn is None else minconn
+            maxconn = env_maxconn if maxconn is None else maxconn
         super().__init__(
             schema_statements=[_CREATE_TABLE_SQL, _CREATE_INDEX_SQL],
             config=config,

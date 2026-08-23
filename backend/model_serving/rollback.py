@@ -36,6 +36,7 @@ import psycopg2
 import psycopg2.pool
 from psycopg2.extras import RealDictCursor
 
+from core.infra_config import postgres_pool_size_from_env
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from feature_store.config import FeatureStoreConfig
 from ml_training.models import LabelName, ModelRegistryEntry
@@ -57,7 +58,14 @@ CREATE TABLE IF NOT EXISTS model_serving_rollback_overrides (
 
 
 class RollbackRepository:
-    def __init__(self, config: Optional[FeatureStoreConfig] = None, minconn: int = 1, maxconn: int = 3) -> None:
+    def __init__(
+        self, config: Optional[FeatureStoreConfig] = None,
+        minconn: Optional[int] = None, maxconn: Optional[int] = None,
+    ) -> None:
+        if minconn is None or maxconn is None:
+            env_minconn, env_maxconn = postgres_pool_size_from_env("MODEL_SERVING_ROLLBACK", 1, 3)
+            minconn = env_minconn if minconn is None else minconn
+            maxconn = env_maxconn if maxconn is None else maxconn
         self._config = config or FeatureStoreConfig.from_env()
         self._pool = psycopg2.pool.ThreadedConnectionPool(
             minconn, maxconn, host=self._config.postgres_host, port=self._config.postgres_port,

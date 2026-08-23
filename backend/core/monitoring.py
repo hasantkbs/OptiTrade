@@ -10,6 +10,12 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "moni
 
 logger = logging.getLogger(__name__)
 
+# `predictions` is written once per scan (`log_prediction`), forever - see
+# `purge_old_predictions()`. 365 days comfortably exceeds every existing
+# consumer's lookback (`get_performance_stats`'s largest normal caller is
+# `GET /ml/performance?days=30`).
+PREDICTION_RETENTION_DAYS = int(os.getenv("MONITORING_PREDICTION_RETENTION_DAYS", "365"))
+
 def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
@@ -125,6 +131,35 @@ def validate_predictions():
         return validated_count
     except Exception as e:
         logger.error(f"Tahminler doğrulanırken hata oluştu: {e}")
+        return 0
+    finally:
+        if conn is not None:
+            conn.close()
+
+def purge_old_predictions(retention_days: Optional[int] = None) -> int:
+    """Deletes already-validated prediction rows older than the retention
+    window, so `predictions` (written once per scan/analysis via
+    `log_prediction`, unboundedly, forever) doesn't grow without limit.
+
+    Only rows with `is_correct IS NOT NULL` are eligible - a row still
+    `is_correct IS NULL` is awaiting `validate_predictions()` and must
+    never be deleted before its target_date has even been evaluated,
+    regardless of how old its `timestamp` is."""
+    retention_days = retention_days if retention_days is not None else PREDICTION_RETENTION_DAYS
+    conn = None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cutoff = (datetime.now() - timedelta(days=retention_days)).isoformat()
+        cursor.execute(
+            "DELETE FROM predictions WHERE is_correct IS NOT NULL AND timestamp < ?",
+            (cutoff,),
+        )
+        deleted = cursor.rowcount
+        conn.commit()
+        return deleted
+    except Exception as e:
+        logger.error(f"Eski tahminler temizlenirken hata olustu: {e}")
         return 0
     finally:
         if conn is not None:

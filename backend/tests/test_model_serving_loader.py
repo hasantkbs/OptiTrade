@@ -199,3 +199,75 @@ def test_force_reload_succeeds_when_file_is_unchanged(registry_service, loader, 
 def test_service_defaults_to_real_dependencies():
     loader = ModelLoader()
     assert isinstance(loader.registry_service, ModelRegistryService)
+
+
+def test_default_config_preserves_current_loader_cache_size():
+    assert ModelServingConfig().loader_max_cached_models == 64
+
+
+def test_load_evicts_the_least_recently_used_model_past_capacity(registry_service, cache, artifact_path):
+    bounded_loader = ModelLoader(
+        registry_service=registry_service, cache=cache,
+        config=ModelServingConfig(cache_ttl_seconds=60, loader_max_cached_models=2),
+    )
+    entries = [
+        _entry(f"{_MODEL_ID_PREFIX}-lru-{i}", artifact_path, promotion_state=PromotionState.CANDIDATE)
+        for i in range(3)
+    ]
+    for entry in entries:
+        registry_service.register(entry)
+        bounded_loader.load(entry)
+
+    loaded = bounded_loader.loaded_models()
+    assert len(loaded) == 2
+    assert entries[0].model_id not in loaded  # oldest, evicted first
+    assert entries[1].model_id in loaded
+    assert entries[2].model_id in loaded
+
+
+def test_load_re_accessing_a_model_protects_it_from_eviction(registry_service, cache, artifact_path):
+    bounded_loader = ModelLoader(
+        registry_service=registry_service, cache=cache,
+        config=ModelServingConfig(cache_ttl_seconds=60, loader_max_cached_models=2),
+    )
+    entries = [
+        _entry(f"{_MODEL_ID_PREFIX}-protect-{i}", artifact_path, promotion_state=PromotionState.CANDIDATE)
+        for i in range(3)
+    ]
+    for entry in entries:
+        registry_service.register(entry)
+
+    bounded_loader.load(entries[0])
+    bounded_loader.load(entries[1])
+    bounded_loader.load(entries[0])  # re-access -> now most-recently-used, entries[1] becomes the LRU victim
+    bounded_loader.load(entries[2])
+
+    loaded = bounded_loader.loaded_models()
+    assert len(loaded) == 2
+    assert entries[0].model_id in loaded
+    assert entries[1].model_id not in loaded
+    assert entries[2].model_id in loaded
+
+
+def test_evict_does_not_forget_the_checksum_for_drift_detection(registry_service, cache, artifact_path):
+    """Capacity eviction must preserve the existing tamper-detection
+    contract: a model_id evicted from `_loaded` still has its checksum
+    remembered, so a later reload of the same on-disk-tampered artifact
+    still raises `ChecksumMismatchError` (see `evict()`'s own docstring)."""
+    bounded_loader = ModelLoader(
+        registry_service=registry_service, cache=cache,
+        config=ModelServingConfig(cache_ttl_seconds=60, loader_max_cached_models=1),
+    )
+    victim = _entry(f"{_MODEL_ID_PREFIX}-lru-checksum", artifact_path, promotion_state=PromotionState.CANDIDATE)
+    filler = _entry(f"{_MODEL_ID_PREFIX}-lru-filler", artifact_path, promotion_state=PromotionState.CANDIDATE)
+    registry_service.register(victim)
+    registry_service.register(filler)
+
+    bounded_loader.load(victim)
+    bounded_loader.load(filler)  # capacity 1 -> LRU-evicts victim, but keeps its checksum
+    assert victim.model_id not in bounded_loader.loaded_models()
+
+    with open(artifact_path, "ab") as handle:
+        handle.write(b"tampered-after-eviction")
+    with pytest.raises(ChecksumMismatchError):
+        bounded_loader.load_version_override(victim.model_id)

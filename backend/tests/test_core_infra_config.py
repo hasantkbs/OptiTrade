@@ -9,6 +9,7 @@ precedence every existing caller depends on.
 import pytest
 
 from core.infra_config import (
+    postgres_pool_size_from_env,
     postgres_settings_from_env,
     redis_settings_from_env,
     redis_socket_timeout_seconds,
@@ -64,3 +65,24 @@ def test_redis_socket_timeout_defaults_to_five_seconds(monkeypatch):
 def test_redis_socket_timeout_is_configurable(monkeypatch):
     monkeypatch.setenv("REDIS_SOCKET_TIMEOUT_SECONDS", "2.5")
     assert redis_socket_timeout_seconds() == pytest.approx(2.5)
+
+
+def test_postgres_pool_size_defaults_to_the_callers_own_default_when_unset(monkeypatch):
+    monkeypatch.delenv("FOO_POSTGRES_POOL_MIN", raising=False)
+    monkeypatch.delenv("FOO_POSTGRES_POOL_MAX", raising=False)
+    assert postgres_pool_size_from_env("FOO", 1, 5) == (1, 5)
+    # A different caller's own default (e.g. model_serving/rollback.py's maxconn=3) is preserved too.
+    assert postgres_pool_size_from_env("BAR", 1, 3) == (1, 3)
+
+
+def test_postgres_pool_size_is_configurable_per_package(monkeypatch):
+    monkeypatch.setenv("FOO_POSTGRES_POOL_MIN", "2")
+    monkeypatch.setenv("FOO_POSTGRES_POOL_MAX", "20")
+    assert postgres_pool_size_from_env("FOO", 1, 5) == (2, 20)
+
+
+def test_postgres_pool_size_env_override_does_not_leak_across_packages(monkeypatch):
+    monkeypatch.setenv("FOO_POSTGRES_POOL_MAX", "20")
+    monkeypatch.delenv("BAR_POSTGRES_POOL_MIN", raising=False)
+    monkeypatch.delenv("BAR_POSTGRES_POOL_MAX", raising=False)
+    assert postgres_pool_size_from_env("BAR", 1, 5) == (1, 5)

@@ -14,14 +14,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Iterator, List, Optional
 
 import psycopg2
 import psycopg2.pool
 from psycopg2.extras import RealDictCursor
 
+from core.infra_config import postgres_pool_size_from_env
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from feature_store.config import FeatureStoreConfig
 from watchlist.exceptions import WatchlistPersistenceError
@@ -31,6 +34,10 @@ logger = logging.getLogger(__name__)
 
 _MODULE = "watchlist.repository"
 _COMPONENT = "watchlist"
+
+# `watchlist_alert_trigger_history` is written once per alert fire,
+# forever - see `purge_old_triggers()`.
+_DEFAULT_TRIGGER_HISTORY_RETENTION_DAYS = int(os.getenv("WATCHLIST_TRIGGER_HISTORY_RETENTION_DAYS", "180"))
 
 _CREATE_WATCHLISTS_SQL = """
 CREATE TABLE IF NOT EXISTS watchlist_watchlists (
@@ -102,7 +109,14 @@ CREATE INDEX IF NOT EXISTS ix_watchlist_alert_trigger_history_lookup
 
 
 class WatchlistRepository:
-    def __init__(self, config: Optional[FeatureStoreConfig] = None, minconn: int = 1, maxconn: int = 5) -> None:
+    def __init__(
+        self, config: Optional[FeatureStoreConfig] = None,
+        minconn: Optional[int] = None, maxconn: Optional[int] = None,
+    ) -> None:
+        if minconn is None or maxconn is None:
+            env_minconn, env_maxconn = postgres_pool_size_from_env("WATCHLIST", 1, 5)
+            minconn = env_minconn if minconn is None else minconn
+            maxconn = env_maxconn if maxconn is None else maxconn
         self._config = config or FeatureStoreConfig.from_env()
         self._pool = psycopg2.pool.ThreadedConnectionPool(
             minconn, maxconn, host=self._config.postgres_host, port=self._config.postgres_port,
@@ -332,6 +346,17 @@ class WatchlistRepository:
                 (alert_id, limit),
             )
             return [dict(row) for row in cur.fetchall()]
+
+    def purge_old_triggers(self, retention_days: Optional[int] = None) -> int:
+        """Deletes `watchlist_alert_trigger_history` rows older than the
+        retention window - a pure notification log with no pending
+        state, written once per alert fire, forever. Returns the number
+        of rows deleted."""
+        retention_days = retention_days if retention_days is not None else _DEFAULT_TRIGGER_HISTORY_RETENTION_DAYS
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        with self._connection() as conn, conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM watchlist_alert_trigger_history WHERE triggered_at < %s", (cutoff,))
+            return cur.rowcount
 
     # ── Internals ────────────────────────────────────────────────────────
 

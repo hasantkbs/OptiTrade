@@ -76,6 +76,122 @@ def test_mark_sample_evaluated_updates_fields(repository):
     assert all(p.id != sample_id for p in pending)
 
 
+def test_purge_old_history_deletes_evaluated_samples_past_retention(repository):
+    old = datetime.now(timezone.utc) - timedelta(days=400)
+    sample_id = repository.save_sample(_sample(decided_at=old, horizon=1))
+    repository.mark_sample_evaluated(sample_id, actual_return=1.0, actual_volatility=1.0, correct=True, evaluated_at=old)
+    repository.mark_engine_outcomes_evaluated(
+        sample_id, actual_return=1.0, actual_volatility=1.0,
+        per_engine_correct=[(_ENGINE, "v1", True)], evaluated_at=old,
+    )
+
+    deleted = repository.purge_old_history(retention_days=365)
+
+    assert deleted["learning_samples"] == 1
+    conn = repository._pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM learning_samples WHERE id = %s", (sample_id,))
+            assert cur.fetchone() is None
+            # cascade must have removed the now-orphaned outcome row too.
+            cur.execute("SELECT 1 FROM learning_engine_outcomes WHERE sample_id = %s", (sample_id,))
+            assert cur.fetchone() is None
+    finally:
+        repository._pool.putconn(conn)
+
+
+def test_purge_old_history_keeps_unevaluated_samples_regardless_of_age(repository):
+    old = datetime.now(timezone.utc) - timedelta(days=400)
+    sample_id = repository.save_sample(_sample(decided_at=old, horizon=1))
+
+    deleted = repository.purge_old_history(retention_days=365)
+
+    assert deleted["learning_samples"] == 0
+    conn = repository._pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM learning_samples WHERE id = %s", (sample_id,))
+            assert cur.fetchone() is not None
+    finally:
+        repository._pool.putconn(conn)
+
+
+def test_purge_old_history_keeps_a_sample_evaluated_but_with_a_still_pending_outcome(repository):
+    """A sample flagged evaluated via `mark_sample_evaluated` whose
+    per-engine outcome row has NOT (yet) been flagged via
+    `mark_engine_outcomes_evaluated` must survive purge - the two are
+    separate writes, and purging here would cascade-delete a still-
+    pending outcome row."""
+    old = datetime.now(timezone.utc) - timedelta(days=400)
+    sample_id = repository.save_sample(_sample(decided_at=old, horizon=1))
+    repository.mark_sample_evaluated(sample_id, actual_return=1.0, actual_volatility=1.0, correct=True, evaluated_at=old)
+    # mark_engine_outcomes_evaluated deliberately NOT called.
+
+    deleted = repository.purge_old_history(retention_days=365)
+
+    assert deleted["learning_samples"] == 0
+    conn = repository._pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM learning_samples WHERE id = %s", (sample_id,))
+            assert cur.fetchone() is not None
+    finally:
+        repository._pool.putconn(conn)
+
+
+def test_purge_old_history_deletes_old_accuracy_weight_and_drift_rows(repository):
+    old = datetime.now(timezone.utc) - timedelta(days=400)
+    repository.save_accuracy_metrics(AccuracyMetrics(
+        engine_name=_ENGINE, engine_version="v1", window=RollingWindow.THIRTY_DAY, sample_count=10,
+        accuracy=0.6, precision=0.6, recall=0.6, calibration_error=0.1, confidence_reliability=0.5,
+        expected_return_error=0.5, volatility_error=0.5, computed_at=old,
+    ))
+    repository.save_weight_update(WeightUpdate(
+        engine_name=_ENGINE, engine_version="v1", old_weight=1.0, new_weight=1.2,
+        policy=WeightingPolicy.EXPONENTIAL_DECAY, reason="test", computed_at=old,
+    ))
+    repository.save_drift_signal(DriftSignal(
+        engine_name=_ENGINE, engine_version="v1", drift_type=DriftType.DEGRADING, magnitude=0.1,
+        recent_window=RollingWindow.SEVEN_DAY, baseline_window=RollingWindow.THIRTY_DAY,
+        evidence="test", detected_at=old,
+    ))
+
+    deleted = repository.purge_old_history(retention_days=365)
+
+    assert deleted["learning_accuracy_metrics"] == 1
+    assert deleted["learning_weight_updates"] == 1
+    assert deleted["learning_drift_signals"] == 1
+
+
+def test_purge_old_history_keeps_recent_accuracy_weight_and_drift_rows(repository):
+    recent = datetime.now(timezone.utc) - timedelta(days=5)
+    repository.save_accuracy_metrics(AccuracyMetrics(
+        engine_name=_ENGINE, engine_version="v1", window=RollingWindow.THIRTY_DAY, sample_count=10,
+        accuracy=0.6, precision=0.6, recall=0.6, calibration_error=0.1, confidence_reliability=0.5,
+        expected_return_error=0.5, volatility_error=0.5, computed_at=recent,
+    ))
+
+    deleted = repository.purge_old_history(retention_days=365)
+
+    assert deleted["learning_accuracy_metrics"] == 0
+
+
+def test_purge_old_history_uses_configured_default_when_no_argument_given(repository, monkeypatch):
+    import learning.persistence as persistence_module
+
+    monkeypatch.setattr(persistence_module, "_DEFAULT_HISTORY_RETENTION_DAYS", 30)
+    old = datetime.now(timezone.utc) - timedelta(days=40)
+    repository.save_drift_signal(DriftSignal(
+        engine_name=_ENGINE, engine_version="v1", drift_type=DriftType.DEGRADING, magnitude=0.1,
+        recent_window=RollingWindow.SEVEN_DAY, baseline_window=RollingWindow.THIRTY_DAY,
+        evidence="test", detected_at=old,
+    ))
+
+    deleted = repository.purge_old_history()
+
+    assert deleted["learning_drift_signals"] == 1
+
+
 def test_mark_engine_outcomes_evaluated_updates_per_engine_row(repository):
     sample_id = repository.save_sample(_sample())
     now = datetime.now(timezone.utc)

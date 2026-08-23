@@ -22,15 +22,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterator, List, Optional, Tuple
 
 import psycopg2
 import psycopg2.pool
 from psycopg2.extras import RealDictCursor
 
+from core.infra_config import postgres_pool_size_from_env
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from decision_engine.models import EngineVote
 from feature_store.config import FeatureStoreConfig
@@ -48,6 +50,14 @@ from learning.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Every one of the five tables above is written continuously and never
+# UPDATEd away except to flip `evaluated`/`evaluated_at` - none is
+# pruned anywhere else in this codebase. 365 days comfortably exceeds
+# the largest `RollingWindow` (`NINETY_DAY`, see learning/models.py)
+# any accuracy/weighting/drift computation actually reads. See
+# `LearningRepository.purge_old_history()`.
+_DEFAULT_HISTORY_RETENTION_DAYS = int(os.getenv("LEARNING_HISTORY_RETENTION_DAYS", "365"))
 
 _CREATE_SAMPLES_SQL = """
 CREATE TABLE IF NOT EXISTS learning_samples (
@@ -175,9 +185,13 @@ class LearningRepository:
     def __init__(
         self,
         config: Optional[FeatureStoreConfig] = None,
-        minconn: int = 1,
-        maxconn: int = 5,
+        minconn: Optional[int] = None,
+        maxconn: Optional[int] = None,
     ) -> None:
+        if minconn is None or maxconn is None:
+            env_minconn, env_maxconn = postgres_pool_size_from_env("LEARNING", 1, 5)
+            minconn = env_minconn if minconn is None else minconn
+            maxconn = env_maxconn if maxconn is None else maxconn
         self._config = config or FeatureStoreConfig.from_env()
         self._pool = psycopg2.pool.ThreadedConnectionPool(
             minconn,
@@ -553,6 +567,56 @@ class LearningRepository:
             )
             for row in rows
         ]
+
+    # ── Retention ────────────────────────────────────────────────────────
+
+    def purge_old_history(self, retention_days: Optional[int] = None) -> Dict[str, int]:
+        """Deletes rows older than the retention window from all five
+        tables. Returns the number of rows deleted per table.
+
+        `learning_samples` only purges rows already marked `evaluated`,
+        and only when none of their `learning_engine_outcomes` rows are
+        still pending evaluation - `mark_sample_evaluated` and
+        `mark_engine_outcomes_evaluated` are two separate writes (not one
+        transaction), so a sample can in principle be flagged evaluated
+        while one of its per-engine outcome rows is not yet. Deleting such
+        a sample would `ON DELETE CASCADE` its still-pending outcome row.
+        `learning_engine_outcomes` itself is never purged directly - every
+        outcome row disappears via that cascade when its parent sample is
+        purged, so it is never orphaned from (or purged ahead of) its
+        sample. `learning_accuracy_metrics`, `learning_weight_updates`,
+        and `learning_drift_signals` are pure historical snapshots with no
+        pending state, so they purge by age alone."""
+        retention_days = retention_days if retention_days is not None else _DEFAULT_HISTORY_RETENTION_DAYS
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        started_at = time.perf_counter()
+        deleted: Dict[str, int] = {}
+        try:
+            with self._connection() as conn, conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM learning_samples
+                    WHERE evaluated = TRUE
+                      AND decided_at < %s
+                      AND id NOT IN (SELECT sample_id FROM learning_engine_outcomes WHERE evaluated = FALSE)
+                    """,
+                    (cutoff,),
+                )
+                deleted["learning_samples"] = cur.rowcount
+
+                cur.execute("DELETE FROM learning_accuracy_metrics WHERE computed_at < %s", (cutoff,))
+                deleted["learning_accuracy_metrics"] = cur.rowcount
+
+                cur.execute("DELETE FROM learning_weight_updates WHERE computed_at < %s", (cutoff,))
+                deleted["learning_weight_updates"] = cur.rowcount
+
+                cur.execute("DELETE FROM learning_drift_signals WHERE detected_at < %s", (cutoff,))
+                deleted["learning_drift_signals"] = cur.rowcount
+        except psycopg2.Error as exc:
+            self._log_error("purge_old_history", exc, started_at)
+            raise LearningPersistenceError(f"failed to purge learning history: {exc}") from exc
+        self._log_success("purge_old_history", started_at, retention_days=retention_days, **deleted)
+        return deleted
 
     # ── Misc ─────────────────────────────────────────────────────────────
 
