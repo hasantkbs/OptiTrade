@@ -16,7 +16,7 @@ from feature_store.service import FeatureStoreService
 from learning.scheduler import LearningCycleResult
 from learning.service import LearningService
 from ml_training.config import MLTrainingConfig
-from ml_training.exceptions import InvalidPromotionError
+from ml_training.exceptions import InsufficientFeatureCoverageError, InvalidPromotionError
 from ml_training.features.extractor import FeatureExtractor
 from ml_training.models import LabelName, ModelAlgorithm, ModelRegistryEntry, PromotionState, TaskType
 from ml_training.registry.repository import ModelRegistryRepository
@@ -94,6 +94,83 @@ def test_adapter_satisfies_voting_engine_protocol(feature_store):
         feature_extractor=FeatureExtractor(feature_store=feature_store),
     )
     assert isinstance(adapter, VotingEngineProtocol)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# adapter.py — feature coverage guard (production audit: a mostly-missing
+# feature vector must not silently vote on fabricated zeros)
+# ─────────────────────────────────────────────────────────────────────────
+
+_COVERAGE_FEATURE_NAMES = ["c0", "c1", "c2", "c3"]
+_COVERAGE_SYMBOL = "MLSHADOWCOVERAGETEST"
+
+
+def _fitted_trainer_for(feature_names):
+    rng = np.random.RandomState(0)
+    X = rng.rand(200, len(feature_names))
+    y = np.where(X[:, 0] > 0.6, "BUY", np.where(X[:, 0] < 0.4, "SELL", "HOLD"))
+    trainer = create_trainer(ModelAlgorithm.RANDOM_FOREST, TaskType.CLASSIFICATION, feature_names, {"n_estimators": 20})
+    trainer.fit(X, y)
+    return trainer
+
+
+@pytest.fixture
+def partial_feature_store():
+    """Writes only c0/c1 (2 of the 4 trained features) - 50% coverage,
+    below the default 70% threshold."""
+    fs = FeatureStoreService()
+    fs.write_feature(FeatureValue(symbol=_COVERAGE_SYMBOL, feature_name="c0", value=0.5))
+    fs.write_feature(FeatureValue(symbol=_COVERAGE_SYMBOL, feature_name="c1", value=0.5))
+    yield fs
+    conn = fs.offline_store._pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM feature_store_records WHERE symbol = %s", (_COVERAGE_SYMBOL,))
+    finally:
+        fs.offline_store._pool.putconn(conn)
+    for name in _COVERAGE_FEATURE_NAMES:
+        fs.online_store._client.delete(f"feature_store:{_COVERAGE_SYMBOL}:{name}")
+
+
+def test_adapter_vote_raises_when_feature_coverage_is_below_threshold(partial_feature_store):
+    trainer = _fitted_trainer_for(_COVERAGE_FEATURE_NAMES)
+    adapter = MLModelVotingEngineAdapter(
+        "coverage-test-below", "v1", trainer, _COVERAGE_FEATURE_NAMES,
+        feature_extractor=FeatureExtractor(feature_store=partial_feature_store),
+    )
+    with pytest.raises(InsufficientFeatureCoverageError, match="2/4"):
+        adapter.vote(_COVERAGE_SYMBOL)
+
+
+def test_adapter_vote_tolerates_one_missing_feature_within_threshold(partial_feature_store):
+    """3 of 4 features present = 75% >= the default 70% threshold - the
+    single missing feature still degrades to 0.0 (unchanged behavior),
+    it just doesn't trip the guard."""
+    partial_feature_store.write_feature(FeatureValue(symbol=_COVERAGE_SYMBOL, feature_name="c2", value=0.5))
+    trainer = _fitted_trainer_for(_COVERAGE_FEATURE_NAMES)
+    adapter = MLModelVotingEngineAdapter(
+        "coverage-test-within", "v1", trainer, _COVERAGE_FEATURE_NAMES,
+        feature_extractor=FeatureExtractor(feature_store=partial_feature_store),
+    )
+    vote = adapter.vote(_COVERAGE_SYMBOL)
+    assert vote.prediction in {Prediction.BUY, Prediction.HOLD, Prediction.SELL}
+
+
+def test_adapter_vote_coverage_threshold_is_configurable(partial_feature_store):
+    """The same 50%-coverage vector that raises under the default 0.7
+    threshold must succeed once the threshold is lowered below 0.5."""
+    trainer = _fitted_trainer_for(_COVERAGE_FEATURE_NAMES)
+    adapter = MLModelVotingEngineAdapter(
+        "coverage-test-configurable", "v1", trainer, _COVERAGE_FEATURE_NAMES,
+        feature_extractor=FeatureExtractor(feature_store=partial_feature_store),
+        config=MLTrainingConfig(min_feature_coverage_ratio=0.4),
+    )
+    vote = adapter.vote(_COVERAGE_SYMBOL)
+    assert vote.prediction in {Prediction.BUY, Prediction.HOLD, Prediction.SELL}
+
+
+def test_adapter_default_config_preserves_current_coverage_threshold():
+    assert MLTrainingConfig().min_feature_coverage_ratio == 0.7
 
 
 # ─────────────────────────────────────────────────────────────────────────

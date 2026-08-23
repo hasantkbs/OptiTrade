@@ -27,9 +27,10 @@ from typing import List, Optional
 
 import numpy as np
 
-from core.structured_logging import STATUS_SUCCESS, log_event
+from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from decision_engine.models import EngineVote, Prediction
 from ml_training.config import MLTrainingConfig
+from ml_training.exceptions import InsufficientFeatureCoverageError
 from ml_training.features.extractor import FeatureExtractor
 from ml_training.training.base import BaseTrainer
 
@@ -66,6 +67,7 @@ class MLModelVotingEngineAdapter:
 
     def vote(self, symbol: str) -> EngineVote:
         feature_vector = self.feature_extractor.extract(symbol)
+        self._check_feature_coverage(symbol, feature_vector.values)
         X = np.array([[feature_vector.values.get(name, 0.0) for name in self.feature_names]])
 
         proba = self.trainer.predict_proba(X)[0]
@@ -95,3 +97,27 @@ class MLModelVotingEngineAdapter:
             confidence=confidence,
         )
         return vote
+
+    def _check_feature_coverage(self, symbol: str, values: dict) -> None:
+        """Guards against silently voting on a feature vector that is
+        mostly `.get(name, 0.0)`-fabricated zeros (see
+        `MLTrainingConfig.min_feature_coverage_ratio`'s docstring). An
+        individually-missing feature or two still degrades gracefully -
+        only a vector where too FEW of the model's trained features are
+        actually present raises."""
+        if not self.feature_names:
+            return
+        present = sum(1 for name in self.feature_names if name in values)
+        coverage = present / len(self.feature_names)
+        if coverage < self.config.min_feature_coverage_ratio:
+            log_event(
+                logger, component="ml_training", module="ml_training.shadow.adapter",
+                operation="feature_coverage_check", status=STATUS_ERROR, model_id=self.model_id,
+                symbol=symbol, present=present, expected=len(self.feature_names), coverage=coverage,
+                level=logging.WARNING,
+            )
+            raise InsufficientFeatureCoverageError(
+                f"model {self.model_id!r}: only {present}/{len(self.feature_names)} "
+                f"({coverage:.0%}) of the trained features are available for {symbol!r} "
+                f"- below the required {self.config.min_feature_coverage_ratio:.0%} coverage"
+            )

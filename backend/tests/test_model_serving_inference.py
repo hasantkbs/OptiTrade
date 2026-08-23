@@ -13,6 +13,7 @@ from feature_store.service import FeatureStoreService
 from ml_training.features.extractor import FeatureExtractor
 from ml_training.models import LabelName, ModelAlgorithm, ModelRegistryEntry, PromotionState, TaskType
 from ml_training.training.service import create_trainer
+from model_serving.exceptions import InsufficientFeatureDataError
 from model_serving.inference import InferenceEngine
 from model_serving.loader import LoadedModel
 
@@ -99,6 +100,17 @@ def test_predict_async_returns_a_valid_vote(engine, loaded_model):
 def test_predict_batch_async_returns_one_vote_per_symbol(engine, loaded_model):
     votes = asyncio.run(engine.predict_batch_async(loaded_model, _SYMBOLS))
     assert len(votes) == len(_SYMBOLS)
+
+
+def test_predict_one_raises_model_serving_error_when_features_are_missing(engine, loaded_model):
+    """A symbol with none of the model's trained features in the
+    Feature Store (e.g. never scanned, or a Feature Store outage) must
+    raise a `model_serving.exceptions.ModelServingError` subclass - not
+    a bare `ml_training` exception (main.py is forbidden from importing
+    `ml_training`, see tests/test_research_isolation.py), and not
+    silently vote on fabricated zeros."""
+    with pytest.raises(InsufficientFeatureDataError):
+        engine.predict_one(loaded_model, "MSVCINF-NO-FEATURES")
 
 
 def test_service_defaults_to_real_dependencies():

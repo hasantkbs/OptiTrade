@@ -29,9 +29,11 @@ from typing import Dict, List, Optional
 
 from decision_engine.models import EngineVote
 from ml_training.config import MLTrainingConfig
+from ml_training.exceptions import InsufficientFeatureCoverageError
 from ml_training.features.extractor import FeatureExtractor
 from ml_training.shadow.adapter import MLModelVotingEngineAdapter
 from model_serving.config import ModelServingConfig
+from model_serving.exceptions import InsufficientFeatureDataError
 from model_serving.loader import LoadedModel
 
 
@@ -71,7 +73,14 @@ class InferenceEngine:
         return adapter
 
     def predict_one(self, loaded_model: LoadedModel, symbol: str) -> EngineVote:
-        return self.adapter_for(loaded_model).vote(symbol)
+        try:
+            return self.adapter_for(loaded_model).vote(symbol)
+        except InsufficientFeatureCoverageError as exc:
+            # `ml_training`-internal exception -> a `model_serving.exceptions.
+            # ModelServingError` subclass, so callers (e.g. main.py's
+            # `/quant/predict`) can catch it without importing `ml_training`
+            # themselves (see tests/test_research_isolation.py).
+            raise InsufficientFeatureDataError(str(exc)) from exc
 
     def predict_batch(self, loaded_model: LoadedModel, symbols: List[str]) -> List[EngineVote]:
         adapter = self.adapter_for(loaded_model)

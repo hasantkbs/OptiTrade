@@ -31,3 +31,14 @@ class InvalidModelMetadataError(ModelServingError):
 class InvalidRollbackError(ModelServingError):
     """Raised when a rollback is attempted without a human approver, or
     to a model_id that isn't a valid, existing registry entry."""
+
+
+class InsufficientFeatureDataError(ModelServingError):
+    """Raised when too few of a model's trained features are available
+    in the live Feature Store for the requested symbol to trust a
+    prediction (e.g. a symbol the Feature Store hasn't warmed up yet).
+    Wraps `ml_training.exceptions.InsufficientFeatureCoverageError` -
+    `model_serving` is the only production package allowed to import
+    `ml_training` (see tests/test_research_isolation.py), so this gives
+    `main.py` a `ModelServingError` subclass to catch without importing
+    `ml_training` itself."""

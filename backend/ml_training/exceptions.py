@@ -29,3 +29,12 @@ class UnknownAlgorithmError(MLTrainingError):
 class InvalidPromotionError(MLTrainingError):
     """Raised when a model registry promotion transition is not
     allowed, or is attempted without a human approver."""
+
+
+class InsufficientFeatureCoverageError(MLTrainingError):
+    """Raised at inference time when too few of a model's trained
+    `feature_list` names are present in the live Feature Store for a
+    symbol (below `MLTrainingConfig.min_feature_coverage_ratio`) - e.g.
+    a symbol the Feature Store hasn't warmed up yet, or a broad Feature
+    Store outage. Prevents silently voting on a feature vector that is
+    mostly fabricated zeros."""

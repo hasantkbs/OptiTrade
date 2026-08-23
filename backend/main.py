@@ -38,7 +38,7 @@ from api.v1.router import api_v1_router
 from core.rate_limiter import limiter
 from pipeline import PipelineResponse, PipelineService, QuantAnalysisRequest
 from model_serving import MLPredictionRequest, MLPredictionResult, ServingHealthReport
-from model_serving.exceptions import ModelServingError, NoActiveModelError
+from model_serving.exceptions import InsufficientFeatureDataError, ModelServingError, NoActiveModelError
 from portfolio import (
     PortfolioDashboardService,
     PortfolioOptimizationService,
@@ -1165,6 +1165,8 @@ async def quant_predict(
         )
     except NoActiveModelError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except InsufficientFeatureDataError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except ModelServingError as e:
         logger.error(f"Model serving hatasi ({body.symbol}): {e}")
         raise HTTPException(status_code=500, detail=f"{body.symbol} icin ML tahmini yapilamadi.")

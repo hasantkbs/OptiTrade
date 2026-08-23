@@ -59,6 +59,21 @@ class MLTrainingConfig:
     expected_return_scale_pct: float = 10.0
     default_expected_volatility_pct: float = 15.0
 
+    # A model's `feature_list` (the exact ordered features it was
+    # trained on) is looked up by name in the live Feature Store at
+    # inference time; any name not found there silently defaults to
+    # 0.0 (see `ml_training.shadow.adapter.MLModelVotingEngineAdapter`).
+    # 0.0 is a real, meaningful value for many features (e.g. an RSI of
+    # 0.0 means "extremely oversold", not "unknown") - a handful of
+    # individually-missing features already degrading gracefully to
+    # 0.0 is accepted (matches training's own `.get(name, 0.0)` in
+    # `ml_training.service._samples_to_arrays`, so it's not a train/
+    # serve mismatch), but a vector where MOST of the model's features
+    # are missing (e.g. a symbol the Feature Store hasn't warmed up
+    # yet, or a broad Feature Store outage) must not be allowed to
+    # silently produce a confident-looking vote from fabricated zeros.
+    min_feature_coverage_ratio: float = 0.7
+
     @classmethod
     def from_env(cls) -> "MLTrainingConfig":
         load_dotenv()
@@ -91,4 +106,5 @@ class MLTrainingConfig:
             default_expected_volatility_pct=float(
                 os.getenv("ML_TRAINING_DEFAULT_EXPECTED_VOLATILITY_PCT", "15.0")
             ),
+            min_feature_coverage_ratio=float(os.getenv("ML_TRAINING_MIN_FEATURE_COVERAGE_RATIO", "0.7")),
         )
