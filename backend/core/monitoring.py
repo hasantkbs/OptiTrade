@@ -3,7 +3,7 @@ import os
 from datetime import datetime, timedelta
 import logging
 import yfinance as yf
-from typing import List, Dict, Optional
+from typing import Dict, Optional
 
 # Veritabanı yolu
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "monitoring.db")
@@ -50,23 +50,6 @@ def init_db():
     
     conn.commit()
     conn.close()
-
-def log_prediction(symbol: str, score: int, decision_code: str, price: float, window_days: int = 5):
-    """Bir analizi veritabanına kaydeder."""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        target_date = datetime.now() + timedelta(days=window_days)
-        
-        cursor.execute("""
-            INSERT INTO predictions (symbol, score, decision_code, price_at_prediction, target_date, prediction_window_days)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (symbol, score, decision_code, price, target_date.isoformat(), window_days))
-        
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Tahmin kaydedilirken hata oluştu: {e}")
 
 def validate_predictions():
     """Vadesi dolmuş tahminleri kontrol eder ve sonuçları günceller.

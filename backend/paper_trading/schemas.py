@@ -81,21 +81,6 @@ class OrderResponse(_ResponseModel):
     notes: str
 
 
-class FillResponse(_ResponseModel):
-    id: int
-    order_id: int
-    account_id: int
-    symbol: str
-    side: OrderSide
-    quantity: float
-    price: float
-    slippage: float
-    spread_cost: float
-    commission: float
-    tax: float
-    executed_at: datetime
-
-
 # ── Trade journal ────────────────────────────────────────────────────────
 
 class UpdateJournalNotesRequest(BaseModel):

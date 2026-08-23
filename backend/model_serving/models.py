@@ -42,23 +42,6 @@ class MLPredictionRequest(BaseModel):
     horizon_days: int = Field(default=1, gt=0)
 
 
-class LoadedModelInfo(_ModelIdBase):
-    """Metadata about one currently in-process-loaded model - the
-    Model Cache's payload (see `cache.py`) and the Model Loader's own
-    bookkeeping (see `loader.py`)."""
-
-    model_id: str
-    algorithm: ModelAlgorithm
-    label_name: LabelName
-    horizon_days: int = Field(..., gt=0)
-    engine_name: str
-    engine_version: str
-    promotion_state: PromotionState
-    checksum: str
-    is_calibrated: bool
-    loaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-
 class PredictionMetadata(_ModelIdBase):
     """Everything about *which* model produced a prediction and how -
     the "metadata" half of the Prediction Service's contract."""
