@@ -26,6 +26,7 @@ import psycopg2.pool
 from psycopg2.extras import RealDictCursor
 
 from core.infra_config import postgres_pool_size_from_env
+from core.infra_config import postgres_connect_timeout_seconds
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from feature_store.config import FeatureStoreConfig
 from portfolio.exceptions import PortfolioNotFoundError, PortfolioPersistenceError
@@ -103,6 +104,7 @@ class PortfolioRepository:
         self._pool = psycopg2.pool.ThreadedConnectionPool(
             minconn, maxconn, host=self._config.postgres_host, port=self._config.postgres_port,
             dbname=self._config.postgres_db, user=self._config.postgres_user, password=self._config.postgres_password,
+            connect_timeout=postgres_connect_timeout_seconds(),
         )
         with self._connection() as conn, conn, conn.cursor() as cur:
             cur.execute(_CREATE_PORTFOLIOS_SQL)

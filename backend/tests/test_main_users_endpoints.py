@@ -83,6 +83,20 @@ def test_me_requires_authentication(client, cleanup):
     assert client.get("/users/me", headers={"Authorization": "Bearer garbage"}).status_code == 401
 
 
+def test_me_rejects_a_malformed_token_without_leaking_the_underlying_library_error(client, cleanup):
+    """E2E regression (API contract audit): a token with dot-separated
+    segments but undecodable base64 content used to surface jose's raw
+    "'utf-8' codec can't decode byte ..." exception text verbatim in the
+    401 response body - an internal-implementation leak. Every invalid-
+    token case must return the same clean, generic message."""
+    r = client.get("/users/me", headers={"Authorization": "Bearer garbage.not.a.jwt"})
+    assert r.status_code == 401
+    detail = r.json()["detail"]
+    assert detail == "invalid or expired access token"
+    assert "codec" not in detail
+    assert "utf-8" not in detail.lower()
+
+
 def test_refresh_and_logout(client, cleanup):
     tokens, headers = _register_and_login(client, "refresh")
     r = client.post("/auth/refresh", json={"refresh_token": tokens["refresh_token"]})

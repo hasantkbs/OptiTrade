@@ -57,6 +57,8 @@ class PostgresRepositoryBase:
         # module involved has already finished loading.
         from feature_store.config import FeatureStoreConfig
 
+        from core.infra_config import postgres_connect_timeout_seconds
+
         self._config = config or FeatureStoreConfig.from_env()
         self._pool = psycopg2.pool.ThreadedConnectionPool(
             minconn,
@@ -66,6 +68,7 @@ class PostgresRepositoryBase:
             dbname=self._config.postgres_db,
             user=self._config.postgres_user,
             password=self._config.postgres_password,
+            connect_timeout=postgres_connect_timeout_seconds(),
         )
         self._schema_statements = schema_statements
         self._init_schema()

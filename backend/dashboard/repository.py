@@ -36,6 +36,7 @@ import psycopg2
 import psycopg2.pool
 from psycopg2.extras import RealDictCursor
 
+from core.infra_config import postgres_connect_timeout_seconds
 from dashboard.config import DashboardConfig
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ class DashboardRepository:
         self._pool = psycopg2.pool.ThreadedConnectionPool(
             minconn, maxconn, host=self._config.postgres_host, port=self._config.postgres_port,
             dbname=self._config.postgres_db, user=self._config.postgres_user, password=self._config.postgres_password,
+            connect_timeout=postgres_connect_timeout_seconds(),
         )
 
     @contextmanager

@@ -16,7 +16,7 @@ from typing import Optional
 
 import redis
 
-from core.infra_config import redis_socket_timeout_seconds
+from core.infra_config import redis_retry_disabled, redis_socket_timeout_seconds
 from core.structured_logging import STATUS_ERROR, log_event
 from users.config import UsersConfig
 from users.models import Session
@@ -46,6 +46,7 @@ class SessionService:
             host=self._config.redis_host, port=self._config.redis_port,
             db=self._config.redis_db, decode_responses=True,
             socket_timeout=timeout, socket_connect_timeout=timeout,
+            retry=redis_retry_disabled(), retry_on_error=[],
         )
 
     def get_active_session(self, refresh_token: str) -> Optional[Session]:

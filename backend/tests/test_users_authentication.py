@@ -122,6 +122,32 @@ def test_decode_access_token_rejects_garbage():
         decode_access_token("not-a-jwt")
 
 
+def test_decode_access_token_error_message_never_leaks_the_underlying_library_exception():
+    """API contract audit: a token with dot-separated segments but
+    undecodable base64 content (e.g. a client sending a truncated/
+    corrupted Authorization header) makes `jose.jwt.decode` raise a
+    JWTError whose own message leaks a raw codec failure - e.g.
+    "Invalid header string: 'utf-8' codec can't decode byte 0x81 in
+    position 0: invalid start byte". That must never reach an API
+    caller verbatim; every decode failure gets the same fixed, generic
+    message (see decode_access_token's docstring)."""
+    with pytest.raises(InvalidTokenError) as exc_info:
+        decode_access_token("garbage.not.a.jwt")
+    message = str(exc_info.value)
+    assert message == "invalid or expired access token"
+    assert "codec" not in message
+    assert "utf-8" not in message.lower()
+
+
+def test_decode_access_token_error_message_is_consistent_for_expired_tokens():
+    config = UsersConfig(access_token_expires_seconds=1)
+    token = create_access_token(7, config)
+    time.sleep(2.5)
+    with pytest.raises(InvalidTokenError) as exc_info:
+        decode_access_token(token, config)
+    assert str(exc_info.value) == "invalid or expired access token"
+
+
 def test_decode_access_token_rejects_wrong_secret():
     config_a = UsersConfig(jwt_secret="secret-a")
     config_b = UsersConfig(jwt_secret="secret-b")

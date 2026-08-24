@@ -2,7 +2,17 @@
 Tests proving every `redis.Redis(...)` construction site in this
 backend now sets an explicit, operator-configurable socket timeout
 (production audit LOW batch: "Add/verify Redis operation timeouts
-where absent").
+where absent") AND disables redis-py's own default retry policy
+(production audit E2E chaos test: redis-py's `Redis()` default retries
+a failed connection up to 10 times with exponential+jitter backoff on
+`ConnectionError`/`TimeoutError` - verified live, a connection-refused
+failure a raw socket detects in under a millisecond took ~3.9 seconds
+through a client that only set socket_timeout/socket_connect_timeout,
+because the retry loop - not the timeout - was governing how long a
+caller actually waited. Every one of these sites already degrades
+gracefully on a Redis failure; that only matters if the failure is
+detected fast, which is what disabling retries actually guarantees.
+See core/infra_config.py::redis_retry_disabled()'s docstring.
 
 Each test sets REDIS_SOCKET_TIMEOUT_SECONDS to a value (2.5) that does
 not coincide with any library-level default, so a passing test proves
@@ -28,6 +38,10 @@ def _assert_has_the_configured_socket_timeout(client) -> None:
     kwargs = client.connection_pool.connection_kwargs
     assert kwargs.get("socket_timeout") == _CONFIGURED_TIMEOUT
     assert kwargs.get("socket_connect_timeout") == _CONFIGURED_TIMEOUT
+    retry = kwargs.get("retry")
+    assert retry is not None, "client must pass retry=redis_retry_disabled() explicitly"
+    assert retry._retries == 0
+    assert kwargs.get("retry_on_error") == []
 
 
 def test_feature_store_online_store_client_has_the_configured_socket_timeout():
@@ -79,3 +93,26 @@ def test_default_socket_timeout_is_five_seconds_when_unconfigured(monkeypatch):
     kwargs = PriceService()._client.connection_pool.connection_kwargs
     assert kwargs.get("socket_timeout") == 5.0
     assert kwargs.get("socket_connect_timeout") == 5.0
+    assert kwargs.get("retry")._retries == 0
+    assert kwargs.get("retry_on_error") == []
+
+
+def test_a_connection_refused_redis_failure_is_detected_in_under_a_second():
+    """The actual chaos-test proof, not just a config-shape check: point
+    a real client at a port nothing listens on and confirm the failure
+    surfaces near-instantly (bounded by the OS-level connection-refused
+    response), not after redis-py's default multi-attempt backoff loop."""
+    import time
+
+    import redis
+
+    from core.infra_config import redis_retry_disabled
+
+    client = redis.Redis(
+        host="localhost", port=1, socket_timeout=1, socket_connect_timeout=1, decode_responses=True,
+        retry=redis_retry_disabled(), retry_on_error=[],
+    )
+    started_at = time.perf_counter()
+    with pytest.raises(redis.exceptions.ConnectionError):
+        client.get("x")
+    assert time.perf_counter() - started_at < 1.0

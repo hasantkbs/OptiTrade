@@ -23,6 +23,7 @@ from typing import Iterator, List, Optional
 import psycopg2
 import psycopg2.pool
 
+from core.infra_config import postgres_connect_timeout_seconds
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from feature_store.config import FeatureStoreConfig
 from research_lab.exceptions import ResearchLabPersistenceError
@@ -52,6 +53,7 @@ class PostgresRepositoryBase:
             dbname=self._config.postgres_db,
             user=self._config.postgres_user,
             password=self._config.postgres_password,
+            connect_timeout=postgres_connect_timeout_seconds(),
         )
         self._init_schema(schema_statements)
 

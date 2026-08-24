@@ -23,7 +23,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import redis
 
-from core.infra_config import redis_socket_timeout_seconds
+from core.infra_config import redis_retry_disabled, redis_socket_timeout_seconds
 from core.sector_intelligence import SECTOR_DEFINITIONS
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from engines.news.engine import NewsEngine
@@ -60,6 +60,7 @@ class NewsAlertEvaluator:
         self._redis_client = redis_client or redis.Redis(
             host=self.config.redis_host, port=self.config.redis_port, db=self.config.redis_db,
             decode_responses=True, socket_timeout=timeout, socket_connect_timeout=timeout,
+            retry=redis_retry_disabled(), retry_on_error=[],
         )
 
     def _analyze(self, symbol: str) -> NewsAnalysisResult:

@@ -90,11 +90,21 @@ def create_access_token(user_id: int, config: Optional[UsersConfig] = None) -> s
 
 
 def decode_access_token(token: str, config: Optional[UsersConfig] = None) -> int:
+    """Raises `InvalidTokenError` with a fixed, generic message for every
+    JWT decode failure - never `str(exc)` (API contract audit: `jose`'s
+    own exception text varies wildly by failure mode, from the clean
+    "Signature has expired." to internal-implementation-leaking text
+    like "Invalid header string: 'utf-8' codec can't decode byte 0x81
+    ..." for a malformed/garbage token. main.py's `_get_current_user`
+    surfaces this message verbatim as the 401 response body, so every
+    caller - including an iOS client - must see one consistent,
+    non-leaking message regardless of which way the token was
+    invalid."""
     config = config or UsersConfig.from_env()
     try:
         payload = jwt.decode(token, config.jwt_secret, algorithms=[config.jwt_algorithm])
     except JWTError as exc:
-        raise InvalidTokenError(f"invalid access token: {exc}") from exc
+        raise InvalidTokenError("invalid or expired access token") from exc
     if payload.get("type") != "access":
         raise InvalidTokenError("not an access token")
     try:

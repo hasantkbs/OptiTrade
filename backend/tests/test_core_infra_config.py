@@ -9,8 +9,10 @@ precedence every existing caller depends on.
 import pytest
 
 from core.infra_config import (
+    postgres_connect_timeout_seconds,
     postgres_pool_size_from_env,
     postgres_settings_from_env,
+    redis_retry_disabled,
     redis_settings_from_env,
     redis_socket_timeout_seconds,
 )
@@ -86,3 +88,25 @@ def test_postgres_pool_size_env_override_does_not_leak_across_packages(monkeypat
     monkeypatch.delenv("BAR_POSTGRES_POOL_MIN", raising=False)
     monkeypatch.delenv("BAR_POSTGRES_POOL_MAX", raising=False)
     assert postgres_pool_size_from_env("BAR", 1, 5) == (1, 5)
+
+
+def test_redis_retry_disabled_has_zero_retries():
+    retry = redis_retry_disabled()
+    assert retry._retries == 0
+
+
+def test_redis_retry_disabled_returns_a_fresh_instance_each_call():
+    """Not shared/cached across callers - each redis.Redis(...)
+    construction site gets its own Retry object (see the function's
+    own docstring for why)."""
+    assert redis_retry_disabled() is not redis_retry_disabled()
+
+
+def test_postgres_connect_timeout_defaults_to_five_seconds(monkeypatch):
+    monkeypatch.delenv("POSTGRES_CONNECT_TIMEOUT_SECONDS", raising=False)
+    assert postgres_connect_timeout_seconds() == 5
+
+
+def test_postgres_connect_timeout_is_configurable(monkeypatch):
+    monkeypatch.setenv("POSTGRES_CONNECT_TIMEOUT_SECONDS", "2")
+    assert postgres_connect_timeout_seconds() == 2

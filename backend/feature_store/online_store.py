@@ -25,7 +25,7 @@ from typing import Optional
 
 import redis
 
-from core.infra_config import redis_socket_timeout_seconds
+from core.infra_config import redis_retry_disabled, redis_socket_timeout_seconds
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from feature_store.config import FeatureStoreConfig
 from feature_store.models import FeatureRecord
@@ -56,6 +56,8 @@ class RedisOnlineStore:
             decode_responses=True,
             socket_timeout=timeout,
             socket_connect_timeout=timeout,
+            retry=redis_retry_disabled(),
+            retry_on_error=[],
         )
 
     def get_latest(self, symbol: str, feature_name: str) -> Optional[FeatureRecord]:

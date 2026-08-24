@@ -20,7 +20,7 @@ from typing import Callable, Dict, List, Optional
 import pandas as pd
 import redis
 
-from core.infra_config import redis_socket_timeout_seconds
+from core.infra_config import redis_retry_disabled, redis_socket_timeout_seconds
 from core.structured_logging import STATUS_ERROR, STATUS_SUCCESS, log_event
 from data.fetcher import fetch_history, fetch_price_history_range
 from portfolio.config import PortfolioConfig
@@ -45,6 +45,7 @@ class PriceService:
             host=self.config.redis_host, port=self.config.redis_port,
             db=self.config.redis_db, decode_responses=True,
             socket_timeout=timeout, socket_connect_timeout=timeout,
+            retry=redis_retry_disabled(), retry_on_error=[],
         )
         self._current_price_fetcher = current_price_fetcher or fetch_history
         self._history_fetcher = history_fetcher or fetch_price_history_range
