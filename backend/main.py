@@ -619,6 +619,36 @@ async def verify_firebase_token(
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Gecersiz token: {e}")
 
+
+async def _verify_jwt_or_firebase_token(
+    authorization: Optional[str] = Header(default=None)
+) -> Optional[str]:
+    """Every endpoint elsewhere in this API authenticates via the Users
+    Platform JWT issued by /auth/login (see `_get_current_user`); these
+    stateless, non-owned-resource endpoints (symbol analysis, scans,
+    news, sectors) predate that and only ever accepted a Firebase ID
+    token, via `verify_firebase_token` - two separate, mutually
+    incompatible identity systems, so a mobile client authenticated
+    through /auth/login could not call them (production readiness
+    audit HIGH finding). Fixed additively: try the Users Platform JWT
+    first (a local signature/expiry check, no network call); a valid
+    JWT authorizes the request and returns uid=None (these routes never
+    use `uid` for anything beyond a Firebase-only lookup - see
+    /analyze/enhanced's is_trader check - which a Users Platform user id
+    cannot answer, so there is nothing to translate). Any other bearer
+    token - or no token at all - falls back to `verify_firebase_token`
+    unchanged, so every existing Firebase-token caller keeps working
+    exactly as before, including its fail-open behavior when Firebase
+    itself is not configured."""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1]
+        try:
+            decode_access_token(token)
+            return None
+        except InvalidTokenError:
+            pass
+    return await verify_firebase_token(authorization)
+
 # ── Portfolio Intelligence Platform helpers ─────────────────────────────────────
 async def _run_in_executor(func, *args):
     loop = asyncio.get_event_loop()
@@ -835,7 +865,7 @@ def news_for_symbol(
     request: Request,
     symbol: str,
     market: str = "AUTO",   # TR | US | CRYPTO | AUTO
-    uid: Optional[str] = Depends(verify_firebase_token),
+    uid: Optional[str] = Depends(_verify_jwt_or_firebase_token),
 ) -> Dict[str, Any]:
     """Sembol için haber duygu analizini döndür. market=TR|US|CRYPTO|AUTO"""
     return get_news_summary(symbol.upper(), market=market.upper())
@@ -845,7 +875,7 @@ def news_for_symbol(
 def news_for_sector(
     request: Request,
     body: Dict[str, Any],
-    uid: Optional[str] = Depends(verify_firebase_token),
+    uid: Optional[str] = Depends(_verify_jwt_or_firebase_token),
 ) -> Dict[str, Any]:
     """
     Piyasa/sektöre göre birden fazla sembol için haberler.
@@ -890,7 +920,7 @@ def news_for_sector(
 @app.get("/market/watchlist/{market}")
 def market_watchlist(
     market: str,
-    uid: Optional[str] = Depends(verify_firebase_token),
+    uid: Optional[str] = Depends(_verify_jwt_or_firebase_token),
 ) -> Dict[str, Any]:
     """Piyasa için varsayılan izleme listesi döndür."""
     from core.market_config import get_default_watchlist, get_symbols_for_market, MARKETS
@@ -919,7 +949,7 @@ def market_list() -> Dict[str, Any]:
 def sectors_overview(
     request: Request,
     market: str = "US",   # TR | US
-    uid: Optional[str] = Depends(verify_firebase_token),
+    uid: Optional[str] = Depends(_verify_jwt_or_firebase_token),
 ) -> Dict[str, Any]:
     """
     Piyasadaki tüm sektörleri fırsat skoruna göre sıralı döndür.
@@ -948,7 +978,7 @@ def sector_detail(
     request: Request,
     sector_key: str,
     market: str = "US",
-    uid: Optional[str] = Depends(verify_firebase_token),
+    uid: Optional[str] = Depends(_verify_jwt_or_firebase_token),
 ) -> Dict[str, Any]:
     """
     Belirli bir sektörün detaylı analizi — tüm semboller + fırsat tavsiyesi.
@@ -1040,7 +1070,7 @@ def all_sessions() -> List[Dict[str, Any]]:
 @app.post("/session/analyze", response_model=SessionInfo)
 @limiter.limit("30/minute")
 def session_analyze(request: Request, body: AnalysisRequest,
-                    uid: Optional[str] = Depends(verify_firebase_token)) -> SessionInfo:
+                    uid: Optional[str] = Depends(_verify_jwt_or_firebase_token)) -> SessionInfo:
     result = analyze(symbol=body.symbol, potential_price=body.potential_price,
                      asset_type=body.asset_type)
     if result is None:
@@ -1076,7 +1106,7 @@ def get_current_price(request: Request, symbol: str) -> Dict[str, Any]:
 @app.post("/analyze", response_model=AnalysisResult)
 @limiter.limit("30/minute")
 def analyze_symbol(request: Request, body: AnalysisRequest,
-                   uid: Optional[str] = Depends(verify_firebase_token)) -> AnalysisResult:
+                   uid: Optional[str] = Depends(_verify_jwt_or_firebase_token)) -> AnalysisResult:
     """The original, pre-pipeline scoring endpoint (`core.analyzer.
     analyze()` - its own self-contained indicators/pattern-recognition/
     scoring/ML-confidence/news code, entirely independent of the
@@ -1103,7 +1133,7 @@ def analyze_symbol(request: Request, body: AnalysisRequest,
 @app.post("/analyze/enhanced", response_model=AnalysisResult)
 @limiter.limit("10/minute")
 def analyze_enhanced(request: Request, body: EnhancedAnalysisRequest,
-                     uid: Optional[str] = Depends(verify_firebase_token)) -> AnalysisResult:
+                     uid: Optional[str] = Depends(_verify_jwt_or_firebase_token)) -> AnalysisResult:
 
     # Trader check (Basitleştirilmiş mantık - Firebase'den çekilebilir)
     is_trader: bool = False
@@ -1140,7 +1170,7 @@ def analyze_enhanced(request: Request, body: EnhancedAnalysisRequest,
 @limiter.limit("10/minute")
 async def quant_analyze(
     request: Request, body: QuantAnalysisRequest,
-    uid: Optional[str] = Depends(verify_firebase_token),
+    uid: Optional[str] = Depends(_verify_jwt_or_firebase_token),
 ) -> PipelineResponse:
     """Runs the new Quant Research Platform pipeline (Feature Store ->
     Technical/Fundamental/News Engines -> Decision Engine ->
@@ -1160,7 +1190,7 @@ async def quant_analyze(
 @limiter.limit("10/minute")
 async def quant_predict(
     request: Request, body: MLPredictionRequest,
-    uid: Optional[str] = Depends(verify_firebase_token),
+    uid: Optional[str] = Depends(_verify_jwt_or_firebase_token),
 ) -> MLPredictionResult:
     """Direct prediction from a single trained ML model (Model Serving
     Platform), bypassing Decision Engine aggregation - separate,
@@ -1197,7 +1227,7 @@ def quant_model_serving_health() -> ServingHealthReport:
 @app.post("/portfolio/optimize", response_model=PortfolioOptResult)
 @limiter.limit("5/minute")
 def portfolio_optimize(request: Request, body: PortfolioOptRequest,
-                       uid: Optional[str] = Depends(verify_firebase_token)) -> PortfolioOptResult:
+                       uid: Optional[str] = Depends(_verify_jwt_or_firebase_token)) -> PortfolioOptResult:
     if len(body.symbols) < 2:
         raise HTTPException(status_code=400, detail="En az 2 sembol gereklidir.")
     if len(body.symbols) > 20:
@@ -1656,21 +1686,21 @@ async def scan_my_alerts(request: Request, user: UsersUser = Depends(_get_curren
 @app.post("/scan", response_model=ScanResult)
 @limiter.limit("5/minute")
 async def scan_symbols(request: Request, body: ScanRequest,
-                       uid: Optional[str] = Depends(verify_firebase_token)) -> ScanResult:
+                       uid: Optional[str] = Depends(_verify_jwt_or_firebase_token)) -> ScanResult:
     results = await _parallel_scan(body.symbols, body.asset_type)
     return categorize(results)
 
 @app.get("/scan/bist", response_model=ScanResult)
 @limiter.limit("5/minute")
 async def scan_bist(request: Request,
-                    uid: Optional[str] = Depends(verify_firebase_token)) -> ScanResult:
+                    uid: Optional[str] = Depends(_verify_jwt_or_firebase_token)) -> ScanResult:
     results = await _parallel_scan(BIST_SYMBOLS, "stock")
     return categorize(results)
 
 @app.get("/scan/crypto", response_model=ScanResult)
 @limiter.limit("5/minute")
 async def scan_crypto(request: Request,
-                      uid: Optional[str] = Depends(verify_firebase_token)) -> ScanResult:
+                      uid: Optional[str] = Depends(_verify_jwt_or_firebase_token)) -> ScanResult:
     results = await _parallel_scan(CRYPTO_SYMBOLS, "crypto")
     return categorize(results)
 
