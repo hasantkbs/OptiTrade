@@ -231,6 +231,27 @@ def test_organization_requires_authentication(client, cleanup):
     assert r.status_code == 401
 
 
+def test_organization_get_distinguishes_not_found_from_forbidden(client, cleanup):
+    """A nonexistent organization_id must 404, not 403 - a membership row
+    can never exist for an org that doesn't exist, so before this fix
+    AuthorizationService.get_role() raised the same MembershipNotFoundError
+    (-> 403) for both "org doesn't exist" and "real org, you're not a
+    member", indistinguishable to a client. Matches the existing
+    get-portfolio-then-authorize pattern (_get_authorized_portfolio in
+    main.py) that already 404s for a nonexistent portfolio_id."""
+    _, owner_headers = _register_and_login(client, "org-404-owner")
+    org = client.post("/organizations", json={"name": "Org 404 Test"}, headers=owner_headers).json()
+    org_id = org["id"]
+
+    _, other_headers = _register_and_login(client, "org-404-other")
+
+    r = client.get(f"/organizations/{org_id}", headers=other_headers)
+    assert r.status_code == 403, r.text
+
+    r = client.get("/organizations/999999999", headers=owner_headers)
+    assert r.status_code == 404, r.text
+
+
 def test_invitation_and_membership_flow(client, cleanup):
     _, owner_headers = _register_and_login(client, "inv-owner")
     org = client.post("/organizations", json={"name": "Inv Org"}, headers=owner_headers).json()

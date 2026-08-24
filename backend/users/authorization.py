@@ -17,7 +17,12 @@ from fastapi import Depends, Header, HTTPException, status
 
 from users.authentication import decode_access_token
 from users.config import UsersConfig
-from users.exceptions import InvalidTokenError, MembershipNotFoundError, PermissionDeniedError
+from users.exceptions import (
+    InvalidTokenError,
+    MembershipNotFoundError,
+    OrganizationNotFoundError,
+    PermissionDeniedError,
+)
 from users.models import Permission, Role, User
 from users.repository import UsersRepository
 
@@ -70,6 +75,18 @@ class AuthorizationService:
     def get_role(self, user_id: int, organization_id: int) -> Role:
         membership = self._repository.get_membership(user_id, organization_id)
         if membership is None:
+            # Every organization-scoped endpoint in main.py calls this (directly
+            # or via check_permission) before touching the resource, so this is
+            # the one place that decides 404-vs-403 for the entire org-scoped
+            # API surface. A membership row can never exist for an organization
+            # that doesn't exist, so "no membership" is ambiguous between "you
+            # were never a member" and "this organization is gone" - distinguish
+            # them here (matching the existing get-portfolio-then-authorize
+            # pattern `_get_authorized_portfolio` in main.py already uses) so a
+            # client can tell "not found" apart from "access denied" instead of
+            # seeing 403 for both.
+            if self._repository.get_organization(organization_id) is None:
+                raise OrganizationNotFoundError(f"organization {organization_id} not found")
             raise MembershipNotFoundError(
                 f"user {user_id} is not a member of organization {organization_id}"
             )
@@ -126,6 +143,8 @@ def require_permission(
     def _dependency(organization_id: int, user: User = Depends(current_user_dependency)) -> User:
         try:
             authorization_service.check_permission(user.id, organization_id, permission)
+        except OrganizationNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
         except (MembershipNotFoundError, PermissionDeniedError) as exc:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
         return user

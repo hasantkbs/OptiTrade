@@ -11,7 +11,7 @@ from users.authorization import (
     has_permission,
     require_permission,
 )
-from users.exceptions import MembershipNotFoundError, PermissionDeniedError
+from users.exceptions import MembershipNotFoundError, OrganizationNotFoundError, PermissionDeniedError
 from users.models import Membership, Organization, Permission, Role, User
 from users.repository import UsersRepository
 
@@ -82,9 +82,24 @@ def test_get_role_returns_membership_role(repo, authz):
     assert authz.get_role(user_id, org_id) == Role.ADMIN
 
 
-def test_get_role_raises_for_non_member(authz):
-    with pytest.raises(MembershipNotFoundError):
+def test_get_role_raises_organization_not_found_for_a_nonexistent_organization(authz):
+    """A membership row can never exist for an organization that doesn't
+    exist, so this must be distinguished from "real org, not a member"
+    (test_get_role_raises_membership_not_found_for_a_real_org_non_member
+    below) - main.py's _map_users_error maps this to 404 vs the other's
+    403, matching the existing get-portfolio-then-authorize pattern."""
+    with pytest.raises(OrganizationNotFoundError):
         authz.get_role(999999999, 999999999)
+
+
+def test_get_role_raises_membership_not_found_for_a_real_org_non_member(repo, authz):
+    owner_id = repo.save_user(User(email=_email("non-member-owner"), password_hash="h", display_name="Owner"))
+    org_id = repo.save_organization(Organization(name="Org Non-Member", owner_user_id=owner_id))
+    other_user_id = repo.save_user(
+        User(email=_email("non-member-other"), password_hash="h", display_name="Other")
+    )
+    with pytest.raises(MembershipNotFoundError):
+        authz.get_role(other_user_id, org_id)
 
 
 def test_check_permission_raises_for_insufficient_role(repo, authz):

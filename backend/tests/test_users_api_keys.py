@@ -5,7 +5,13 @@ from users.api_keys import APIKeyService
 from users.audit import AuditService
 from users.authentication import AuthenticationService
 from users.authorization import AuthorizationService
-from users.exceptions import InvalidTokenError, MembershipNotFoundError, PermissionDeniedError, QuotaExceededError
+from users.exceptions import (
+    InvalidTokenError,
+    MembershipNotFoundError,
+    OrganizationNotFoundError,
+    PermissionDeniedError,
+    QuotaExceededError,
+)
 from users.models import APIKeyScope, AuditAction, OrganizationQuotas, Role
 from users.organizations import OrganizationService
 from users.repository import UsersRepository
@@ -177,7 +183,15 @@ def test_org_scoped_key_enforces_quota(service, org_service, auth):
         service.create_api_key(owner.id, "Key2", organization_id=org.id)
 
 
-def test_org_scoped_key_raises_for_non_member(service, auth):
-    user = _register(auth, "nonmember")
-    with pytest.raises(MembershipNotFoundError):
+def test_org_scoped_key_raises_for_nonexistent_organization(service, auth):
+    user = _register(auth, "nonexistent-org")
+    with pytest.raises(OrganizationNotFoundError):
         service.create_api_key(user.id, "Key", organization_id=999999999)
+
+
+def test_org_scoped_key_raises_for_non_member(service, org_service, auth):
+    owner = _register(auth, "nonmember-owner")
+    non_member = _register(auth, "nonmember")
+    org = org_service.create_organization("NonMemberOrg", owner.id)
+    with pytest.raises(MembershipNotFoundError):
+        service.create_api_key(non_member.id, "Key", organization_id=org.id)
