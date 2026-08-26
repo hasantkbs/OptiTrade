@@ -7,7 +7,29 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10001 /* OptiTradeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10001 /* OptiTradeApp.swift */; };
+		1430A760C1A9B0F682EEA324 /* HTTPTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E962B806527E0647AFA287B /* HTTPTransport.swift */; };
+		18E1FCB0F23496F7822D4810 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D73A80FE33587228754F50 /* APIClient.swift */; };
+		1E132855FE586C812CDAF769 /* APIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 713603EAC497480A639EE38D /* APIClientTests.swift */; };
+		242F6F874948CEC1935EDC43 /* TokenRefreshCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07AB1204E403F2723F0FEEDD /* TokenRefreshCoordinator.swift */; };
+		2A3FD6F1D104258770B33D4E /* AppLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B057921CF167F89A069E621 /* AppLogger.swift */; };
+		2A716809221EFEADFBE911B0 /* TestLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B24E8DCC7D13BF079D37BAC /* TestLogger.swift */; };
+		2EB71BFFD435DCCABA8C839C /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F80084FB95E13D2BB535FA1 /* Foundation.framework */; };
+		3394A5EDDC006B54FBF2A6C4 /* HTTPMethod.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25A29E3CE88D2B09AC02DDF9 /* HTTPMethod.swift */; };
+		50ED236C8181A47ADC349DE4 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04F49684E9340C7BC9A300A8 /* AppEnvironment.swift */; };
+		573EBD0E300C5C1311DFD3B6 /* APIRequestConstructionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF7E3B9BBE49768BFB2D4103 /* APIRequestConstructionTests.swift */; };
+		5C2138C9C6E5BE87C2B52E19 /* AppEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24EF973F7B89505E777E5999 /* AppEnvironmentTests.swift */; };
+		61B027C1CA942BCBB4F87F91 /* APIRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25B63EF729E179699BD3CB27 /* APIRequest.swift */; };
+		6BDAA85A1D1D734AF346FFEE /* InMemoryTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4D08FA6EB8A24EC3038FA5F /* InMemoryTokenStore.swift */; };
+		6D9A56DD8886B25D5101C612 /* NetworkConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 160731B1CE389EB3FB013438 /* NetworkConfiguration.swift */; };
+		830F21E293CB43B37452220D /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B672D8B8FAB1C5913AAF1832 /* RootView.swift */; };
+		83EE648C15A68C36EF823E05 /* SessionManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3F37258D4128B861F83D6DC /* SessionManagerTests.swift */; };
+		898A91D5B084BCC1ABD4402F /* APIErrorMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5FE24B1B076F6CC42A29BCB /* APIErrorMappingTests.swift */; };
+		8C9B816558E807C4F44647A3 /* OptiTradeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28273F8BFCEDD2EAA51FF5B6 /* OptiTradeApp.swift */; };
+		93EE8446366976019724A075 /* TokenRefreshCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7589090876EC1A49D420673 /* TokenRefreshCoordinatorTests.swift */; };
+		94EF94983CE7762B0E62A358 /* RootViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B83F3616466152FA7F2D921E /* RootViewModel.swift */; };
+		95ED01E13273949DC23A8CFC /* RootViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0FD8992EC99DCD6D61C7157 /* RootViewModelTests.swift */; };
+		9D4FD845ACAACB7D07ABD0D0 /* AuthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 165919A8226A803ECC1CAA8E /* AuthModels.swift */; };
+		9E3B8FA9A481CE3B78A9F694 /* AuthModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C3F0C25D496FDBF403BC28 /* AuthModelsTests.swift */; };
 		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10002 /* ContentView.swift */; };
 		A10003 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10003 /* DashboardView.swift */; };
 		A10004 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10004 /* SearchView.swift */; };
@@ -40,11 +62,57 @@
 		A10031 /* AIHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10031 /* AIHubView.swift */; };
 		A10032 /* TradeSignalModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10032 /* TradeSignalModels.swift */; };
 		A12E47062F9589AE00417CBD /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A12E47052F9589AE00417CBD /* GoogleService-Info.plist */; };
+		B4511A062C52290E9EEBD742 /* SessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 917721B88953EA9CB0FA50D4 /* SessionManager.swift */; };
+		B64C08051AFD193332013443 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23E3E7A91C7978777EC1ECF3 /* Keychain.swift */; };
+		C04C57E3B0A1425A5858B220 /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72F906ABE8418A164AB4E261 /* AppContainer.swift */; };
+		C113D9344C0CA9F46EE07ED6 /* CountingTokenRefreshing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 743CF2F4B06FA7C03C4CF314 /* CountingTokenRefreshing.swift */; };
+		CBB4A84F146EA57CD63F8C0E /* MockHTTPTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7F36E9A37451258FB3BCB9A /* MockHTTPTransport.swift */; };
+		D0B742FA1F8EE1F6445E19F7 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 546572D537494E24EC743E3A /* TestSupport.swift */; };
+		D1E42BA1BFA2F30F4AA79951 /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA3F5932649B36372C78C7F4 /* APIError.swift */; };
+		EEF73EE344C60A39A6DED7A1 /* APIResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5D33FDD4803448688583051 /* APIResponse.swift */; };
+		F21BBE13600965D42CA89959 /* KeychainTokenStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7091584FDE220D96E3318E0 /* KeychainTokenStoreTests.swift */; };
+		F369556300A4416C3C08C16A /* TokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BD8BE4E1B6140A05CB02536 /* TokenStore.swift */; };
+		F4689CB9C5B2DFEF8E26FF24 /* ConcurrentRefreshTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 310459015B7294A2C5706B24 /* ConcurrentRefreshTransport.swift */; };
+		FC70FA3850DE2C67FFB73CAE /* AppContainerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 792B400AF02159CABA112358 /* AppContainerTests.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		E3BB43A7C624F55DC68D0303 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = H10001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F10001;
+			remoteInfo = OptiTradeiOS;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		04F49684E9340C7BC9A300A8 /* AppEnvironment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		07AB1204E403F2723F0FEEDD /* TokenRefreshCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TokenRefreshCoordinator.swift; sourceTree = "<group>"; };
+		160731B1CE389EB3FB013438 /* NetworkConfiguration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NetworkConfiguration.swift; sourceTree = "<group>"; };
+		165919A8226A803ECC1CAA8E /* AuthModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthModels.swift; sourceTree = "<group>"; };
+		23E3E7A91C7978777EC1ECF3 /* Keychain.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
+		24EF973F7B89505E777E5999 /* AppEnvironmentTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppEnvironmentTests.swift; sourceTree = "<group>"; };
+		25A29E3CE88D2B09AC02DDF9 /* HTTPMethod.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HTTPMethod.swift; sourceTree = "<group>"; };
+		25B63EF729E179699BD3CB27 /* APIRequest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = APIRequest.swift; sourceTree = "<group>"; };
+		28273F8BFCEDD2EAA51FF5B6 /* OptiTradeApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OptiTradeApp.swift; sourceTree = "<group>"; };
+		310459015B7294A2C5706B24 /* ConcurrentRefreshTransport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConcurrentRefreshTransport.swift; sourceTree = "<group>"; };
+		33C3F0C25D496FDBF403BC28 /* AuthModelsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthModelsTests.swift; sourceTree = "<group>"; };
+		3E962B806527E0647AFA287B /* HTTPTransport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HTTPTransport.swift; sourceTree = "<group>"; };
+		47D73A80FE33587228754F50 /* APIClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		546572D537494E24EC743E3A /* TestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
+		713603EAC497480A639EE38D /* APIClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = APIClientTests.swift; sourceTree = "<group>"; };
+		72F906ABE8418A164AB4E261 /* AppContainer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppContainer.swift; sourceTree = "<group>"; };
+		743CF2F4B06FA7C03C4CF314 /* CountingTokenRefreshing.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CountingTokenRefreshing.swift; sourceTree = "<group>"; };
+		792B400AF02159CABA112358 /* AppContainerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppContainerTests.swift; sourceTree = "<group>"; };
+		7B057921CF167F89A069E621 /* AppLogger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
+		7BD8BE4E1B6140A05CB02536 /* TokenStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TokenStore.swift; sourceTree = "<group>"; };
+		8B24E8DCC7D13BF079D37BAC /* TestLogger.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TestLogger.swift; sourceTree = "<group>"; };
+		8F80084FB95E13D2BB535FA1 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		917721B88953EA9CB0FA50D4 /* SessionManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SessionManager.swift; sourceTree = "<group>"; };
+		A0FD8992EC99DCD6D61C7157 /* RootViewModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RootViewModelTests.swift; sourceTree = "<group>"; };
 		A12E47052F9589AE00417CBD /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
-		B10001 /* OptiTradeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptiTradeApp.swift; sourceTree = "<group>"; };
+		AF7E3B9BBE49768BFB2D4103 /* APIRequestConstructionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = APIRequestConstructionTests.swift; sourceTree = "<group>"; };
 		B10002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B10003 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
 		B10004 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
@@ -64,8 +132,8 @@
 		B10018 /* FirebaseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseService.swift; sourceTree = "<group>"; };
 		B10019 /* PortfolioAnalysisView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioAnalysisView.swift; sourceTree = "<group>"; };
 		B10020 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
-		B10023 /* SessionInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionInfoView.swift; sourceTree = "<group>"; };
 		B10021 /* StoreKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreKitManager.swift; sourceTree = "<group>"; };
+		B10023 /* SessionInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionInfoView.swift; sourceTree = "<group>"; };
 		B10024 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 		B10025 /* PortfolioHoldingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioHoldingsView.swift; sourceTree = "<group>"; };
 		B10026 /* MarketNewsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketNewsView.swift; sourceTree = "<group>"; };
@@ -75,7 +143,18 @@
 		B10031 /* AIHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIHubView.swift; sourceTree = "<group>"; };
 		B10032 /* TradeSignalModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TradeSignalModels.swift; sourceTree = "<group>"; };
 		B10050 /* OptiTradeiOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OptiTradeiOS.entitlements; sourceTree = "<group>"; };
+		B672D8B8FAB1C5913AAF1832 /* RootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		B7091584FDE220D96E3318E0 /* KeychainTokenStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KeychainTokenStoreTests.swift; sourceTree = "<group>"; };
+		B83F3616466152FA7F2D921E /* RootViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RootViewModel.swift; sourceTree = "<group>"; };
+		BA3F5932649B36372C78C7F4 /* APIError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
+		BC6535B57AB9237EF417A69B /* OptiTradeiOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OptiTradeiOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C10001 /* OptiTradeiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OptiTradeiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D7F36E9A37451258FB3BCB9A /* MockHTTPTransport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MockHTTPTransport.swift; sourceTree = "<group>"; };
+		E7589090876EC1A49D420673 /* TokenRefreshCoordinatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TokenRefreshCoordinatorTests.swift; sourceTree = "<group>"; };
+		F3F37258D4128B861F83D6DC /* SessionManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SessionManagerTests.swift; sourceTree = "<group>"; };
+		F4D08FA6EB8A24EC3038FA5F /* InMemoryTokenStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = InMemoryTokenStore.swift; sourceTree = "<group>"; };
+		F5D33FDD4803448688583051 /* APIResponse.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = APIResponse.swift; sourceTree = "<group>"; };
+		F5FE24B1B076F6CC42A29BCB /* APIErrorMappingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = APIErrorMappingTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -88,14 +167,171 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EAD90E89358403085F18B13D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2EB71BFFD435DCCABA8C839C /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		137B11D6BEE48D1AF18F3960 /* AppFoundationTests */ = {
+			isa = PBXGroup;
+			children = (
+				792B400AF02159CABA112358 /* AppContainerTests.swift */,
+				24EF973F7B89505E777E5999 /* AppEnvironmentTests.swift */,
+				A0FD8992EC99DCD6D61C7157 /* RootViewModelTests.swift */,
+			);
+			name = AppFoundationTests;
+			path = AppFoundationTests;
+			sourceTree = "<group>";
+		};
+		400043020DE194310D470196 /* Mocks */ = {
+			isa = PBXGroup;
+			children = (
+				310459015B7294A2C5706B24 /* ConcurrentRefreshTransport.swift */,
+				743CF2F4B06FA7C03C4CF314 /* CountingTokenRefreshing.swift */,
+				F4D08FA6EB8A24EC3038FA5F /* InMemoryTokenStore.swift */,
+				D7F36E9A37451258FB3BCB9A /* MockHTTPTransport.swift */,
+				8B24E8DCC7D13BF079D37BAC /* TestLogger.swift */,
+				546572D537494E24EC743E3A /* TestSupport.swift */,
+			);
+			name = Mocks;
+			path = Mocks;
+			sourceTree = "<group>";
+		};
+		44C696C60F34926184C89761 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				72F906ABE8418A164AB4E261 /* AppContainer.swift */,
+				04F49684E9340C7BC9A300A8 /* AppEnvironment.swift */,
+				28273F8BFCEDD2EAA51FF5B6 /* OptiTradeApp.swift */,
+			);
+			name = App;
+			path = App;
+			sourceTree = "<group>";
+		};
+		491399AB4B69AEE4D5DA90A1 /* Root */ = {
+			isa = PBXGroup;
+			children = (
+				B672D8B8FAB1C5913AAF1832 /* RootView.swift */,
+				B83F3616466152FA7F2D921E /* RootViewModel.swift */,
+			);
+			name = Root;
+			path = Root;
+			sourceTree = "<group>";
+		};
+		497AA0C1281ACD9845055A74 /* OptiTradeiOSTests */ = {
+			isa = PBXGroup;
+			children = (
+				400043020DE194310D470196 /* Mocks */,
+				964C6A2B2E42CA41A387315F /* NetworkingTests */,
+				72B6587103676CE04EE66E36 /* AuthenticationTests */,
+				137B11D6BEE48D1AF18F3960 /* AppFoundationTests */,
+			);
+			name = OptiTradeiOSTests;
+			path = OptiTradeiOSTests;
+			sourceTree = "<group>";
+		};
+		5863A43BEBED22819C026D7D /* Logging */ = {
+			isa = PBXGroup;
+			children = (
+				7B057921CF167F89A069E621 /* AppLogger.swift */,
+			);
+			name = Logging;
+			path = Logging;
+			sourceTree = "<group>";
+		};
+		72B6587103676CE04EE66E36 /* AuthenticationTests */ = {
+			isa = PBXGroup;
+			children = (
+				33C3F0C25D496FDBF403BC28 /* AuthModelsTests.swift */,
+				B7091584FDE220D96E3318E0 /* KeychainTokenStoreTests.swift */,
+				F3F37258D4128B861F83D6DC /* SessionManagerTests.swift */,
+				E7589090876EC1A49D420673 /* TokenRefreshCoordinatorTests.swift */,
+			);
+			name = AuthenticationTests;
+			path = AuthenticationTests;
+			sourceTree = "<group>";
+		};
+		8A54351CD7812F7140C0F4BA /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				491399AB4B69AEE4D5DA90A1 /* Root */,
+			);
+			name = Features;
+			path = Features;
+			sourceTree = "<group>";
+		};
+		964C6A2B2E42CA41A387315F /* NetworkingTests */ = {
+			isa = PBXGroup;
+			children = (
+				713603EAC497480A639EE38D /* APIClientTests.swift */,
+				F5FE24B1B076F6CC42A29BCB /* APIErrorMappingTests.swift */,
+				AF7E3B9BBE49768BFB2D4103 /* APIRequestConstructionTests.swift */,
+			);
+			name = NetworkingTests;
+			path = NetworkingTests;
+			sourceTree = "<group>";
+		};
+		9C2E1E4FA996145655D903E7 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				47D73A80FE33587228754F50 /* APIClient.swift */,
+				BA3F5932649B36372C78C7F4 /* APIError.swift */,
+				25B63EF729E179699BD3CB27 /* APIRequest.swift */,
+				F5D33FDD4803448688583051 /* APIResponse.swift */,
+				25A29E3CE88D2B09AC02DDF9 /* HTTPMethod.swift */,
+				3E962B806527E0647AFA287B /* HTTPTransport.swift */,
+				160731B1CE389EB3FB013438 /* NetworkConfiguration.swift */,
+			);
+			name = Networking;
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		B051B0EE48120F0BF470AF84 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				BB730332E4CECE9CE06DD708 /* Authentication */,
+				5863A43BEBED22819C026D7D /* Logging */,
+				9C2E1E4FA996145655D903E7 /* Networking */,
+				CDF34D9688E90D115FC4D5E5 /* Utilities */,
+			);
+			name = Core;
+			path = Core;
+			sourceTree = "<group>";
+		};
+		BB730332E4CECE9CE06DD708 /* Authentication */ = {
+			isa = PBXGroup;
+			children = (
+				165919A8226A803ECC1CAA8E /* AuthModels.swift */,
+				917721B88953EA9CB0FA50D4 /* SessionManager.swift */,
+				07AB1204E403F2723F0FEEDD /* TokenRefreshCoordinator.swift */,
+				7BD8BE4E1B6140A05CB02536 /* TokenStore.swift */,
+			);
+			name = Authentication;
+			path = Authentication;
+			sourceTree = "<group>";
+		};
+		CDF34D9688E90D115FC4D5E5 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				23E3E7A91C7978777EC1ECF3 /* Keychain.swift */,
+			);
+			name = Utilities;
+			path = Utilities;
+			sourceTree = "<group>";
+		};
 		E10001 = {
 			isa = PBXGroup;
 			children = (
 				E10002 /* OptiTradeiOS */,
 				E10007 /* Products */,
+				FAAC2DE817855E504204192B /* Frameworks */,
+				497AA0C1281ACD9845055A74 /* OptiTradeiOSTests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -104,7 +340,6 @@
 			children = (
 				A12E47052F9589AE00417CBD /* GoogleService-Info.plist */,
 				B10050 /* OptiTradeiOS.entitlements */,
-				B10001 /* OptiTradeApp.swift */,
 				B10020 /* Extensions.swift */,
 				B10024 /* Localization.swift */,
 				E10003 /* Views */,
@@ -112,6 +347,9 @@
 				E10005 /* Services */,
 				E10006 /* Components */,
 				B10012 /* Assets.xcassets */,
+				44C696C60F34926184C89761 /* App */,
+				B051B0EE48120F0BF470AF84 /* Core */,
+				8A54351CD7812F7140C0F4BA /* Features */,
 			);
 			path = OptiTradeiOS;
 			sourceTree = "<group>";
@@ -174,13 +412,48 @@
 			isa = PBXGroup;
 			children = (
 				C10001 /* OptiTradeiOS.app */,
+				BC6535B57AB9237EF417A69B /* OptiTradeiOSTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		FAAC2DE817855E504204192B /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				FC164E2947E2B9EAEAE2B5E7 /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		FC164E2947E2B9EAEAE2B5E7 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				8F80084FB95E13D2BB535FA1 /* Foundation.framework */,
+			);
+			name = iOS;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		3C9AA4A928760184A59058D7 /* OptiTradeiOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B614A693F500D735957571AE /* Build configuration list for PBXNativeTarget "OptiTradeiOSTests" */;
+			buildPhases = (
+				E04C4F597E30B75841198E32 /* Sources */,
+				EAD90E89358403085F18B13D /* Frameworks */,
+				DE48AEE9AC70151B6160D27F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7C1A6D1899C30D91660E0527 /* PBXTargetDependency */,
+			);
+			name = OptiTradeiOSTests;
+			productName = OptiTradeiOSTests;
+			productReference = BC6535B57AB9237EF417A69B /* OptiTradeiOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		F10001 /* OptiTradeiOS */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = G10003 /* Build configuration list for PBXNativeTarget "OptiTradeiOS" */;
@@ -234,11 +507,19 @@
 			projectRoot = "";
 			targets = (
 				F10001 /* OptiTradeiOS */,
+				3C9AA4A928760184A59058D7 /* OptiTradeiOSTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		DE48AEE9AC70151B6160D27F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F10003 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -251,11 +532,33 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		E04C4F597E30B75841198E32 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F4689CB9C5B2DFEF8E26FF24 /* ConcurrentRefreshTransport.swift in Sources */,
+				C113D9344C0CA9F46EE07ED6 /* CountingTokenRefreshing.swift in Sources */,
+				6BDAA85A1D1D734AF346FFEE /* InMemoryTokenStore.swift in Sources */,
+				CBB4A84F146EA57CD63F8C0E /* MockHTTPTransport.swift in Sources */,
+				2A716809221EFEADFBE911B0 /* TestLogger.swift in Sources */,
+				D0B742FA1F8EE1F6445E19F7 /* TestSupport.swift in Sources */,
+				1E132855FE586C812CDAF769 /* APIClientTests.swift in Sources */,
+				898A91D5B084BCC1ABD4402F /* APIErrorMappingTests.swift in Sources */,
+				573EBD0E300C5C1311DFD3B6 /* APIRequestConstructionTests.swift in Sources */,
+				9E3B8FA9A481CE3B78A9F694 /* AuthModelsTests.swift in Sources */,
+				F21BBE13600965D42CA89959 /* KeychainTokenStoreTests.swift in Sources */,
+				83EE648C15A68C36EF823E05 /* SessionManagerTests.swift in Sources */,
+				93EE8446366976019724A075 /* TokenRefreshCoordinatorTests.swift in Sources */,
+				FC70FA3850DE2C67FFB73CAE /* AppContainerTests.swift in Sources */,
+				5C2138C9C6E5BE87C2B52E19 /* AppEnvironmentTests.swift in Sources */,
+				95ED01E13273949DC23A8CFC /* RootViewModelTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F10002 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10001 /* OptiTradeApp.swift in Sources */,
 				A10002 /* ContentView.swift in Sources */,
 				A10003 /* DashboardView.swift in Sources */,
 				A10004 /* SearchView.swift in Sources */,
@@ -284,12 +587,74 @@
 				A10030 /* BacktestPerformanceView.swift in Sources */,
 				A10031 /* AIHubView.swift in Sources */,
 				A10032 /* TradeSignalModels.swift in Sources */,
+				C04C57E3B0A1425A5858B220 /* AppContainer.swift in Sources */,
+				50ED236C8181A47ADC349DE4 /* AppEnvironment.swift in Sources */,
+				8C9B816558E807C4F44647A3 /* OptiTradeApp.swift in Sources */,
+				9D4FD845ACAACB7D07ABD0D0 /* AuthModels.swift in Sources */,
+				B4511A062C52290E9EEBD742 /* SessionManager.swift in Sources */,
+				242F6F874948CEC1935EDC43 /* TokenRefreshCoordinator.swift in Sources */,
+				F369556300A4416C3C08C16A /* TokenStore.swift in Sources */,
+				2A3FD6F1D104258770B33D4E /* AppLogger.swift in Sources */,
+				18E1FCB0F23496F7822D4810 /* APIClient.swift in Sources */,
+				D1E42BA1BFA2F30F4AA79951 /* APIError.swift in Sources */,
+				61B027C1CA942BCBB4F87F91 /* APIRequest.swift in Sources */,
+				EEF73EE344C60A39A6DED7A1 /* APIResponse.swift in Sources */,
+				3394A5EDDC006B54FBF2A6C4 /* HTTPMethod.swift in Sources */,
+				1430A760C1A9B0F682EEA324 /* HTTPTransport.swift in Sources */,
+				6D9A56DD8886B25D5101C612 /* NetworkConfiguration.swift in Sources */,
+				B64C08051AFD193332013443 /* Keychain.swift in Sources */,
+				830F21E293CB43B37452220D /* RootView.swift in Sources */,
+				94EF94983CE7762B0E62A358 /* RootViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		7C1A6D1899C30D91660E0527 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = OptiTradeiOS;
+			target = F10001 /* OptiTradeiOS */;
+			targetProxy = E3BB43A7C624F55DC68D0303 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		1839BA2C27638F8C4F0D59B7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.algorix.optitrade.Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OptiTradeiOS.app/OptiTradeiOS";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		A2030653EF375E05671C7A3E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.algorix.optitrade.Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OptiTradeiOS.app/OptiTradeiOS";
+			};
+			name = Debug;
+		};
 		G10002 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -406,13 +771,13 @@
 				DEVELOPMENT_TEAM = U9Q5A2QGPJ;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = OptiTrade;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -437,13 +802,13 @@
 				DEVELOPMENT_TEAM = U9Q5A2QGPJ;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = OptiTrade;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -460,6 +825,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		B614A693F500D735957571AE /* Build configuration list for PBXNativeTarget "OptiTradeiOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1839BA2C27638F8C4F0D59B7 /* Release */,
+				A2030653EF375E05671C7A3E /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		G10001 /* Build configuration list for PBXProject "OptiTradeiOS" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
