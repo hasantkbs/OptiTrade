@@ -26,3 +26,18 @@ func makeClient(
         onSessionExpired: onSessionExpired
     )
 }
+
+@MainActor
+func makeSessionManager(
+    tokenStore: TokenStore,
+    refreshCoordinator: TokenRefreshCoordinator? = nil
+) -> SessionManager {
+    SessionManager(
+        tokenStore: tokenStore,
+        refreshCoordinator: refreshCoordinator ?? TokenRefreshCoordinator(
+            refresher: CountingTokenRefreshing(result: .failure(APIClientError.unauthorized(nil))),
+            tokenStore: tokenStore
+        ),
+        logger: TestLogger()
+    )
+}

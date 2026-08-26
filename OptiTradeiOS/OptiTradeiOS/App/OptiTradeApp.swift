@@ -11,11 +11,22 @@ struct OptiTradeApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(
-                viewModel: RootViewModel(
-                    sessionManager: container.sessionManager,
-                    environmentKind: AppEnvironment.current,
-                    logger: container.logger
-                )
+                sessionManager: container.sessionManager,
+                makeLoginViewModel: {
+                    LoginViewModel(
+                        authenticationService: container.authenticationService,
+                        sessionManager: container.sessionManager,
+                        logger: container.logger
+                    )
+                },
+                makeShellViewModel: {
+                    AuthenticatedAppShellViewModel(
+                        authenticationService: container.authenticationService,
+                        sessionManager: container.sessionManager,
+                        tokenStore: container.tokenStore,
+                        logger: container.logger
+                    )
+                }
             )
         }
     }

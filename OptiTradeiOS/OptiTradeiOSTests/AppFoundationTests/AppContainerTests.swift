@@ -8,10 +8,22 @@ struct AppContainerTests {
     func testInitializerWiresInjectedDependenciesRatherThanConstructingItsOwn() {
         let logger = TestLogger()
         let tokenStore = InMemoryTokenStore()
-        let sessionManager = SessionManager(tokenStore: tokenStore, logger: logger)
+        let refreshCoordinator = TokenRefreshCoordinator(
+            refresher: CountingTokenRefreshing(result: .failure(APIClientError.unauthorized(nil))),
+            tokenStore: tokenStore
+        )
+        let sessionManager = SessionManager(tokenStore: tokenStore, refreshCoordinator: refreshCoordinator, logger: logger)
         let apiClient = makeClient(transport: MockHTTPTransport(), tokenStore: tokenStore)
+        let authenticationService = AuthenticationService(apiClient: apiClient)
 
-        let container = AppContainer(logger: logger, tokenStore: tokenStore, sessionManager: sessionManager, apiClient: apiClient)
+        let container = AppContainer(
+            logger: logger,
+            tokenStore: tokenStore,
+            refreshCoordinator: refreshCoordinator,
+            sessionManager: sessionManager,
+            apiClient: apiClient,
+            authenticationService: authenticationService
+        )
 
         #expect(container.sessionManager === sessionManager)
         #expect(container.apiClient === apiClient)

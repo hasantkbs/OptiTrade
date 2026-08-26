@@ -49,6 +49,12 @@ actor TokenRefreshCoordinator {
     private let tokenStore: TokenStore
     private var inFlight: Task<AuthTokens, Error>?
 
+    /// Bumped by `invalidate()` (called on logout / session teardown). A
+    /// refresh started before invalidation must not persist its result
+    /// after the fact — otherwise a slow refresh completing just after the
+    /// user logs out would silently resurrect the session.
+    private var generation = 0
+
     init(refresher: TokenRefreshing, tokenStore: TokenStore) {
         self.refresher = refresher
         self.tokenStore = tokenStore
@@ -60,16 +66,35 @@ actor TokenRefreshCoordinator {
             return try await inFlight.value
         }
 
+        let generationAtStart = generation
         let task = Task { () throws -> AuthTokens in
             guard let refreshToken = await tokenStore.refreshToken() else {
                 throw APIClientError.unauthorized(nil)
             }
-            let tokens = try await refresher.refresh(refreshToken: refreshToken)
-            try await tokenStore.save(tokens)
-            return tokens
+            return try await refresher.refresh(refreshToken: refreshToken)
         }
         inFlight = task
         defer { inFlight = nil }
-        return try await task.value
+
+        let tokens = try await task.value
+
+        guard generation == generationAtStart else {
+            // Session was invalidated (logout) while this refresh was in
+            // flight. Discard the result instead of writing it to the
+            // Keychain.
+            throw APIClientError.cancelled
+        }
+        try await tokenStore.save(tokens)
+        return tokens
+    }
+
+    /// Called when the session is deliberately torn down (logout, or a
+    /// prior refresh failure already ending the session). Cancels any
+    /// in-flight refresh and ensures its result — if it completes anyway —
+    /// is discarded rather than persisted.
+    func invalidate() {
+        generation += 1
+        inFlight?.cancel()
+        inFlight = nil
     }
 }

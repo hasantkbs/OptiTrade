@@ -1,35 +1,32 @@
 import SwiftUI
 
-/// Minimal launch screen proving the foundation works end-to-end. Deliberately
-/// unstyled — real feature screens (Dashboard, Portfolio, Watchlist, …) are
-/// separate, later tasks and are not implemented here.
+/// The app's canonical authentication boundary. Branches purely on the one
+/// shared `SessionManager.state` — there is no separate navigation state to
+/// keep in sync with it.
 struct RootView: View {
-    @State private var viewModel: RootViewModel
-
-    init(viewModel: RootViewModel) {
-        _viewModel = State(initialValue: viewModel)
-    }
+    let sessionManager: SessionManager
+    let makeLoginViewModel: () -> LoginViewModel
+    let makeShellViewModel: () -> AuthenticatedAppShellViewModel
 
     var body: some View {
-        VStack(spacing: 12) {
-            switch viewModel.status {
-            case .launching:
-                ProgressView("Starting OptiTrade…")
-
-            case .ready(let environment, let sessionState):
-                Image(systemName: "checkmark.seal")
-                    .font(.largeTitle)
-                Text("OptiTrade foundation ready")
-                    .font(.headline)
-                Text("Environment: \(environment.rawValue)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Text("Session: \(String(describing: sessionState))")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+        Group {
+            switch sessionManager.state {
+            case .restoring:
+                LaunchLoadingView()
+            case .unauthenticated:
+                LoginView(viewModel: makeLoginViewModel())
+            case .authenticated:
+                AuthenticatedAppShell(viewModel: makeShellViewModel())
             }
         }
-        .padding()
-        .task { await viewModel.start() }
+        .task { await sessionManager.restoreSession() }
+    }
+}
+
+/// Shown only while `SessionManager` is checking for a stored session, so
+/// there's never a visible flash of `LoginView` on a warm launch.
+private struct LaunchLoadingView: View {
+    var body: some View {
+        ProgressView("Starting OptiTrade…")
     }
 }

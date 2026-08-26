@@ -6,8 +6,10 @@ import Foundation
 final class AppContainer {
     let logger: AppLogging
     let tokenStore: TokenStore
+    let refreshCoordinator: TokenRefreshCoordinator
     let sessionManager: SessionManager
     let apiClient: APIClient
+    let authenticationService: Authenticating
 
     convenience init(environmentKind: AppEnvironmentKind = AppEnvironment.current) {
         let logger = AppLogger()
@@ -22,7 +24,6 @@ final class AppContainer {
         }
 
         let tokenStore = KeychainTokenStore(keychain: KeychainStore(service: "com.algorix.optitrade.auth"))
-        let sessionManager = SessionManager(tokenStore: tokenStore, logger: logger)
 
         let sessionConfig = URLSessionConfiguration.default
         sessionConfig.timeoutIntervalForRequest = configuration.timeoutInterval
@@ -30,6 +31,7 @@ final class AppContainer {
 
         let refresher = BackendTokenRefresher(transport: transport, configuration: configuration)
         let refreshCoordinator = TokenRefreshCoordinator(refresher: refresher, tokenStore: tokenStore)
+        let sessionManager = SessionManager(tokenStore: tokenStore, refreshCoordinator: refreshCoordinator, logger: logger)
 
         let apiClient = APIClient(
             configuration: configuration,
@@ -40,19 +42,32 @@ final class AppContainer {
             onSessionExpired: { [sessionManager] in await sessionManager.handleSessionExpired() }
         )
 
+        let authenticationService = AuthenticationService(apiClient: apiClient)
+
         self.init(
             logger: logger,
             tokenStore: tokenStore,
+            refreshCoordinator: refreshCoordinator,
             sessionManager: sessionManager,
-            apiClient: apiClient
+            apiClient: apiClient,
+            authenticationService: authenticationService
         )
     }
 
     /// Test/preview-facing initializer — every dependency is injectable.
-    init(logger: AppLogging, tokenStore: TokenStore, sessionManager: SessionManager, apiClient: APIClient) {
+    init(
+        logger: AppLogging,
+        tokenStore: TokenStore,
+        refreshCoordinator: TokenRefreshCoordinator,
+        sessionManager: SessionManager,
+        apiClient: APIClient,
+        authenticationService: Authenticating
+    ) {
         self.logger = logger
         self.tokenStore = tokenStore
+        self.refreshCoordinator = refreshCoordinator
         self.sessionManager = sessionManager
         self.apiClient = apiClient
+        self.authenticationService = authenticationService
     }
 }
