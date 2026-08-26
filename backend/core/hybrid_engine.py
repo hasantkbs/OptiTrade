@@ -5,12 +5,12 @@ Tarama (MarketRegimeScanner), Analiz (MultiTimeframeAnalyzer), Risk
 (DynamicRiskManager) ve Öneri (AITraderPersona / InvestorPersona) katmanlarını
 uçtan uca bağlayan ana motor. Ayrıca:
 
-- Sembol başına üretilen öneriyi (TradeRecommendation veya
-  InvestorRecommendation, ``profile``'a göre) belirli bir süre (varsayılan
-  15 dakika) bellek-içi cache'te tutar; geçerli bir cache girdisi varsa
-  LLM'e (Groq) tekrar istek atılmaz. Trader ve investor profilleri AYRI
-  cache'lerde tutulur, aynı sembol için profil değişimi diğer profilin
-  cache'ini bozmaz.
+- Sembol başına üretilen öneriyi (``TradeRecommendation`` veya
+  ``InvestorRecommendation``, ``profile``'a göre) belirli bir süre
+  (varsayılan 15 dakika) bellek-içi cache'te tutar; geçerli bir cache
+  girdisi varsa LLM'e (Groq) tekrar istek atılmaz. Trader ve investor
+  profilleri AYRI cache'lerde tutulur, aynı sembol için profil değişimi
+  diğer profilin cache'ini bozmaz.
 - Piyasa rejimi filtresini geçen semboller için opsiyonel olarak haber
   duygusu (``NewsSentimentAdapter``) çeker ve AI'ya sunar.
 - ``check_alerts()``: verilen sembolleri (rejim filtresi UYGULANMADAN) ani
@@ -26,6 +26,15 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from core.ai_trader_persona import AITraderPersona, TradeRecommendation
 from core.cache_manager import TTLCache
+from core.interfaces import (
+    AnomalyDetectorProtocol,
+    InvestorPersonaProtocol,
+    NewsSentimentProtocol,
+    RegimeScannerProtocol,
+    RiskManagerProtocol,
+    TimeframeAnalyzerProtocol,
+    TraderPersonaProtocol,
+)
 from core.investor_persona import InvestorPersona, InvestorRecommendation
 from core.market_anomaly_detector import MarketAlert, MarketAnomalyDetector
 from core.mtf_analyzer import MultiTimeframeAnalyzer
@@ -52,13 +61,13 @@ class HybridTradingEngine:
 
     def __init__(
         self,
-        scanner: Optional[MarketRegimeScanner] = None,
-        analyzer: Optional[MultiTimeframeAnalyzer] = None,
-        risk_manager: Optional[DynamicRiskManager] = None,
-        ai_persona: Optional[AITraderPersona] = None,
-        investor_persona: Optional[InvestorPersona] = None,
-        news_adapter: Optional[NewsSentimentAdapter] = None,
-        anomaly_detector: Optional[MarketAnomalyDetector] = None,
+        scanner: Optional[RegimeScannerProtocol] = None,
+        analyzer: Optional[TimeframeAnalyzerProtocol] = None,
+        risk_manager: Optional[RiskManagerProtocol] = None,
+        ai_persona: Optional[TraderPersonaProtocol] = None,
+        investor_persona: Optional[InvestorPersonaProtocol] = None,
+        news_adapter: Optional[NewsSentimentProtocol] = None,
+        anomaly_detector: Optional[AnomalyDetectorProtocol] = None,
         recommendation_cache_ttl_seconds: float = DEFAULT_RECOMMENDATION_CACHE_TTL_SECONDS,
         alert_cache_ttl_seconds: float = DEFAULT_ALERT_CACHE_TTL_SECONDS,
     ) -> None:

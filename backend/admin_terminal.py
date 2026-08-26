@@ -17,7 +17,6 @@ from __future__ import annotations
 import os
 import sys
 import json
-import time
 import asyncio
 import logging
 from datetime import datetime
@@ -28,12 +27,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
-from rich.prompt import Confirm, Prompt
-from rich.text import Text
-from rich import print as rprint
 from rich.markup import escape
-from rich.layout import Layout
-from rich.live import Live
 
 # Backend root
 sys.path.insert(0, os.path.dirname(__file__))
@@ -320,7 +314,7 @@ def model_train(
         # Burada bir loop veya cron job tetiklenebilir
 
     try:
-        from ml.train_chart_model import train
+        from research.train_chart_model import train
         # Market bazlı sembol filtreleme mantığı buraya eklenebilir
         meta = train(epochs=epochs, batch_size=batch_size, period=period)
         
@@ -421,7 +415,6 @@ def firebase_stats():
     """Firebase kullanıcı ve koleksiyon istatistiklerini göster."""
     _header("Firebase İstatistikleri")
     try:
-        import firebase_admin
         from firebase_admin import firestore
 
         db  = firestore.client()

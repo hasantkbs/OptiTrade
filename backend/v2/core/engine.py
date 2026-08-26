@@ -1,10 +1,52 @@
 import asyncio
+import json
+import logging
+import time
 import pandas as pd
-from typing import List, Dict
-from datetime import datetime
+from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
 from v2.indicators.base import BaseIndicator
 from v2.models.schemas import EngineResult, IndicatorOutput, SignalSide
 from v2.ml.predictor import MLPredictorV2
+
+logger = logging.getLogger(__name__)
+
+
+def _log_structured_event(
+    *,
+    operation: str,
+    status: str,
+    symbol: Optional[str] = None,
+    execution_time_ms: Optional[float] = None,
+    error_type: Optional[str] = None,
+    level: int = logging.INFO,
+    **extra_fields: Any,
+) -> None:
+    """Emits one machine-readable, structured JSON log event for the v2
+    engine. A local copy of the same field schema used by
+    core.structured_logging.log_event (timestamp, component, module,
+    operation, status, symbol/execution_time_ms/error_type where
+    applicable) - kept local rather than imported from `core` so that
+    `v2` does not gain a new dependency on `core` (v2 has never imported
+    from core anywhere else; this preserves that existing independence
+    between the two currently-separate engines, per
+    docs/architecture/gap-analysis.md section 1). Never pass free-text
+    narrative through `extra_fields` - structured/numeric values only."""
+    record: Dict[str, Any] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "component": "v2_engine",
+        "module": "v2.core.engine",
+        "operation": operation,
+        "status": status,
+    }
+    if symbol is not None:
+        record["symbol"] = symbol
+    if execution_time_ms is not None:
+        record["execution_time_ms"] = round(execution_time_ms, 3)
+    if error_type is not None:
+        record["error_type"] = error_type
+    record.update(extra_fields)
+    logger.log(level, json.dumps(record, default=str))
 
 class SignalFusion:
     def __init__(self):
@@ -57,17 +99,27 @@ class TradingEngineV2:
         self.risk_manager = RiskManager()
 
     async def analyze(self, symbol: str, data: pd.DataFrame) -> EngineResult:
+        _started_at = time.perf_counter()
         tasks = [ind.calculate(data) for ind in self.indicators]
         indicator_results = await asyncio.gather(*tasks)
-        
+
         aggregation = self.fusion.aggregate(indicator_results)
         risk_score = self.risk_manager.calculate_risk(data, indicator_results)
-        
+
+        _log_structured_event(
+            operation="analyze",
+            status="success",
+            symbol=symbol,
+            execution_time_ms=(time.perf_counter() - _started_at) * 1000,
+            aggregated_score=aggregation["score"],
+            confidence=aggregation["confidence"],
+            risk_score=risk_score,
+        )
         return EngineResult(
             symbol=symbol,
             aggregated_score=aggregation["score"],
             confidence=aggregation["confidence"],
             signals=indicator_results,
             risk_score=risk_score,
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now(timezone.utc).isoformat()
         )

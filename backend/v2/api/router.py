@@ -1,6 +1,6 @@
 import asyncio
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from typing import List, Dict, Any
+from typing import List
 import yfinance as yf
 import pandas as pd
 from datetime import datetime
@@ -12,7 +12,7 @@ from v2.indicators.ict.killzones import KillzoneIndicator
 from v2.indicators.ict.fvg import FVGIndicator
 from v2.indicators.ict.market_structure import MarketStructureIndicator
 from v2.indicators.levels.pivots import PivotPointsIndicator
-from v2.models.schemas import EngineResult, SignalSide
+from v2.models.schemas import BacktestPoint, EngineResult, SignalSide
 from v2.ml.predictor import MLPredictorV2
 
 router = APIRouter(prefix="/v2", tags=["v2 Engine"])
@@ -46,17 +46,24 @@ def resolve_symbol(symbol: str) -> str:
     # This is simple; better lookup can be added.
     return s
 
+def _fetch_history(symbol: str, period: str, interval: str) -> pd.DataFrame:
+    """The actual blocking network call (`yfinance` does synchronous
+    HTTP under the hood) - always run via `asyncio.to_thread` from an
+    `async def` route, never called directly on the event-loop thread,
+    the same pattern `model_serving/inference.py` and `model_serving/
+    service.py` already use for their own blocking calls."""
+    return yf.Ticker(symbol).history(period=period, interval=interval)
+
+
 @router.get("/analyze/{symbol}", response_model=EngineResult)
 async def analyze_symbol(symbol: str, period: str = "60d", interval: str = "1h"):
     try:
         resolved = resolve_symbol(symbol)
-        ticker = yf.Ticker(resolved)
-        data = ticker.history(period=period, interval=interval)
-        
+        data = await asyncio.to_thread(_fetch_history, resolved, period, interval)
+
         if data.empty and resolved != symbol:
             # Try original if resolved failed
-            ticker = yf.Ticker(symbol)
-            data = ticker.history(period=period, interval=interval)
+            data = await asyncio.to_thread(_fetch_history, symbol, period, interval)
             resolved = symbol
             
         if data.empty:
@@ -70,12 +77,17 @@ async def analyze_symbol(symbol: str, period: str = "60d", interval: str = "1h")
             result.ml_prediction = ml_res
             
         return result
+    except HTTPException:
+        # Otherwise the broad `except Exception` below would re-catch
+        # this (HTTPException IS an Exception) and turn a deliberate
+        # 404 "symbol not found" into a misleading 500.
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 from v2.core.backtest_engine import run_v2_backtest_history
 
-@router.get("/backtest/{symbol}", response_model=List[Dict[str, Any]])
+@router.get("/backtest/{symbol}", response_model=List[BacktestPoint])
 async def get_backtest_history(symbol: str, days: int = 30):
     try:
         resolved = resolve_symbol(symbol)
@@ -83,6 +95,8 @@ async def get_backtest_history(symbol: str, days: int = 30):
         if not results:
             raise HTTPException(status_code=404, detail="No backtest data available")
         return results
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 async def scan_symbols(symbols: List[str], interval: str = "1h"):
@@ -90,8 +104,7 @@ async def scan_symbols(symbols: List[str], interval: str = "1h"):
     
     async def process_symbol(symbol: str):
         try:
-            ticker = yf.Ticker(symbol)
-            data = ticker.history(period="60d", interval=interval)
+            data = await asyncio.to_thread(_fetch_history, symbol, "60d", interval)
             if not data.empty:
                 return await engine.analyze(symbol, data)
         except:
@@ -107,9 +120,8 @@ async def websocket_analyze(websocket: WebSocket, symbol: str):
     await websocket.accept()
     try:
         while True:
-            ticker = yf.Ticker(symbol)
-            data = ticker.history(period="5d", interval="15m")
-            
+            data = await asyncio.to_thread(_fetch_history, symbol, "5d", "15m")
+
             if not data.empty:
                 result = await engine.analyze(symbol, data)
                 await websocket.send_json(result.dict())

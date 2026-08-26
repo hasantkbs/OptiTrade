@@ -15,7 +15,6 @@ Katmanlar:
 from __future__ import annotations
 
 import re
-import time
 import logging
 import math
 import xml.etree.ElementTree as ET
@@ -27,6 +26,8 @@ from typing import List, Dict, Optional, Tuple
 from urllib.parse import quote_plus
 
 import httpx
+
+from core.cache_manager import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -176,8 +177,7 @@ class NewsItem:
 # MARK: - Önbellek
 # ─────────────────────────────────────────────────────────────────────────────
 
-_NEWS_CACHE: Dict[str, Tuple[float, "NewsAnalysisResult"]] = {}
-_CACHE_TTL = 1800  # 30 dakika
+_NEWS_CACHE: TTLCache = TTLCache(ttl_seconds=1800)  # 30 dakika
 
 
 def _cache_key(symbol: str, market: str) -> str:
@@ -618,9 +618,9 @@ def analyze_news(
     market = market.upper()
 
     ck = _cache_key(symbol, market)
-    if use_cache and ck in _NEWS_CACHE:
-        cached_time, cached_result = _NEWS_CACHE[ck]
-        if time.time() - cached_time < _CACHE_TTL:
+    if use_cache:
+        cached_result = _NEWS_CACHE.get(ck)
+        if cached_result is not None:
             return cached_result
 
     sector         = get_sector(symbol)
@@ -654,7 +654,7 @@ def analyze_news(
             signals=[f"Haber bulunamadı ({market} piyasası) — skor nötr"],
             error="Haber verisi alınamadı",
         )
-        _NEWS_CACHE[ck] = (time.time(), result)
+        _NEWS_CACHE.set(ck, result)
         return result
 
     now    = datetime.now(timezone.utc)
@@ -706,7 +706,7 @@ def analyze_news(
             score_delta=0,
             signals=[f"Son {max_age_days} günde analiz edilebilir haber yok ({market})"],
         )
-        _NEWS_CACHE[ck] = (time.time(), result)
+        _NEWS_CACHE.set(ck, result)
         return result
 
     total_weight = sum(abs(i.weighted_score) for i in items) or 1.0
@@ -751,7 +751,7 @@ def analyze_news(
         top_positive_title = top_pos,
         top_negative_title = top_neg,
     )
-    _NEWS_CACHE[ck] = (time.time(), result)
+    _NEWS_CACHE.set(ck, result)
     return result
 
 

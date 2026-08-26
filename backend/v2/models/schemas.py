@@ -22,3 +22,16 @@ class EngineResult(BaseModel):
     ml_prediction: Optional[Dict[str, Any]] = None
     risk_score: float
     timestamp: str
+
+class BacktestPoint(BaseModel):
+    """One point of `v2.core.backtest_engine.run_v2_backtest_history`'s
+    signal timeline - was previously typed as a bare `Dict[str, Any]` in
+    the `/v2/backtest/{symbol}` response_model, which gave OpenAPI (and
+    any generated mobile client) no field-level schema at all. Field
+    names/values are unchanged; this only makes the existing shape
+    explicit."""
+    timestamp: str
+    price: float
+    score: float
+    signal: SignalSide
+    equity: float

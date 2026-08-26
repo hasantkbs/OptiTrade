@@ -7,8 +7,8 @@ networks:
 
 # ── Named volumes ─────────────────────────────────────────────────────────────
 volumes:
-  postgres_data:
-  redis_data:
+  optitrade-postgres-data:
+  optitrade-redis-data:
 
 # ── Services ──────────────────────────────────────────────────────────────────
 services:
@@ -23,9 +23,17 @@ services:
       - ./backend/.env
     environment:
       - PYTHONUNBUFFERED=1
-      - DATABASE_URL=postgresql+asyncpg://optitrade:optitrade@postgres:5432/optitrade
-      - REDIS_URL=redis://redis:6379/0
+      - FEATURE_STORE_POSTGRES_HOST=postgres
+      - FEATURE_STORE_POSTGRES_PORT=5432
+      - FEATURE_STORE_POSTGRES_DB=${FEATURE_STORE_POSTGRES_DB:-optitrade}
+      - FEATURE_STORE_POSTGRES_USER=${FEATURE_STORE_POSTGRES_USER:-optitrade_user}
+      - FEATURE_STORE_POSTGRES_PASSWORD=${FEATURE_STORE_POSTGRES_PASSWORD:?required}
+      - FEATURE_STORE_REDIS_HOST=redis
+      - FEATURE_STORE_REDIS_PORT=6379
+      - FEATURE_STORE_REDIS_DB=0
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
@@ -38,15 +46,34 @@ services:
       retries: 3
       start_period: 15s
 
+  postgres:
+    image: postgres:17
+    container_name: optitrade-postgres
+    environment:
+      - POSTGRES_DB=${FEATURE_STORE_POSTGRES_DB:-optitrade}
+      - POSTGRES_USER=${FEATURE_STORE_POSTGRES_USER:-optitrade_user}
+      - POSTGRES_PASSWORD=${FEATURE_STORE_POSTGRES_PASSWORD:?required}
+    volumes:
+      - optitrade-postgres-data:/var/lib/postgresql/data
+    networks:
+      - optitrade-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${FEATURE_STORE_POSTGRES_USER:-optitrade_user} -d ${FEATURE_STORE_POSTGRES_DB:-optitrade}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   # ── Redis (cache + message broker) ────────────────────────────────────────
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: optitrade-redis
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - optitrade-redis-data:/data
     networks:
       - optitrade-net
     restart: unless-stopped
@@ -55,26 +82,4 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # ── PostgreSQL + TimescaleDB (Phase 3 — analysis persistence) ─────────────
-  # Start the full stack with: docker compose --profile db up
-  postgres:
-    image: timescale/timescaledb:latest-pg15
-    container_name: optitrade-postgres
-    profiles: ["db"]
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_USER: optitrade
-      POSTGRES_PASSWORD: optitrade
-      POSTGRES_DB: optitrade
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - optitrade-net
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U optitrade -d optitrade"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      start_period: 5s

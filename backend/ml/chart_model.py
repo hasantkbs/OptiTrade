@@ -14,7 +14,7 @@ Model Mimarisi:
 from __future__ import annotations
 import os
 import logging
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, Tuple
 import numpy as np
 import pandas as pd
 
@@ -161,32 +161,6 @@ def _build_features(hist: pd.DataFrame) -> Optional[np.ndarray]:
 
         # İlk 30 satır NaN olabilir
         valid_start = 30
-        X = X[valid_start:]
-        return X.astype(np.float32)
-    except Exception as e:
-        logger.error(f"Feature engineering hatası: {e}")
-        return None
-        bb_std = close.rolling(20).std()
-        bb_pb  = ((close - (bb_mid - 2 * bb_std)) /
-                  (4 * bb_std).replace(0, np.nan)).clip(0, 1)
-
-        # Price velocity
-        pvel = close.pct_change(5).fillna(0).clip(-0.2, 0.2) / 0.2
-
-        X = np.column_stack([
-            (close  / ma20.replace(0, np.nan)).fillna(1).values,
-            (open_  / ma20.replace(0, np.nan)).fillna(1).values,
-            (high   / ma20.replace(0, np.nan)).fillna(1).values,
-            (low    / ma20.replace(0, np.nan)).fillna(1).values,
-            (volume / vstd).fillna(1).clip(0, 10).values,
-            (rsi / 100).values,
-            macd.fillna(0).clip(-0.1, 0.1).values / 0.1,
-            bb_pb.fillna(0.5).values,
-            pvel.values,
-        ])
-
-        # İlk 26 satır NaN olabilir, at
-        valid_start = 26
         X = X[valid_start:]
         return X.astype(np.float32)
     except Exception as e:

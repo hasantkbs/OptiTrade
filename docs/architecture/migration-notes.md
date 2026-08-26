@@ -1,0 +1,601 @@
+# Migration Notes
+
+A living, factual log of implementation-level observations discovered
+while characterizing existing modules during Sprint 1 (Repository
+Refactoring) and later sprints. Each section documents one module: hidden
+dependencies, technical debt, behavioral quirks, potential future
+refactoring candidates, and risks the module poses for the upcoming
+Feature Store and Decision Engine migrations.
+
+This document is informational only. It does not propose solutions and
+does not redesign anything — see `docs/architecture/gap-analysis.md` for
+the approved-architecture comparison, and
+`docs/superpowers/plans/2026-07-27-sprint1-repository-refactoring.md` for
+what is actually being changed and when.
+
+## cache_manager.py
+
+Source: `backend/core/cache_manager.py` (`TTLCache`). Characterized in
+`backend/tests/test_cache_manager.py` (25 tests, 100% line coverage).
+
+**Hidden dependencies**
+- Depends on the module-level `time.time()` call at every `get()`/`set()` —
+  there is no injectable clock, so any future code that needs a
+  reproducible/mockable time source (e.g. a Feature Store's point-in-time
+  correctness guarantees) cannot get one from this class as-is.
+
+**Technical debt**
+- No proactive expiry sweep: expired entries are only removed lazily, the
+  next time `get()` happens to be called on that exact key. A key that is
+  set once and never read again stays in `_store` (and counted by
+  `__len__`) forever, even long after it has logically expired. Under
+  sustained use with many never-re-read keys, this cache can grow without
+  bound.
+- Zero input validation anywhere in the class. An unhashable key raises a
+  raw, unwrapped `TypeError` from the underlying dict — there is no
+  validation layer or custom error type.
+- Key type is documented via type hints as `str` but is not enforced at
+  runtime in any way; any hashable object works today.
+
+**Behavioral quirks**
+- `get()` returns `None` both for "key missing/expired" and for "key
+  present with a legitimately cached value of `None`" — these two cases
+  are indistinguishable from the return value alone.
+- Values are stored and returned by reference, never copied or
+  serialized. Mutating an object after `set()` (or mutating what `get()`
+  returns) mutates the cached entry in place, since caller and cache share
+  the same object.
+- `ttl_seconds=0` does not mean "no caching enforced" or "cache forever" —
+  because the expiry check is `elapsed >= ttl_seconds`, a TTL of exactly 0
+  means every entry is already expired the instant it's read, even with
+  zero elapsed time. The same applies to any negative TTL.
+- Overwriting an existing key via `set()` fully resets that key's TTL
+  clock to "now" — the old timestamp is discarded, not merged or extended.
+
+**Potential future refactoring candidates** (observations only, no
+solution proposed here)
+- The lazy-only eviction strategy.
+- The lack of a distinguishable "cached None" vs "cache miss" return
+  signal.
+- The lack of an injectable clock for deterministic testing/point-in-time
+  behavior.
+
+**Risks for Decision Engine migration**
+- `core/hybrid_engine.py` currently uses one `TTLCache` instance per
+  engine to cache whole `TradeRecommendation` objects for 15 minutes. If
+  the future Decision Engine reuses this same caching pattern for decision
+  outputs, the "cached `None` looks like a miss" quirk above becomes
+  directly relevant: a legitimate "no decision"/"stay neutral" result
+  cached as `None` would be silently recomputed every time instead of
+  honoring the cache.
+
+**Risks for Feature Store migration**
+- This is exactly the kind of ad-hoc, single-process, non-persistent
+  caching pattern the approved Feature Store (Redis online store +
+  PostgreSQL offline store, per `docs/architecture/gap-analysis.md`
+  section 3) is meant to replace. Concretely:
+  - No serialization happens anywhere in `TTLCache` — values are arbitrary
+    in-process Python objects. A Redis-backed online store will require
+    serializing/deserializing every value, which this module gives no
+    precedent or contract for.
+  - No point-in-time query capability exists (no "get the value as of time
+    T") — only "is the single stored value still within its TTL as of
+    now."
+  - No versioning of any kind — a `set()` simply overwrites whatever was
+    there before, with no history retained.
+
+## risk_manager.py
+
+Source: `backend/core/risk_manager.py` (`DynamicRiskManager`,
+`RiskLevels`). Characterized in `backend/tests/test_risk_manager.py`
+(27 tests, 100% line coverage).
+
+**Hidden runtime dependencies**
+- None beyond the standard library and `pydantic` — `calculate()` is a
+  pure function of its two arguments plus the four constructor-configured
+  multipliers; no clock, I/O, or global state involved.
+
+**Technical debt**
+- The constructor (`stop_loss_atr_multiplier`, `take_profit_1_atr_multiplier`,
+  `take_profit_2_atr_multiplier`, `min_risk_reward_ratio`) performs zero
+  validation on any of the four multipliers — zero, negative, or otherwise
+  nonsensical values are all accepted silently and only surface later as
+  odd computed price levels (see quirks below).
+- `calculate()`'s only input validation is `entry_price <= 0 or atr <= 0`.
+  This check silently fails to catch `NaN` or `inf` (see numerical edge
+  cases below) because IEEE-754 comparisons involving `NaN` are always
+  `False`, and `inf` is not `<= 0`.
+- `is_valid` is computed by comparing the *unrounded* `risk_reward_ratio`
+  local variable against `min_risk_reward_ratio`, while the
+  `risk_reward_ratio` field stored on the returned `RiskLevels` is
+  separately rounded to 2 decimals. The two can disagree at the boundary
+  (see quirks below) — a reader of only the rounded field can be misled
+  about whether `is_valid` should be true.
+
+**Behavioral quirks**
+- `NaN` passed as `entry_price` or `atr` bypasses the positivity guard
+  entirely (no exception) and propagates through every computed field;
+  the final `risk_reward_ratio` still resolves to `0.0` and `is_valid` to
+  `False`, because the `risk_per_unit > 0` check is itself always `False`
+  for `NaN`.
+- `inf` passed as `entry_price` similarly bypasses the guard; `stop_loss`/
+  `take_profit_1`/`take_profit_2` all become `inf`, but `risk_per_unit`
+  and `reward_per_unit_tp1` become `NaN` (`inf - inf` in IEEE-754), again
+  silently resolving to `risk_reward_ratio=0.0`, `is_valid=False`.
+- A `stop_loss_atr_multiplier` of `0.0` gives `risk_per_unit == 0.0` and a
+  `stop_loss` exactly equal to `entry_price` — handled via the `else 0.0`
+  fallback, not a `ZeroDivisionError`.
+- A **negative** `stop_loss_atr_multiplier` places the computed stop-loss
+  price *above* the entry price (nonsensical for a long-only risk model).
+  Nothing detects or rejects this — it only shows up as a negative
+  `risk_per_unit`, which (like the zero case) falls back to
+  `risk_reward_ratio=0.0` via the same `> 0` guard, with no explicit
+  signal that the stop-loss itself is placed on the wrong side of entry.
+- An oversized `atr` relative to `entry_price` (e.g. `atr` >> `entry_price`)
+  can drive the computed `stop_loss` to a **negative price**, which is not
+  a realistic value for any real asset. `DynamicRiskManager` has no sanity
+  check on the sign of any of the output price levels — only
+  `risk_reward_ratio` is evaluated for validity, never whether the prices
+  themselves make sense.
+- `take_profit_2_atr_multiplier` has no effect on `is_valid` — validity is
+  defined purely by the TP1-based ratio; TP2 is informational output only.
+- Every numeric output field is independently rounded (`round(x, 4)` for
+  prices/risk/reward, `round(x, 2)` for the ratio) — there is no single
+  shared rounding pass, so an input value below roughly `0.00005` (e.g.
+  `entry_price=1e-6`) passes the `> 0` validity check yet displays as
+  exactly `0.0` in the output, indistinguishable at a glance from the
+  `entry_price=0.0` case that raises `ValueError`.
+
+**Numerical edge cases** (all verified empirically, not assumed)
+- `entry_price=NaN` or `atr=NaN` → no exception, all downstream fields
+  either `NaN` or the `0.0`/`False` fallback.
+- `entry_price=inf` → no exception, `stop_loss`/TP fields become `inf`,
+  `risk_per_unit`/`reward_per_unit_tp1` become `NaN` from `inf - inf`.
+- `risk_reward_ratio` computed from an unrounded value of `1.996` (via
+  `take_profit_1_atr_multiplier=1.996`, `stop_loss_atr_multiplier=1.0`)
+  displays as a rounded `2.0` — equal to the default `min_risk_reward_ratio`
+  — while `is_valid` is `False`, since the underlying comparison used the
+  true unrounded `1.996 < 2.0`.
+- Tiny positive `entry_price`/`atr` (e.g. `1e-6`) pass validation but round
+  to a displayed `0.0`.
+
+**Risks for Decision Engine migration**
+- If a future Decision Engine surfaces `risk_reward_ratio` and `is_valid`
+  together in any user-facing or LLM-facing output (as
+  `core/ai_trader_persona.py` already does today via `RiskLevels`), the
+  rounding-mismatch quirk above means the displayed ratio and the validity
+  flag can appear to contradict each other with no rounding-precision
+  explanation visible to the consumer.
+- Nothing here validates that `entry_price`/`atr` passed in from upstream
+  (regime scanner, MTF analyzer) are finite, real numbers before reaching
+  `DynamicRiskManager` — a `NaN`/`inf` produced upstream (e.g. from a
+  division by a zero-volume bar, or missing OHLCV data) would flow through
+  silently as `is_valid=False` rather than surfacing as an explicit error
+  the Decision Engine could act on or log distinctly from "reward is
+  genuinely just below threshold."
+
+**Risks for Learning Engine**
+- `risk_reward_ratio` and `is_valid` are derived, deterministic functions
+  of `entry_price`/`atr`/multipliers — not learned or fit from data in any
+  way — so this module has no model versioning, training data, or feature
+  drift concerns of its own. Its main relevance to a future Learning
+  Engine is as a potential feature source: if `risk_reward_ratio` or
+  `is_valid` were ever fed into a model as a feature, the NaN/inf-silent
+  fallbacks above could inject silent `0.0`/`False` values into training
+  data without any accompanying signal that the input was actually
+  degenerate.
+
+**Risks for Feature Store**
+- `DynamicRiskManager.calculate()` is currently called fresh, per request,
+  with live `entry_price`/`atr` — there is no caching, versioning, or
+  point-in-time retrieval involved at all (unlike `hybrid_engine.py`'s use
+  of `TTLCache` for the LLM recommendation one layer up). If risk levels
+  were ever persisted as point-in-time features, the multiplier
+  configuration (`stop_loss_atr_multiplier` etc.) used at calculation time
+  would need to be recorded alongside the output, since the same
+  `entry_price`/`atr` pair can produce different `RiskLevels` under a
+  different `DynamicRiskManager` configuration, and nothing here currently
+  records which configuration produced a given result.
+
+## ml_predictor.py
+
+Source: `backend/core/ml_predictor.py` (`get_ml_confidence`,
+`is_model_available`, `get_model_info`, module-private `_load_model`).
+Characterized in `backend/tests/test_ml_predictor.py` (26 tests, 100%
+line coverage, using a picklable `FakeModel`/`RaisingModel` written
+through real `joblib.dump`/`_load_model()` round-trips rather than
+mocking `joblib` itself, so the actual disk-loading code path is
+exercised).
+
+**Hidden runtime dependencies**
+- A module-level global, `_MODEL_CACHE`, makes model loading **process-wide
+  and effectively permanent** once it succeeds: `_load_model()` returns the
+  cached object immediately on every later call, without ever re-checking
+  `os.path.exists()` or re-reading the file. Deleting or replacing the
+  model file on disk after a successful load has zero effect on the
+  running process.
+- Conversely, a **missing or failed** load is never cached (`_MODEL_CACHE`
+  is only assigned inside the success path) — every call while the model
+  is unavailable re-runs the `os.path.exists()` check (and, if the file
+  exists but fails to unpickle, re-attempts the full `joblib.load()`) from
+  scratch, indefinitely, until it succeeds or the process restarts.
+- `_MODEL_PATH` is a hardcoded, `__file__`-relative path
+  (`backend/models/xgb_signal_model.joblib`) with no environment-variable
+  override, unlike other configurable parts of this codebase (e.g.
+  `GROQ_MODEL`/`GROQ_API_KEY`).
+- `joblib` and `numpy` are imported lazily, inside `_load_model()` and
+  `get_ml_confidence()` respectively, not at module top level — so a
+  missing `numpy`/`joblib` install only surfaces the first time a
+  prediction/load is actually attempted, not at import time.
+
+**Model-loading assumptions**
+- The loaded object is assumed to be a `dict`-like package with (at
+  minimum) a `"model"` key holding an object with a scikit-learn-style
+  `.predict_proba(X)` method. Nothing validates this shape when the model
+  is loaded — only when it's actually used.
+- The feature vector `get_ml_confidence()` builds (7 floats, fixed
+  order: rsi, macd_diff, bollinger_pb, ema_crossover-encoded,
+  trend_strength, price_velocity, volume_ratio) must exactly match what
+  the model currently in `backend/models/xgb_signal_model.joblib` was
+  trained on. There is no schema/feature-count/feature-order validation
+  connecting this function to the model artifact's own
+  `feature_names` metadata (which `get_model_info()` happily surfaces but
+  `get_ml_confidence()` never reads or checks against).
+
+**External resource dependencies**
+- A single file on local disk: `backend/models/xgb_signal_model.joblib`.
+  No network calls, no database, no external service.
+- In this development environment specifically, `xgboost` is **not
+  installed**, even though a real trained model file exists on disk — so
+  `joblib.load()` on the real file currently fails with
+  `ModuleNotFoundError` inside `_load_model()`'s try/except, silently
+  degrading to "model unavailable" in this environment. The tests in this
+  file avoid depending on that real file/environment state entirely, using
+  a synthetic `FakeModel` instead.
+
+**Error handling behavior**
+- `get_ml_confidence()` wraps its entire prediction path in a broad
+  `except Exception`, logged at **DEBUG** level, returning `None` on any
+  failure (bad package shape, missing `"model"` key, `predict_proba`
+  raising, etc.).
+- `_load_model()` wraps the load itself in a broad `except Exception`,
+  logged at **WARNING** level, also returning `None`.
+- `get_model_info()` has **no try/except at all** — if `_load_model()`
+  ever returns a successfully-loaded object that isn't dict-like (e.g. a
+  bare model object saved without the expected wrapper dict), every
+  `package.get(...)` call raises `AttributeError` **uncaught**. This is a
+  real inconsistency: the two "read the model" entry points
+  (`get_ml_confidence` vs `get_model_info`) do not fail the same way for
+  the same kind of malformed package.
+- The DEBUG-vs-WARNING split between prediction failures and load failures
+  means a production deployment that only surfaces WARNING+ logs would see
+  model *loading* failures but never see individual *prediction* failures.
+
+**Determinism**
+- `get_ml_confidence()` introduces no randomness or time-dependence of its
+  own — for a fixed model and fixed inputs, the result is deterministic
+  (verified directly). Any non-determinism would come only from the
+  underlying model itself (not exercised here, since the real XGBoost
+  model can't currently be loaded in this environment).
+- The returned confidence score is **not clamped** to `[0, 1]` in any way
+  — `get_ml_confidence()` returns `float(model.predict_proba(X)[0][1])`
+  exactly as given by the model, even if that value is outside the
+  documented "0.0–1.0 probability" range (verified with a model stubbed to
+  return 1.5).
+
+**Technical debt**
+- Required (non-`Optional`) parameters `volume_ratio` and `price_velocity`
+  are not actually enforced at runtime: passing `None` for either does not
+  raise — `numpy.array(..., dtype=np.float32)` silently converts a Python
+  `None` into `NaN`, which then flows straight into the model as a real
+  (if degenerate) input, rather than being rejected or defaulted the way
+  the `Optional` parameters are.
+- `macd_diff` is zeroed out if **either** `macd` or `macd_signal` is
+  `None` — not "use whichever one is available" — even when the other
+  value is large and meaningful.
+- No feature-schema versioning ties `get_ml_confidence()`'s hardcoded
+  7-feature vector to whatever model happens to be sitting at
+  `_MODEL_PATH`; a retrained model with a different feature count or order
+  would silently produce wrong (or, if `predict_proba` raises on shape
+  mismatch, silently `None`) predictions rather than a clear error.
+
+**Risks for the future Learning Engine**
+- The process-wide, load-once-forever cache means a running server process
+  will never pick up a newly retrained model file without a full process
+  restart — directly relevant to `backend/main.py`'s existing
+  `self_evolution_loop()` background task, which retrains the model daily
+  via `research/ml_trainer.py` (see the Task 7 research/production split)
+  but has no mechanism to tell already-running `core/ml_predictor` callers
+  to reload; they will keep serving whatever was cached at first use.
+- The lack of feature-schema validation between the training script and
+  this serving module means any future Learning Engine that changes the
+  feature set must also manually keep `get_ml_confidence()`'s hardcoded
+  feature list in sync — there is no shared schema to enforce it.
+
+**Risks for continuous training**
+- Because failed loads are retried on *every single call* rather than
+  backed off or cached negatively, a continuously-retraining pipeline that
+  produces a transiently-corrupt or partially-written model file could
+  cause every request touching `get_ml_confidence()`/`is_model_available()`
+  to repeatedly attempt (and fail) a full `joblib.load()` under load, with
+  no circuit breaker.
+- There is no atomic "swap" mechanism visible here (e.g. write-to-temp-then-
+  rename) — that would live in the training script, not this module, but
+  this module's permanent-once-loaded cache means whatever race exists
+  between a training script overwriting the file and a server process's
+  *first* load of it is a one-time event per process lifetime, not an
+  ongoing risk after the first successful load.
+
+**Risks for model versioning**
+- `get_model_info()` surfaces `cv_accuracy`, `cv_std`, `train_samples`,
+  `forward_days`, and `features` from the package dict, but there is no
+  model version identifier, training timestamp, or hash of any kind in
+  either the package format or the API surface — two different model
+  artifacts with identical metadata field values (or missing ones,
+  defaulted silently) are indistinguishable from `get_model_info()`'s
+  output alone.
+
+## HybridTradingEngine DI
+
+Source: `backend/core/hybrid_engine.py` (`HybridTradingEngine`), new
+`backend/core/interfaces.py`. Characterized in
+`backend/tests/test_hybrid_engine.py` (11 tests: 4 behavioral — proving
+`run()`'s caching, regime-filtered iteration, and per-symbol error
+isolation are unchanged — plus 7 backward-compatibility checks). This is
+Sprint 1's first production-code change: a structural retyping only, no
+business logic touched.
+
+**Existing dependencies (before this task)**
+`HybridTradingEngine.__init__` already accepted its five collaborators as
+constructor parameters with `Optional[ConcreteClass] = None` defaults,
+falling back to `ConcreteClass()` when not supplied — i.e. constructor
+-based dependency injection already existed, just typed against concrete
+classes:
+- `scanner: Optional[MarketRegimeScanner]`
+- `analyzer: Optional[MultiTimeframeAnalyzer]`
+- `risk_manager: Optional[DynamicRiskManager]`
+- `ai_persona: Optional[AITraderPersona]`
+- `news_adapter: Optional[NewsSentimentAdapter]`
+
+**Newly introduced interfaces**
+`backend/core/interfaces.py` adds five `typing.Protocol` classes
+(`@runtime_checkable`), one per collaborator, each declaring only the
+single method `HybridTradingEngine` actually calls on it:
+- `RegimeScannerProtocol.scan_and_filter(symbols: List[str]) -> List[ScannedSymbol]`
+- `TimeframeAnalyzerProtocol.analyze(symbol: str) -> Optional[Dict[str, Any]]`
+- `RiskManagerProtocol.calculate(entry_price: float, atr: float) -> RiskLevels`
+- `NewsSentimentProtocol.get_sentiment(symbol: str) -> Optional[Dict[str, Any]]`
+- `TraderPersonaProtocol.generate_recommendation(symbol, market_regime, analysis, risk, news_sentiment=None) -> TradeRecommendation`
+
+`HybridTradingEngine.__init__`'s five parameters are now typed against
+these Protocols instead of the concrete classes. Parameter names, order,
+and defaults are all unchanged; only the type annotation changed on each
+of the 5 parameters (a 12-line insertion / 5-line-touched diff in total —
+see the diff for the exact minimal change). The constructor body (the
+`self.x = x or ConcreteClass()` fallback lines) was not modified at all.
+
+**Injection boundary**
+The boundary is exactly where it already was: `HybridTradingEngine`'s
+constructor. Nothing upstream or downstream of the engine changed —
+`api/v1/endpoints/signals.py`'s `get_engine()` singleton,
+`backend/test_engine.py`, and `backend/dashboard.py` all continue
+constructing `HybridTradingEngine()` (or with explicit real collaborators)
+exactly as before, since Python does not enforce type hints at runtime —
+passing a concrete instance where a Protocol is now declared works
+identically to before this change.
+
+**Remaining coupling**
+- The constructor's fallback expressions (`scanner or MarketRegimeScanner()`,
+  etc.) still hard-code the concrete classes directly — the *interfaces*
+  are now explicit, but the *default wiring* is not yet inverted through
+  any container or factory. This was intentional: introducing a DI
+  container/factory was out of scope for "minimize the diff, preserve
+  backward compatibility."
+- `core/ai_trader_persona.py`, `core/regime_scanner.py`,
+  `core/mtf_analyzer.py`, `core/risk_manager.py`, and
+  `core/news_adapter.py` are unchanged — they satisfy the new Protocols
+  structurally (verified via `issubclass()` against each class, with no
+  changes needed on their side) but do not explicitly declare or import
+  the Protocols themselves. There is no `Protocol`-side enforcement that a
+  future change to one of these classes' method signatures would be
+  caught by a type checker pointing at the Protocol — only duck-typing
+  compatibility, same as before.
+- The other two engines this repo runs concurrently
+  (`core/analyzer.py`/`core/scoring.py` and `v2/core/engine.py`, per
+  `docs/architecture/gap-analysis.md` section 1) are untouched by this
+  task and still have no interface layer of their own — this Protocol set
+  only covers `HybridTradingEngine`'s collaborators, not a
+  cross-engine abstraction.
+
+**Technical debt left intentionally**
+- No DI container/registry — collaborators are still wired via
+  constructor-default fallbacks to hardcoded concrete classes, not
+  resolved through any central registration mechanism.
+- The Protocols are not yet used anywhere else in the codebase (e.g. the
+  `v2` engine's `SignalFusion`/`RiskManager` classes have no equivalent
+  Protocol, despite playing structurally similar roles).
+- `TraderPersonaProtocol` covers only `generate_recommendation` — the
+  actual `AITraderPersona` class also has constructor parameters
+  (`api_key`, `model`) that are entirely outside any interface; only the
+  one method the engine calls is captured.
+
+**Future migration opportunities** (observations only, no implementation
+proposed here)
+- These same five Protocols are natural candidates to become the
+  Decision Engine's own collaborator contracts once that consolidation
+  work begins, rather than being redefined from scratch.
+- If `core/analyzer.py`/`v2/core/engine.py` are ever folded into a single
+  engine, a shared Protocol set spanning all three current engines' scoring
+  logic could replace today's per-engine duck typing.
+
+## Production vs Research Separation
+
+Sprint 1, Task 7. Enforced by `backend/tests/test_research_isolation.py`
+(3 tests: an AST-based scan proving no file under `core/`, `v2/`,
+`models/`, `data/`, or `api/` imports `research`; the `research/` package
+contains the 5 expected moved scripts; research code is free to import
+production code).
+
+**Files moved** (via `git mv`, history preserved — confirmed by git's own
+rename detection on each):
+- `backend/backtest.py` → `backend/research/backtest.py`
+- `backend/backtest_advanced.py` → `backend/research/backtest_advanced.py`
+- `backend/ml_trainer.py` → `backend/research/ml_trainer.py`
+- `backend/v2/ml/train_v2.py` → `backend/research/train_v2.py`
+- `backend/ml/train_chart_model.py` → `backend/research/train_chart_model.py`
+
+New file: `backend/research/__init__.py` (empty, makes `research` a
+package).
+
+**Imports updated**
+- `backend/main.py`: `from ml_trainer import train as train_model` →
+  `from research.ml_trainer import train as train_model` (this import
+  feeds `self_evolution_loop()`'s daily background retraining call — the
+  only production call site for any moved script).
+- `backend/admin_terminal.py`: `from ml.train_chart_model import train` →
+  `from research.train_chart_model import train` (inside the `model
+  train` CLI command body — a lazy, function-local import, not a
+  module-level one).
+- `backend/research/backtest_advanced.py` and
+  `backend/research/ml_trainer.py`: each had a `sys.path.insert(0,
+  os.path.dirname(__file__))` line that resolved to `backend/` at their
+  *old*, one-level-deep location; fixed to
+  `os.path.dirname(os.path.dirname(os.path.abspath(__file__)))` so it
+  still resolves to `backend/` from their new location (also one level
+  deep, but under `research/` instead of directly under `backend/` —
+  same nesting depth, but the fix makes the path absolute rather than
+  relying on `__file__` already being absolute, which is not guaranteed).
+  Docstring usage banners updated to match (`python
+  research/backtest_advanced.py`, `python research/ml_trainer.py`).
+- `backend/research/train_chart_model.py`: its `sys.path` line
+  (`dirname(dirname(__file__))`) already resolved to `backend/` correctly
+  at the new location without modification, since both the old
+  (`backend/ml/`) and new (`backend/research/`) locations are exactly one
+  directory under `backend/`; only its docstring usage banner was updated
+  (`python -m research.train_chart_model`).
+- `backend/research/backtest.py`: uses `sys.path.insert(0, ".")`, which is
+  relative to the *current working directory* the script is invoked from,
+  not to `__file__` — unaffected by the move as long as it's still run
+  from `backend/` (as its neighbors already require).
+- `backend/research/train_v2.py`: has no internal (`core.*`/`v2.*`)
+  imports at all, so no path fix was needed.
+
+**Architectural boundaries enforced**
+- One-directional: `research/` may import from `core/`/`v2/`/`models/`/
+  `data/`/`api/` (already does, e.g. `ml_trainer.py` imports
+  `core.indicators`); nothing under `core/`, `v2/`, `models/`, `data/`, or
+  `api/` may import from `research/`. Enforced by an automated AST-based
+  test rather than a manual convention, so a future accidental
+  `import research...` inside production code fails the test suite.
+
+**Remaining coupling**
+- `main.py`'s `self_evolution_loop()` background task still calls
+  `research.ml_trainer.train()` directly, in-process, on a schedule — the
+  *code* now lives in an isolated package, but production still executes
+  research code as part of its own runtime process. Per the gap analysis
+  (`docs/architecture/gap-analysis.md`, section 4), this is an existing,
+  known coupling this task deliberately did not resolve — moving the
+  training call to run out-of-process (a separate job/worker) is future
+  work, not part of "move the files without changing behavior."
+- `research/ml_trainer.py`, `research/backtest.py`, and
+  `research/backtest_advanced.py` still import `core.scoring.compute_score`
+  and `core.indicators` directly — i.e. research code depends on the exact
+  same modules the live decision paths use. This is the *allowed*
+  direction of coupling per the boundary rule above, but it's still a real
+  coupling: a future change to `core/scoring.py` for production reasons
+  will simultaneously change what these research scripts compute, with no
+  isolation between "production's copy" and "research's copy" of that
+  logic, because there is only one copy.
+- `admin_terminal.py`'s `model train` command still lazily imports
+  `research.train_chart_model.train` on demand — an operational/admin
+  tool invoking research code interactively, distinct from
+  `main.py`'s automatic background invocation.
+
+**Known exceptions**
+- `research/train_v2.py` cannot currently be imported in this environment
+  (`ModuleNotFoundError: No module named 'xgboost'`) — this is a
+  pre-existing gap (the file's unconditional `import xgboost as xgb` at
+  the top predates this task; `xgboost` has never been installed in this
+  venv, as already noted in the `ml_predictor.py` section above) and is
+  unrelated to the move itself. Nothing in this repository's production
+  path imports `train_v2.py`, so this does not affect any running
+  application.
+
+## main.py typing improvements
+
+Sprint 1, Task 9 — final task of the sprint. Pure static-typing pass over
+`backend/main.py`; zero business logic, runtime behavior, API contracts,
+or response schemas changed. Verified via `py_compile`, a fresh
+`import main` (33 routes, same as every prior task's baseline),
+`app.openapi()` succeeding (28 HTTP paths), and the full test suite.
+
+**Typing improvements made**
+- Added explicit `-> ReturnType` annotations to all 27 previously-untyped
+  functions in the file: every FastAPI endpoint, both lifecycle hooks
+  (`startup_event`, `self_evolution_loop`), and both private helpers that
+  lacked one. Where an endpoint already declared `response_model=X` in
+  its decorator (e.g. `SessionInfo`, `AnalysisResult`, `PortfolioOptResult`,
+  `ScanResult`, `ChartResponse`, `List[str]`), the new Python-level return
+  annotation now mirrors that `X` exactly — previously FastAPI enforced
+  the shape at runtime via `response_model` while the function itself was
+  typed as returning nothing in particular (implicit `Any`), which meant
+  static tools (mypy/pyright) and IDEs had no way to catch a return-value
+  mismatch before FastAPI's own runtime validation would. Endpoints
+  without a `response_model` (returning ad-hoc dicts) are now typed
+  `-> Dict[str, Any]` / `-> List[Dict[str, Any]]` instead of bare/implicit.
+- Replaced bare, unparameterized `dict` parameter annotations
+  (`news_for_sector`, `save_user_preferences`) with `Dict[str, Any]` —
+  behaviorally identical to FastAPI/Pydantic (a bare `dict` and
+  `Dict[str, Any]` are treated the same for request-body parsing) but
+  more explicit for strict type checkers, which can flag bare generics.
+- Added explicit local-variable annotations at a handful of assignment
+  sites where the value's eventual type isn't obvious from a bare
+  `= None` or `= []`/`= {}` literal: `mc_data: Optional[Dict[str, Any]]`,
+  `price_data: Dict[str, Any]`, `results: List[Dict[str, Any]]`,
+  `symbols: List[str]`, `points: List[ChartPoint]`, `is_trader: bool`.
+- `_enrich_result`'s `mc_data: Optional[dict]` parameter is now
+  `Optional[Dict[str, Any]]`, matching the endpoint-level annotations
+  above.
+
+**Remaining typing debt** (not addressed — out of scope for "main.py
+endpoints" without touching other modules or introducing new schemas)
+- Several `core/` helpers `main.py` calls into still return bare,
+  unparameterized `Dict`/`List[Dict]` themselves (`get_news_summary`,
+  `sector_overview_to_dict`, `sector_detail_to_dict`, `run_monte_carlo`,
+  `optimize_portfolio`, `compute_recommendation`) — `main.py`'s new
+  `Dict[str, Any]` annotations are only as precise as what these
+  functions actually declare; a fully precise typing pass would need to
+  extend into `core/news_analyzer.py`, `core/sector_intelligence.py`, and
+  `core/advanced_analysis.py` as well.
+- `news_for_sector` and `save_user_preferences` still accept free-form
+  `Dict[str, Any]` request bodies rather than proper Pydantic request
+  models like every other POST endpoint in this file (`AnalysisRequest`,
+  `ScanRequest`, `PortfolioOptRequest`, etc.) — introducing real schemas
+  for these was explicitly out of scope this task ("do not introduce new
+  abstractions or redesign"), since it would change the API's declared
+  request contract (OpenAPI schema, validation errors on malformed
+  bodies), not just its typing.
+- A few pandas-derived local variables (`rsi_series` in `get_chart`,
+  the per-symbol `hist` variables throughout) remain implicitly typed,
+  since `main.py` does not import `pandas` directly anywhere today (it
+  only receives already-constructed `DataFrame`/`Series` objects back
+  from `data/fetcher.py` and treats them duck-typed); adding a
+  `pandas`-only import purely for local-variable annotations was judged
+  outside this task's minimal-diff intent.
+- No `mypy`/`pyright` configuration exists anywhere in this repository,
+  and no type checker runs in CI — these annotations improve IDE
+  support and make a future type-checking pass more tractable, but
+  nothing currently enforces or verifies them automatically.
+
+**Future opportunities** (observations only, no implementation proposed
+here)
+- Extend the same typing pass to the `core/` helper functions listed
+  above, so `main.py`'s `Dict[str, Any]` return types could tighten
+  further once their sources are more precise.
+- If/when `news_for_sector` and `save_user_preferences` are revisited for
+  other reasons, replacing their free-form dict bodies with real Pydantic
+  request models would be a natural next step (a schema change, not a
+  typing-only one).
+- Add a `mypy` or `pyright` configuration and run it in CI once typing
+  coverage is broad enough across `core/`, `v2/`, and `api/` to make the
+  signal worthwhile.
