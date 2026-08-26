@@ -26,6 +26,12 @@ struct OptiTradeApp: App {
                         tokenStore: container.tokenStore,
                         logger: container.logger
                     )
+                },
+                makePortfolioViewModel: {
+                    PortfolioViewModel(
+                        portfolioService: PortfolioService(apiClient: container.apiClient),
+                        logger: container.logger
+                    )
                 }
             )
         }

@@ -1,73 +1,63 @@
 import SwiftUI
 
-/// Proves authentication actually works end-to-end. Not the dashboard —
-/// Portfolio/Watchlist/Quant/Paper Trading/etc. are separate, later tasks.
+/// The authenticated application's primary navigation structure. Portfolio
+/// is the only real destination so far — Watchlist/Quant/Dashboard/Paper
+/// Trading are separate, later tasks and are not stubbed in here.
 struct AuthenticatedAppShell: View {
-    @State private var viewModel: AuthenticatedAppShellViewModel
+    @State private var shellViewModel: AuthenticatedAppShellViewModel
+    private let makePortfolioViewModel: () -> PortfolioViewModel
 
-    init(viewModel: AuthenticatedAppShellViewModel) {
-        _viewModel = State(initialValue: viewModel)
+    init(shellViewModel: AuthenticatedAppShellViewModel, makePortfolioViewModel: @escaping () -> PortfolioViewModel) {
+        _shellViewModel = State(initialValue: shellViewModel)
+        self.makePortfolioViewModel = makePortfolioViewModel
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(.green)
-                .accessibilityHidden(true)
-
-            Text("Signed in")
-                .font(.title2.bold())
-
-            userSection
-
-            Spacer()
-
-            logoutButton
+        NavigationStack {
+            PortfolioView(viewModel: makePortfolioViewModel())
+                .navigationTitle("Portfolio")
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        AccountMenu(viewModel: shellViewModel)
+                    }
+                }
         }
-        .padding(24)
-        .task { await viewModel.loadCurrentUserIfNeeded() }
+        .task { await shellViewModel.loadCurrentUserIfNeeded() }
     }
+}
 
-    @ViewBuilder
-    private var userSection: some View {
-        if viewModel.isLoadingUser {
-            ProgressView()
-        } else if let user = viewModel.currentUser {
-            VStack(spacing: 4) {
+/// Holds what Step 2's shell used to show front-and-center (current user +
+/// logout) — still the same `AuthenticatedAppShellViewModel`, just
+/// relocated now that Portfolio is the primary content.
+private struct AccountMenu: View {
+    let viewModel: AuthenticatedAppShellViewModel
+
+    var body: some View {
+        Menu {
+            if let user = viewModel.currentUser {
                 Text(user.displayName)
-                    .font(.headline)
                 Text(user.email)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Text("User ID: \(user.id)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            } else if viewModel.isLoadingUser {
+                Text("Loading…")
+            } else if let error = viewModel.userLoadError {
+                Text(error)
             }
-            .accessibilityElement(children: .combine)
-        } else if let error = viewModel.userLoadError {
-            Text(error)
-                .font(.footnote)
-                .foregroundStyle(.red)
-        }
-    }
 
-    private var logoutButton: some View {
-        Button(role: .destructive) {
-            Task { await viewModel.logout() }
-        } label: {
-            Group {
+            Divider()
+
+            Button(role: .destructive) {
+                Task { await viewModel.logout() }
+            } label: {
                 if viewModel.isLoggingOut {
-                    ProgressView().tint(.white)
+                    Text("Logging out…")
                 } else {
-                    Text("Log Out")
+                    Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
                 }
             }
-            .frame(maxWidth: .infinity)
+            .disabled(viewModel.isLoggingOut)
+        } label: {
+            Image(systemName: "person.circle")
+                .accessibilityLabel("Account")
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .disabled(viewModel.isLoggingOut)
-        .accessibilityLabel("Log Out")
     }
 }
