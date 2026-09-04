@@ -9,17 +9,20 @@ struct AuthenticatedAppShell: View {
     private let makePortfolioViewModel: () -> PortfolioViewModel
     private let makeWatchlistScreenViewModel: () -> WatchlistScreenViewModel
     private let makeAssetSearchViewModel: () -> AssetSearchViewModel
+    private let makeAssetDetailViewModel: () -> AssetDetailViewModel
 
     init(
         shellViewModel: AuthenticatedAppShellViewModel,
         makePortfolioViewModel: @escaping () -> PortfolioViewModel,
         makeWatchlistScreenViewModel: @escaping () -> WatchlistScreenViewModel,
-        makeAssetSearchViewModel: @escaping () -> AssetSearchViewModel
+        makeAssetSearchViewModel: @escaping () -> AssetSearchViewModel,
+        makeAssetDetailViewModel: @escaping () -> AssetDetailViewModel
     ) {
         _shellViewModel = State(initialValue: shellViewModel)
         self.makePortfolioViewModel = makePortfolioViewModel
         self.makeWatchlistScreenViewModel = makeWatchlistScreenViewModel
         self.makeAssetSearchViewModel = makeAssetSearchViewModel
+        self.makeAssetDetailViewModel = makeAssetDetailViewModel
     }
 
     var body: some View {
@@ -36,7 +39,11 @@ struct AuthenticatedAppShell: View {
             .tabItem { Label("Portfolio", systemImage: "chart.pie") }
 
             NavigationStack {
-                WatchlistView(viewModel: makeWatchlistScreenViewModel(), searchViewModel: makeAssetSearchViewModel())
+                WatchlistView(
+                    viewModel: makeWatchlistScreenViewModel(),
+                    searchViewModel: makeAssetSearchViewModel(),
+                    makeAssetDetailViewModel: makeAssetDetailViewModel
+                )
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
                             AccountMenu(viewModel: shellViewModel)

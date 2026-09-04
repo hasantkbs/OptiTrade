@@ -10,6 +10,7 @@ struct RootView: View {
     let makePortfolioViewModel: () -> PortfolioViewModel
     let makeWatchlistScreenViewModel: () -> WatchlistScreenViewModel
     let makeAssetSearchViewModel: () -> AssetSearchViewModel
+    let makeAssetDetailViewModel: () -> AssetDetailViewModel
 
     var body: some View {
         Group {
@@ -23,7 +24,8 @@ struct RootView: View {
                     shellViewModel: makeShellViewModel(),
                     makePortfolioViewModel: makePortfolioViewModel,
                     makeWatchlistScreenViewModel: makeWatchlistScreenViewModel,
-                    makeAssetSearchViewModel: makeAssetSearchViewModel
+                    makeAssetSearchViewModel: makeAssetSearchViewModel,
+                    makeAssetDetailViewModel: makeAssetDetailViewModel
                 )
             }
         }

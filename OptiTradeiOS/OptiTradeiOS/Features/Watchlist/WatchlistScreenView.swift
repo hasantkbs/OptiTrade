@@ -11,10 +11,16 @@ import SwiftUI
 struct WatchlistView: View {
     @State private var viewModel: WatchlistScreenViewModel
     @State private var searchViewModel: AssetSearchViewModel
+    private let makeAssetDetailViewModel: () -> AssetDetailViewModel
 
-    init(viewModel: WatchlistScreenViewModel, searchViewModel: AssetSearchViewModel) {
+    init(
+        viewModel: WatchlistScreenViewModel,
+        searchViewModel: AssetSearchViewModel,
+        makeAssetDetailViewModel: @escaping () -> AssetDetailViewModel
+    ) {
         _viewModel = State(initialValue: viewModel)
         _searchViewModel = State(initialValue: searchViewModel)
+        self.makeAssetDetailViewModel = makeAssetDetailViewModel
     }
 
     var body: some View {
@@ -23,7 +29,11 @@ struct WatchlistView: View {
             .searchable(text: searchTextBinding, prompt: "Search symbol or name")
             .task { await viewModel.loadIfNeeded() }
             .navigationDestination(for: AssetSelection.self) { selection in
-                AssetDetailView(selection: selection, watchlistViewModel: viewModel)
+                AssetDetailView(
+                    selection: selection,
+                    watchlistViewModel: viewModel,
+                    makeDetailViewModel: makeAssetDetailViewModel
+                )
             }
     }
 

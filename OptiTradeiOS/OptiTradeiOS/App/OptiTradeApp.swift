@@ -48,6 +48,12 @@ struct OptiTradeApp: App {
                         service: AssetService(apiClient: container.apiClient),
                         logger: container.logger
                     )
+                },
+                makeAssetDetailViewModel: {
+                    AssetDetailViewModel(
+                        service: AssetDetailService(apiClient: container.apiClient),
+                        logger: container.logger
+                    )
                 }
             )
         }
