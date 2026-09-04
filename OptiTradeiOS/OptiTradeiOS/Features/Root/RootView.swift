@@ -8,6 +8,8 @@ struct RootView: View {
     let makeLoginViewModel: () -> LoginViewModel
     let makeShellViewModel: () -> AuthenticatedAppShellViewModel
     let makePortfolioViewModel: () -> PortfolioViewModel
+    let makeWatchlistScreenViewModel: () -> WatchlistScreenViewModel
+    let makeAssetSearchViewModel: () -> AssetSearchViewModel
 
     var body: some View {
         Group {
@@ -17,7 +19,12 @@ struct RootView: View {
             case .unauthenticated:
                 LoginView(viewModel: makeLoginViewModel())
             case .authenticated:
-                AuthenticatedAppShell(shellViewModel: makeShellViewModel(), makePortfolioViewModel: makePortfolioViewModel)
+                AuthenticatedAppShell(
+                    shellViewModel: makeShellViewModel(),
+                    makePortfolioViewModel: makePortfolioViewModel,
+                    makeWatchlistScreenViewModel: makeWatchlistScreenViewModel,
+                    makeAssetSearchViewModel: makeAssetSearchViewModel
+                )
             }
         }
         .task { await sessionManager.restoreSession() }

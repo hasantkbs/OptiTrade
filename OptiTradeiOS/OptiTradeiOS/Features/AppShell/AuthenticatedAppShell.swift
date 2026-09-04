@@ -1,26 +1,49 @@
 import SwiftUI
 
 /// The authenticated application's primary navigation structure. Portfolio
-/// is the only real destination so far — Watchlist/Quant/Dashboard/Paper
-/// Trading are separate, later tasks and are not stubbed in here.
+/// and Watchlist/Search are the only real destinations so far — Quant
+/// Analysis/AI Analyst/Dashboard/Paper Trading are separate, later tasks
+/// and are not stubbed in here.
 struct AuthenticatedAppShell: View {
     @State private var shellViewModel: AuthenticatedAppShellViewModel
     private let makePortfolioViewModel: () -> PortfolioViewModel
+    private let makeWatchlistScreenViewModel: () -> WatchlistScreenViewModel
+    private let makeAssetSearchViewModel: () -> AssetSearchViewModel
 
-    init(shellViewModel: AuthenticatedAppShellViewModel, makePortfolioViewModel: @escaping () -> PortfolioViewModel) {
+    init(
+        shellViewModel: AuthenticatedAppShellViewModel,
+        makePortfolioViewModel: @escaping () -> PortfolioViewModel,
+        makeWatchlistScreenViewModel: @escaping () -> WatchlistScreenViewModel,
+        makeAssetSearchViewModel: @escaping () -> AssetSearchViewModel
+    ) {
         _shellViewModel = State(initialValue: shellViewModel)
         self.makePortfolioViewModel = makePortfolioViewModel
+        self.makeWatchlistScreenViewModel = makeWatchlistScreenViewModel
+        self.makeAssetSearchViewModel = makeAssetSearchViewModel
     }
 
     var body: some View {
-        NavigationStack {
-            PortfolioView(viewModel: makePortfolioViewModel())
-                .navigationTitle("Portfolio")
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        AccountMenu(viewModel: shellViewModel)
+        TabView {
+            NavigationStack {
+                PortfolioView(viewModel: makePortfolioViewModel())
+                    .navigationTitle("Portfolio")
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            AccountMenu(viewModel: shellViewModel)
+                        }
                     }
-                }
+            }
+            .tabItem { Label("Portfolio", systemImage: "chart.pie") }
+
+            NavigationStack {
+                WatchlistView(viewModel: makeWatchlistScreenViewModel(), searchViewModel: makeAssetSearchViewModel())
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            AccountMenu(viewModel: shellViewModel)
+                        }
+                    }
+            }
+            .tabItem { Label("Watchlist", systemImage: "star") }
         }
         .task { await shellViewModel.loadCurrentUserIfNeeded() }
     }

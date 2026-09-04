@@ -32,6 +32,22 @@ struct OptiTradeApp: App {
                         portfolioService: PortfolioService(apiClient: container.apiClient),
                         logger: container.logger
                     )
+                },
+                makeWatchlistScreenViewModel: {
+                    WatchlistScreenViewModel(
+                        watchlistService: WatchlistService(apiClient: container.apiClient),
+                        logger: container.logger
+                    )
+                },
+                makeAssetSearchViewModel: {
+                    // No market-selection UI yet (out of Step 4's scope) —
+                    // "US" is a real key in `core.market_config.MARKETS`,
+                    // not a placeholder.
+                    AssetSearchViewModel(
+                        market: "US",
+                        service: AssetService(apiClient: container.apiClient),
+                        logger: container.logger
+                    )
                 }
             )
         }
