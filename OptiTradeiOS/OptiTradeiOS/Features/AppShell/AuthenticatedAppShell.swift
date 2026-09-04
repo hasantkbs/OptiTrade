@@ -10,19 +10,22 @@ struct AuthenticatedAppShell: View {
     private let makeWatchlistScreenViewModel: () -> WatchlistScreenViewModel
     private let makeAssetSearchViewModel: () -> AssetSearchViewModel
     private let makeAssetDetailViewModel: () -> AssetDetailViewModel
+    private let makeAIAnalystViewModel: () -> AIAnalystViewModel
 
     init(
         shellViewModel: AuthenticatedAppShellViewModel,
         makePortfolioViewModel: @escaping () -> PortfolioViewModel,
         makeWatchlistScreenViewModel: @escaping () -> WatchlistScreenViewModel,
         makeAssetSearchViewModel: @escaping () -> AssetSearchViewModel,
-        makeAssetDetailViewModel: @escaping () -> AssetDetailViewModel
+        makeAssetDetailViewModel: @escaping () -> AssetDetailViewModel,
+        makeAIAnalystViewModel: @escaping () -> AIAnalystViewModel
     ) {
         _shellViewModel = State(initialValue: shellViewModel)
         self.makePortfolioViewModel = makePortfolioViewModel
         self.makeWatchlistScreenViewModel = makeWatchlistScreenViewModel
         self.makeAssetSearchViewModel = makeAssetSearchViewModel
         self.makeAssetDetailViewModel = makeAssetDetailViewModel
+        self.makeAIAnalystViewModel = makeAIAnalystViewModel
     }
 
     var body: some View {
@@ -42,7 +45,8 @@ struct AuthenticatedAppShell: View {
                 WatchlistView(
                     viewModel: makeWatchlistScreenViewModel(),
                     searchViewModel: makeAssetSearchViewModel(),
-                    makeAssetDetailViewModel: makeAssetDetailViewModel
+                    makeAssetDetailViewModel: makeAssetDetailViewModel,
+                    makeAIAnalystViewModel: makeAIAnalystViewModel
                 )
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {

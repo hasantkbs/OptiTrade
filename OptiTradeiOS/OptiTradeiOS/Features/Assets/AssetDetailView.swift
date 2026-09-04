@@ -10,15 +10,18 @@ import SwiftUI
 struct AssetDetailView: View {
     let selection: AssetSelection
     let watchlistViewModel: WatchlistScreenViewModel
+    let makeAIAnalystViewModel: () -> AIAnalystViewModel
     @State private var detailViewModel: AssetDetailViewModel
 
     init(
         selection: AssetSelection,
         watchlistViewModel: WatchlistScreenViewModel,
-        makeDetailViewModel: () -> AssetDetailViewModel
+        makeDetailViewModel: () -> AssetDetailViewModel,
+        makeAIAnalystViewModel: @escaping () -> AIAnalystViewModel
     ) {
         self.selection = selection
         self.watchlistViewModel = watchlistViewModel
+        self.makeAIAnalystViewModel = makeAIAnalystViewModel
         _detailViewModel = State(initialValue: makeDetailViewModel())
     }
 
@@ -60,7 +63,9 @@ struct AssetDetailView: View {
             AssetDetailLoadedView(
                 selection: selection,
                 summary: summary,
-                refreshError: detailViewModel.refreshError
+                refreshError: detailViewModel.refreshError,
+                assetType: assetType,
+                makeAIAnalystViewModel: makeAIAnalystViewModel
             )
             .refreshable { await detailViewModel.refresh(assetType: assetType) }
         }
@@ -114,6 +119,8 @@ private struct AssetDetailLoadedView: View {
     let selection: AssetSelection
     let summary: AssetDetailSummary
     let refreshError: String?
+    let assetType: String
+    let makeAIAnalystViewModel: () -> AIAnalystViewModel
 
     var body: some View {
         List {
@@ -122,6 +129,14 @@ private struct AssetDetailLoadedView: View {
             }
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
+
+            Section {
+                NavigationLink {
+                    AIAnalystView(selection: selection, assetType: assetType, makeViewModel: makeAIAnalystViewModel)
+                } label: {
+                    Label("Ask AI Analyst", systemImage: "sparkles")
+                }
+            }
 
             if let refreshError {
                 Section {

@@ -9,6 +9,7 @@ enum LogCategory: String, Sendable, CaseIterable {
     case portfolio
     case assets
     case watchlist
+    case aiAnalyst
 }
 
 /// Abstraction over Apple's unified logging so call sites (and tests) don't
