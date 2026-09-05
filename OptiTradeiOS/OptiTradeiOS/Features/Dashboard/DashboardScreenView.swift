@@ -24,6 +24,7 @@ struct DashboardScreenView: View {
     private let makeAssetSearchViewModel: () -> AssetSearchViewModel
     private let makeAssetDetailViewModel: () -> AssetDetailViewModel
     private let makeAIAnalystViewModel: () -> AIAnalystViewModel
+    private let makeAlertViewModel: () -> AlertViewModel
 
     init(
         shellViewModel: AuthenticatedAppShellViewModel,
@@ -32,7 +33,8 @@ struct DashboardScreenView: View {
         makePortfolioViewModel: @escaping () -> PortfolioViewModel,
         makeAssetSearchViewModel: @escaping () -> AssetSearchViewModel,
         makeAssetDetailViewModel: @escaping () -> AssetDetailViewModel,
-        makeAIAnalystViewModel: @escaping () -> AIAnalystViewModel
+        makeAIAnalystViewModel: @escaping () -> AIAnalystViewModel,
+        makeAlertViewModel: @escaping () -> AlertViewModel
     ) {
         self.shellViewModel = shellViewModel
         self.watchlistViewModel = watchlistViewModel
@@ -41,6 +43,7 @@ struct DashboardScreenView: View {
         self.makeAssetSearchViewModel = makeAssetSearchViewModel
         self.makeAssetDetailViewModel = makeAssetDetailViewModel
         self.makeAIAnalystViewModel = makeAIAnalystViewModel
+        self.makeAlertViewModel = makeAlertViewModel
     }
 
     var body: some View {
@@ -70,7 +73,8 @@ struct DashboardScreenView: View {
                 selection: selection,
                 watchlistViewModel: watchlistViewModel,
                 makeDetailViewModel: makeAssetDetailViewModel,
-                makeAIAnalystViewModel: makeAIAnalystViewModel
+                makeAIAnalystViewModel: makeAIAnalystViewModel,
+                makeAlertViewModel: makeAlertViewModel
             )
         }
     }
@@ -156,7 +160,8 @@ struct DashboardScreenView: View {
                     viewModel: watchlistViewModel,
                     searchViewModel: makeAssetSearchViewModel(),
                     makeAssetDetailViewModel: makeAssetDetailViewModel,
-                    makeAIAnalystViewModel: makeAIAnalystViewModel
+                    makeAIAnalystViewModel: makeAIAnalystViewModel,
+                    makeAlertViewModel: makeAlertViewModel
                 )
             } label: {
                 Text("See All")

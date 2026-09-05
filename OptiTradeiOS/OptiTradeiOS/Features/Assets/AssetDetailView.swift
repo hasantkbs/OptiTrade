@@ -11,17 +11,20 @@ struct AssetDetailView: View {
     let selection: AssetSelection
     let watchlistViewModel: WatchlistScreenViewModel
     let makeAIAnalystViewModel: () -> AIAnalystViewModel
+    let makeAlertViewModel: () -> AlertViewModel
     @State private var detailViewModel: AssetDetailViewModel
 
     init(
         selection: AssetSelection,
         watchlistViewModel: WatchlistScreenViewModel,
         makeDetailViewModel: () -> AssetDetailViewModel,
-        makeAIAnalystViewModel: @escaping () -> AIAnalystViewModel
+        makeAIAnalystViewModel: @escaping () -> AIAnalystViewModel,
+        makeAlertViewModel: @escaping () -> AlertViewModel
     ) {
         self.selection = selection
         self.watchlistViewModel = watchlistViewModel
         self.makeAIAnalystViewModel = makeAIAnalystViewModel
+        self.makeAlertViewModel = makeAlertViewModel
         _detailViewModel = State(initialValue: makeDetailViewModel())
     }
 
@@ -57,7 +60,8 @@ struct AssetDetailView: View {
                 summary: summary,
                 refreshError: detailViewModel.refreshError,
                 assetType: assetType,
-                makeAIAnalystViewModel: makeAIAnalystViewModel
+                makeAIAnalystViewModel: makeAIAnalystViewModel,
+                makeAlertViewModel: makeAlertViewModel
             )
             .refreshable { await detailViewModel.refresh(assetType: assetType) }
         }
@@ -113,6 +117,9 @@ private struct AssetDetailLoadedView: View {
     let refreshError: String?
     let assetType: String
     let makeAIAnalystViewModel: () -> AIAnalystViewModel
+    let makeAlertViewModel: () -> AlertViewModel
+
+    @State private var isPresentingCreateAlert = false
 
     var body: some View {
         List {
@@ -128,6 +135,15 @@ private struct AssetDetailLoadedView: View {
                 } label: {
                     Label("Ask AI Analyst", systemImage: "sparkles")
                 }
+
+                Button {
+                    isPresentingCreateAlert = true
+                } label: {
+                    Label("Create Alert for \(selection.symbol)", systemImage: "bell.badge")
+                }
+            }
+            .sheet(isPresented: $isPresentingCreateAlert) {
+                CreateAlertFormView(viewModel: makeAlertViewModel(), lockedSymbol: selection.symbol, onCreated: {})
             }
 
             if let refreshError {

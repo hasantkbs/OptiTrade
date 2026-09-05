@@ -13,17 +13,20 @@ struct WatchlistView: View {
     @State private var searchViewModel: AssetSearchViewModel
     private let makeAssetDetailViewModel: () -> AssetDetailViewModel
     private let makeAIAnalystViewModel: () -> AIAnalystViewModel
+    private let makeAlertViewModel: () -> AlertViewModel
 
     init(
         viewModel: WatchlistScreenViewModel,
         searchViewModel: AssetSearchViewModel,
         makeAssetDetailViewModel: @escaping () -> AssetDetailViewModel,
-        makeAIAnalystViewModel: @escaping () -> AIAnalystViewModel
+        makeAIAnalystViewModel: @escaping () -> AIAnalystViewModel,
+        makeAlertViewModel: @escaping () -> AlertViewModel
     ) {
         _viewModel = State(initialValue: viewModel)
         _searchViewModel = State(initialValue: searchViewModel)
         self.makeAssetDetailViewModel = makeAssetDetailViewModel
         self.makeAIAnalystViewModel = makeAIAnalystViewModel
+        self.makeAlertViewModel = makeAlertViewModel
     }
 
     var body: some View {
@@ -36,7 +39,8 @@ struct WatchlistView: View {
                     selection: selection,
                     watchlistViewModel: viewModel,
                     makeDetailViewModel: makeAssetDetailViewModel,
-                    makeAIAnalystViewModel: makeAIAnalystViewModel
+                    makeAIAnalystViewModel: makeAIAnalystViewModel,
+                    makeAlertViewModel: makeAlertViewModel
                 )
             }
     }

@@ -66,6 +66,12 @@ struct OptiTradeApp: App {
                         service: DashboardService(portfolioService: PortfolioService(apiClient: container.apiClient)),
                         logger: container.logger
                     )
+                },
+                makeAlertViewModel: {
+                    AlertViewModel(
+                        service: AlertService(apiClient: container.apiClient),
+                        logger: container.logger
+                    )
                 }
             )
         }

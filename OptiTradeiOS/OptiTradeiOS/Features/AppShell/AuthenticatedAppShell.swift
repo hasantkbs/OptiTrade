@@ -2,6 +2,9 @@ import SwiftUI
 
 /// The authenticated application's primary navigation structure: Dashboard
 /// (the primary landing tab, Step 7), Portfolio, and Watchlist/Search.
+/// Alerts (Step 8) is reached from the account menu on every tab, not a
+/// fourth root tab (Step 8's own Section 11: don't turn the app into a
+/// large tab collection for one dedicated screen).
 ///
 /// `watchlistViewModel` is owned here — not inside `WatchlistView`'s own
 /// init as it was through Step 6 — specifically so Dashboard and the
@@ -17,6 +20,7 @@ struct AuthenticatedAppShell: View {
     private let makeAssetDetailViewModel: () -> AssetDetailViewModel
     private let makeAIAnalystViewModel: () -> AIAnalystViewModel
     private let makeDashboardViewModel: () -> DashboardScreenViewModel
+    private let makeAlertViewModel: () -> AlertViewModel
 
     init(
         shellViewModel: AuthenticatedAppShellViewModel,
@@ -25,7 +29,8 @@ struct AuthenticatedAppShell: View {
         makeAssetSearchViewModel: @escaping () -> AssetSearchViewModel,
         makeAssetDetailViewModel: @escaping () -> AssetDetailViewModel,
         makeAIAnalystViewModel: @escaping () -> AIAnalystViewModel,
-        makeDashboardViewModel: @escaping () -> DashboardScreenViewModel
+        makeDashboardViewModel: @escaping () -> DashboardScreenViewModel,
+        makeAlertViewModel: @escaping () -> AlertViewModel
     ) {
         _shellViewModel = State(initialValue: shellViewModel)
         _watchlistViewModel = State(initialValue: makeWatchlistScreenViewModel())
@@ -34,6 +39,7 @@ struct AuthenticatedAppShell: View {
         self.makeAssetDetailViewModel = makeAssetDetailViewModel
         self.makeAIAnalystViewModel = makeAIAnalystViewModel
         self.makeDashboardViewModel = makeDashboardViewModel
+        self.makeAlertViewModel = makeAlertViewModel
     }
 
     var body: some View {
@@ -46,11 +52,12 @@ struct AuthenticatedAppShell: View {
                     makePortfolioViewModel: makePortfolioViewModel,
                     makeAssetSearchViewModel: makeAssetSearchViewModel,
                     makeAssetDetailViewModel: makeAssetDetailViewModel,
-                    makeAIAnalystViewModel: makeAIAnalystViewModel
+                    makeAIAnalystViewModel: makeAIAnalystViewModel,
+                    makeAlertViewModel: makeAlertViewModel
                 )
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        AccountMenu(viewModel: shellViewModel)
+                        AccountMenu(viewModel: shellViewModel, makeAlertViewModel: makeAlertViewModel)
                     }
                 }
             }
@@ -61,7 +68,7 @@ struct AuthenticatedAppShell: View {
                     .navigationTitle("Portfolio")
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
-                            AccountMenu(viewModel: shellViewModel)
+                            AccountMenu(viewModel: shellViewModel, makeAlertViewModel: makeAlertViewModel)
                         }
                     }
             }
@@ -72,11 +79,12 @@ struct AuthenticatedAppShell: View {
                     viewModel: watchlistViewModel,
                     searchViewModel: makeAssetSearchViewModel(),
                     makeAssetDetailViewModel: makeAssetDetailViewModel,
-                    makeAIAnalystViewModel: makeAIAnalystViewModel
+                    makeAIAnalystViewModel: makeAIAnalystViewModel,
+                    makeAlertViewModel: makeAlertViewModel
                 )
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
-                        AccountMenu(viewModel: shellViewModel)
+                        AccountMenu(viewModel: shellViewModel, makeAlertViewModel: makeAlertViewModel)
                     }
                 }
             }
@@ -87,10 +95,12 @@ struct AuthenticatedAppShell: View {
 }
 
 /// Holds what Step 2's shell used to show front-and-center (current user +
-/// logout) — still the same `AuthenticatedAppShellViewModel`, just
-/// relocated now that Dashboard/Portfolio are the primary content.
+/// logout), plus the Step 8 entry point into Alerts — still the same
+/// `AuthenticatedAppShellViewModel`, just relocated now that Dashboard/
+/// Portfolio are the primary content.
 private struct AccountMenu: View {
     let viewModel: AuthenticatedAppShellViewModel
+    let makeAlertViewModel: () -> AlertViewModel
 
     var body: some View {
         Menu {
@@ -101,6 +111,12 @@ private struct AccountMenu: View {
                 Text("Loading…")
             } else if let error = viewModel.userLoadError {
                 Text(error)
+            }
+
+            NavigationLink {
+                AlertsView(viewModel: makeAlertViewModel())
+            } label: {
+                Label("Alerts", systemImage: "bell")
             }
 
             Divider()
