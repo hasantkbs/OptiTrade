@@ -29,6 +29,20 @@ struct AppContainerTests {
         #expect(container.apiClient === apiClient)
     }
 
+    /// Step 9 hardening: every API response here is either authenticated
+    /// financial data (portfolio balances, positions, quant decisions,
+    /// alerts) or an auth payload — none of it should ever be written to
+    /// an on-disk response cache. `URLSessionConfiguration.default`
+    /// otherwise uses `URLCache.shared` for exactly that.
+    @Test
+    func urlSessionConfigurationDisablesResponseCaching() {
+        let configuration = AppContainer.urlSessionConfiguration(timeoutInterval: 30)
+
+        #expect(configuration.urlCache == nil)
+        #expect(configuration.requestCachePolicy == .reloadIgnoringLocalCacheData)
+        #expect(configuration.timeoutIntervalForRequest == 30)
+    }
+
     @Test
     func productionInitializerRestoresNoSessionWhenKeychainIsEmpty() async {
         // Uses the real KeychainTokenStore end-to-end (development environment,

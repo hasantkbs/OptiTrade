@@ -25,8 +25,7 @@ final class AppContainer {
 
         let tokenStore = KeychainTokenStore(keychain: KeychainStore(service: "com.algorix.optitrade.auth"))
 
-        let sessionConfig = URLSessionConfiguration.default
-        sessionConfig.timeoutIntervalForRequest = configuration.timeoutInterval
+        let sessionConfig = Self.urlSessionConfiguration(timeoutInterval: configuration.timeoutInterval)
         let transport = URLSessionHTTPTransport(session: URLSession(configuration: sessionConfig))
 
         let refresher = BackendTokenRefresher(transport: transport, configuration: configuration)
@@ -52,6 +51,23 @@ final class AppContainer {
             apiClient: apiClient,
             authenticationService: authenticationService
         )
+    }
+
+    /// `URLSessionConfiguration.default` otherwise uses `URLCache.shared`,
+    /// which would persist API responses (portfolio balances, positions,
+    /// quant decisions, alerts) to on-disk cache files under the app's
+    /// Library/Caches — readable by anything with filesystem access to
+    /// the device, and outside Keychain's protection entirely. Every
+    /// response this app receives is either authenticated financial data
+    /// or an auth payload; neither should ever be written to a response
+    /// cache. A `static` function (not inlined into `init`) so this
+    /// hardening is independently testable.
+    static func urlSessionConfiguration(timeoutInterval: TimeInterval) -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = timeoutInterval
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return configuration
     }
 
     /// Test/preview-facing initializer — every dependency is injectable.
