@@ -4,9 +4,24 @@
 # 3.12 also matches this project's actual dev environment (venv).
 FROM python:3.12-slim
 
-# Security: no .pyc files, unbuffered output
+# Security: no .pyc files, unbuffered output.
+# The non-root `appuser` created below has no home directory (`adduser
+# --system` with no --home), so anything that writes to $HOME by
+# default needs an explicit writable target instead:
+#  - NUMBA_CACHE_DIR: pandas_ta (numba-jitted) tries to write its
+#    compiled-function cache next to its own site-packages file (owned
+#    by root from the `pip install` step below) and hard-fails at
+#    import with "cannot cache function ...: no locator available"
+#    instead of silently skipping the cache.
+#  - MPLCONFIGDIR: matplotlib (a catboost dependency) degrades
+#    gracefully on its own (falls back to a fresh temp dir + a WARNING
+#    log) but does so on every process start - pointing it at a fixed
+#    writable dir avoids the per-worker warning noise and repeated
+#    temp-dir churn.
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    NUMBA_CACHE_DIR=/tmp/numba_cache \
+    MPLCONFIGDIR=/tmp/matplotlib
 
 WORKDIR /app
 
