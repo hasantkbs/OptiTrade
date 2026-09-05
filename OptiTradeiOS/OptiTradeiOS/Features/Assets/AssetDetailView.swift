@@ -25,15 +25,7 @@ struct AssetDetailView: View {
         _detailViewModel = State(initialValue: makeDetailViewModel())
     }
 
-    /// `market == "CRYPTO"` (from Step 4's real per-market symbol
-    /// directory) maps to the backend's own `asset_type` values
-    /// (`AnalysisRequest`/`QuantAnalysisRequest`: `"stock" | "crypto"`).
-    /// A Watchlist-only selection carries no `market` at all, so it falls
-    /// back to the backend's own default, `"stock"` — not a guess, the
-    /// same default `QuantAnalysisRequest.asset_type` already declares.
-    private var assetType: String {
-        selection.market == "CRYPTO" ? "crypto" : "stock"
-    }
+    private var assetType: String { selection.assetType }
 
     var body: some View {
         content

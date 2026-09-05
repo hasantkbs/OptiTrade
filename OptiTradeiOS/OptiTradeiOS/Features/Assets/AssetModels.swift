@@ -69,4 +69,16 @@ struct AssetSelection: Sendable, Equatable, Hashable, Identifiable {
         market = searchResult.market
         currency = searchResult.currency
     }
+
+    /// Maps `market` (from Step 4's real per-market symbol directory) to
+    /// the backend's own `asset_type` request values
+    /// (`AnalysisRequest`/`QuantAnalysisRequest`: `"stock" | "crypto"`).
+    /// A selection with no `market` (e.g. from a bare Watchlist row) falls
+    /// back to the backend's own default, `"stock"` — not a guess, the
+    /// same default `QuantAnalysisRequest.asset_type` already declares.
+    /// Shared by `AssetDetailView` and `DashboardView` so this mapping
+    /// exists in exactly one place.
+    var assetType: String {
+        market == "CRYPTO" ? "crypto" : "stock"
+    }
 }

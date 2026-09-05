@@ -12,6 +12,7 @@ struct RootView: View {
     let makeAssetSearchViewModel: () -> AssetSearchViewModel
     let makeAssetDetailViewModel: () -> AssetDetailViewModel
     let makeAIAnalystViewModel: () -> AIAnalystViewModel
+    let makeDashboardViewModel: () -> DashboardScreenViewModel
 
     var body: some View {
         Group {
@@ -23,11 +24,12 @@ struct RootView: View {
             case .authenticated:
                 AuthenticatedAppShell(
                     shellViewModel: makeShellViewModel(),
-                    makePortfolioViewModel: makePortfolioViewModel,
                     makeWatchlistScreenViewModel: makeWatchlistScreenViewModel,
+                    makePortfolioViewModel: makePortfolioViewModel,
                     makeAssetSearchViewModel: makeAssetSearchViewModel,
                     makeAssetDetailViewModel: makeAssetDetailViewModel,
-                    makeAIAnalystViewModel: makeAIAnalystViewModel
+                    makeAIAnalystViewModel: makeAIAnalystViewModel,
+                    makeDashboardViewModel: makeDashboardViewModel
                 )
             }
         }
