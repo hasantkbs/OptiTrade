@@ -23,6 +23,10 @@ from models.schemas import (
 from core.analyzer import analyze
 from core.ml_predictor import get_model_info
 from core.monitoring import init_db, validate_predictions, get_performance_stats, purge_old_predictions
+from core.logging_config import setup_logging
+from core.infra_config import acquire_scheduler_leader_lock, release_scheduler_leader_lock
+from db.session import dispose_engine
+from middleware.request_logging import RequestLoggingMiddleware
 from research.ml_trainer import train as train_model
 from core.advanced_analysis import run_monte_carlo, optimize_portfolio, compute_recommendation
 from core.session_analysis import compute_session_score, get_current_session, SESSIONS
@@ -236,7 +240,10 @@ from dashboard.models import (
 )
 from learning.models import RollingWindow
 
-logging.basicConfig(level=logging.INFO)
+setup_logging(
+    debug=os.getenv("DEBUG", "False").strip().lower() == "true",
+    log_level=os.getenv("LOG_LEVEL", "INFO"),
+)
 logger = logging.getLogger(__name__)
 
 # ── Firebase Admin ─────────────────────────────────────────────────────────────
@@ -282,6 +289,10 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
 )
+# Structured request/response logging (core/logging_config.py's JSON
+# formatter in production) - built and unit-tested but never actually
+# registered on `app` until now.
+app.add_middleware(RequestLoggingMiddleware)
 
 app.include_router(v2_router)
 app.include_router(api_v1_router)
@@ -520,10 +531,23 @@ async def startup_event() -> None:
         _dashboard_scheduler = DashboardScheduler(dashboard_overview_service, dashboard_market_service, dashboard_engine_service)
     except Exception as e:
         logger.error(f"Analytics & Dashboard Platform baslatilamadi: {e}")
-    asyncio.create_task(self_evolution_loop())
-    asyncio.create_task(alert_scan_loop())
-    asyncio.create_task(paper_trading_fill_loop())
-    asyncio.create_task(retention_purge_loop())
+    if acquire_scheduler_leader_lock():
+        asyncio.create_task(self_evolution_loop())
+        asyncio.create_task(alert_scan_loop())
+        asyncio.create_task(paper_trading_fill_loop())
+        asyncio.create_task(retention_purge_loop())
+    else:
+        logger.info(
+            "Background scheduler loops (self-evolution/alert-scan/"
+            "paper-trading-fill/retention-purge) already running on "
+            "another worker; not starting a duplicate copy here."
+        )
+
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    await dispose_engine()
+    release_scheduler_leader_lock()
 
 @app.get("/ml/performance")
 def get_ml_performance(days: int = 30) -> Dict[str, Any]:

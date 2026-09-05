@@ -112,3 +112,76 @@ def postgres_pool_size_from_env(package_prefix: str, default_minconn: int, defau
     minconn = int(os.getenv(f"{package_prefix}_POSTGRES_POOL_MIN", str(default_minconn)))
     maxconn = int(os.getenv(f"{package_prefix}_POSTGRES_POOL_MAX", str(default_maxconn)))
     return minconn, maxconn
+
+
+# SERVER STEP 1 (deployment prep): arbitrary but fixed pg_advisory_lock key
+# for `acquire_scheduler_leader_lock()` below. Any int64 works - it only
+# has to be stable across deploys and not collide with another advisory
+# lock this codebase takes (there are none today).
+_SCHEDULER_LEADER_LOCK_KEY = 727001
+
+_scheduler_leader_lock_conn = None  # type: ignore[var-annotated]
+
+
+def acquire_scheduler_leader_lock() -> bool:
+    """True if this process should run the singleton background loops
+    started once in `main.py`'s `startup_event` (self-evolution retrain,
+    alert scan, paper-trading fill, retention purge).
+
+    Production runs `uvicorn --workers N` (N>1, see Dockerfile/
+    UVICORN_WORKERS) - N independent OS processes, each executing its
+    own copy of `startup_event`. Left ungated, that means N copies of a
+    *daily model retrain* and N copies of every periodic scan/fill loop
+    running concurrently - the exact "background jobs must not
+    accidentally start multiple times merely because multiple API
+    workers exist" hazard.
+
+    PostgreSQL's session-scoped `pg_try_advisory_lock` makes exactly one
+    worker "win": it never blocks, returns true to the first caller and
+    false to every other caller for as long as the first caller's
+    connection stays open, and releases automatically if that process
+    (and its connection) dies - no separate scheduler process, extra
+    dependency, or new coordination service required, and nothing here
+    changes what the loops themselves do.
+
+    Fails open (returns True) if PostgreSQL can't be reached at all, so
+    a single-worker/local-dev run (the common case where duplication
+    cannot happen) keeps working exactly as before; only a real
+    multi-worker deployment with a reachable database benefits from the
+    dedup, matching this module's existing fall-back-to-current-
+    behavior convention."""
+    global _scheduler_leader_lock_conn
+    try:
+        import psycopg2
+
+        host, port, db, user, password = postgres_settings_from_env()
+        conn = psycopg2.connect(
+            host=host, port=port, dbname=db, user=user, password=password,
+            connect_timeout=postgres_connect_timeout_seconds(),
+        )
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(%s)", (_SCHEDULER_LEADER_LOCK_KEY,))
+            acquired = bool(cur.fetchone()[0])
+        if acquired:
+            _scheduler_leader_lock_conn = conn  # held open deliberately - see docstring
+        else:
+            conn.close()
+        return acquired
+    except Exception:
+        return True
+
+
+def release_scheduler_leader_lock() -> None:
+    """Releases the lock taken by `acquire_scheduler_leader_lock()`, if
+    this process is the one holding it. Call during application
+    shutdown so a restart (or, in tests, the next FastAPI app instance
+    started in the same process) doesn't have to wait for this
+    connection to be reaped before another worker can become leader."""
+    global _scheduler_leader_lock_conn
+    if _scheduler_leader_lock_conn is not None:
+        try:
+            _scheduler_leader_lock_conn.close()
+        except Exception:
+            pass
+        _scheduler_leader_lock_conn = None

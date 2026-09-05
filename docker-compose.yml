@@ -70,8 +70,10 @@ services:
     image: redis:8-alpine
     container_name: optitrade-redis
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
-    ports:
-      - "6379:6379"
+    # No host port mapping: only `api` needs to reach Redis, over the
+    # internal optitrade-net network (matching `postgres`, which was
+    # already internal-only) - a public 6379 was previously exposed to
+    # the host with no auth in front of it.
     volumes:
       - optitrade-redis-data:/data
     networks:
