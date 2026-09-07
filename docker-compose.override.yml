@@ -1,0 +1,26 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Local-development-only port exposure.
+#
+# `docker compose` auto-merges this file on top of docker-compose.yml
+# whenever both live in the same directory - no extra flag needed for
+# local dev. It adds a host port binding for redis purely so a
+# host-side process (a local venv, `redis-cli`, an IDE) can reach it
+# directly, matching how local development on this project already
+# worked before docker-compose.yml's redis service was hardened to be
+# internal-network-only (SERVER STEP 1).
+#
+# postgres is deliberately NOT re-exposed here: this host's local dev
+# already points FEATURE_STORE_POSTGRES_HOST=localhost at a pre-existing,
+# separately-managed PostgreSQL instance bound to 127.0.0.1:5432 (not
+# this project's own `postgres` service, which stays internal-only even
+# in dev) - binding the same host port here would just conflict with it.
+#
+# Production deployment must NOT include this file - copy/deploy only
+# docker-compose.yml, or run `docker compose -f docker-compose.yml up`
+# explicitly, so redis stays off any public interface exactly as
+# docker-compose.yml alone defines it.
+# ──────────────────────────────────────────────────────────────────────────────
+services:
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
