@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from typing import Any, Dict, List, Optional, Union
@@ -298,15 +299,44 @@ except ImportError:
 # ── Rate Limiter (bkz. core/rate_limiter.py — api/ router'larıyla paylaşılır) ───
 
 # ── FastAPI App ────────────────────────────────────────────────────────────────
+# SERVER STEP 5: public docs/OpenAPI schema are a minor recon aid for an
+# authenticated production API (endpoint/parameter/schema shapes) and
+# the iOS client has no runtime dependency on them (its models are
+# compiled in, not fetched from /openapi.json) - so they're disabled
+# only when ENVIRONMENT=production, using the same opt-in convention
+# Step 3's JWT enforcement already established. Unset/non-production
+# (local dev, tests, CI) keeps /docs, /redoc, /openapi.json exactly as
+# before - nothing here changes their existing contract otherwise.
+_is_production = os.getenv("ENVIRONMENT", "").strip().lower() == "production"
+
 app = FastAPI(
     title="OptiTrade API",
     description="Hisse senedi ve kripto analiz motoru — v3.1",
     version="3.1.0",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# ── Trusted Host (SERVER STEP 5) ────────────────────────────────────────────────
+# Opt-in, not on by default: this app never builds absolute URLs/redirects
+# from the Host header (grepped - no such call site exists today), so
+# Host-header injection has no concrete exploit path here yet, and an
+# operator who hasn't set ALLOWED_HOSTS shouldn't have health checks or
+# local development break underneath them. Once a real production DOMAIN
+# is known, set ALLOWED_HOSTS to it (comma-separated - matches
+# ALLOWED_ORIGINS' own convention) for defense-in-depth.
+_allowed_hosts = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()]
+if _allowed_hosts:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
+
 # ── CORS (production-ready) ────────────────────────────────────────────────────
+# The iOS app is a native client, not a browser - it never sends an
+# Origin header and CORS doesn't apply to it at all. This list exists
+# for the Firebase-hosted web surface below and any browser-based local
+# development; it was already never "*" and stays that way here -
+# nothing to change for SERVER STEP 5 (no web frontend to add an origin
+# for - see docs/deployment/https-reverse-proxy.md).
 ALLOWED_ORIGINS = [
     "http://localhost:8000",
     "http://localhost:3000",

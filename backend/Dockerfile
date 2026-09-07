@@ -77,4 +77,17 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
 # into uvicorn (PID 1), so it receives and acts on SIGTERM itself.
 # ${UVICORN_WORKERS:-2} is still shell-expanded (documented in
 # .env.example; defaults to 2 unchanged if unset).
-CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port 8000 --workers \"${UVICORN_WORKERS:-2}\" --log-level info"]
+#
+# --proxy-headers --forwarded-allow-ips='*' (SERVER STEP 5): trusts
+# X-Forwarded-For/X-Forwarded-Proto so request.client.host (what
+# main.py's RequestLoggingMiddleware logs and slowapi's
+# get_remote_address rate-limit key function reads) is the real client
+# IP, not the reverse proxy's - and so the app sees the original
+# request as https, not http. '*' (not a specific IP) because this
+# container is never reachable except from the `proxy` service over
+# the internal Docker network (docker-compose.yml: `expose: ["8000"]`,
+# no published port) - there is no path for an untrusted client to
+# reach uvicorn directly and spoof these headers, which is exactly the
+# case where trusting them is safe (see this Dockerfile's own
+# non-root/internal-only hardening from SERVER STEP 1-4, unchanged).
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port 8000 --workers \"${UVICORN_WORKERS:-2}\" --proxy-headers --forwarded-allow-ips='*' --log-level info"]

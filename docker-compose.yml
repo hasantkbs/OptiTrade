@@ -7,16 +7,66 @@ networks:
 volumes:
   optitrade-postgres-data:
   optitrade-redis-data:
+  optitrade-letsencrypt:      # certbot's /etc/letsencrypt - certs + account keys, never in git
+  optitrade-certbot-webroot:  # ACME HTTP-01 challenge files, shared between `proxy` and `certbot`
 
 # ── Services ──────────────────────────────────────────────────────────────────
 services:
+
+  # ── Reverse proxy (SERVER STEP 5) — the only public entry point ────────────
+  proxy:
+    image: nginx:1.27-alpine
+    container_name: optitrade-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Soft default (not :?required): compose interpolates every ${...}
+      # in this file up front, even for `docker compose up api postgres`
+      # invocations that never touch `proxy` at all (local dev, SERVER
+      # STEP 1-4's own verification) - a hard requirement here would
+      # break those. "localhost" is an obvious placeholder, not a real
+      # domain; `proxy` itself won't actually come up cleanly without a
+      # real DOMAIN and an issued certificate (see docs/deployment/
+      # https-reverse-proxy.md) - which is the correct failure mode for
+      # an actual production deployment that forgot to set it.
+      - DOMAIN=${DOMAIN:-localhost}
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - optitrade-letsencrypt:/etc/letsencrypt:ro
+      - optitrade-certbot-webroot:/var/www/certbot:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - optitrade-net
+    restart: unless-stopped
+
+  # ── Let's Encrypt certificate issuance/renewal (SERVER STEP 5) ─────────────
+  # Not started by `docker compose up` (profile-gated). Issue a cert once:
+  #   docker compose --profile certbot run --rm certbot certonly \
+  #     --webroot -w /var/www/certbot -d "$DOMAIN" \
+  #     --email you@example.com --agree-tos --no-eff-email
+  # then start the renewal loop: docker compose --profile certbot up -d certbot
+  # See docs/deployment/https-reverse-proxy.md for the full procedure.
+  certbot:
+    image: certbot/certbot:latest
+    container_name: optitrade-certbot
+    profiles: ["certbot"]
+    volumes:
+      - optitrade-letsencrypt:/etc/letsencrypt
+      - optitrade-certbot-webroot:/var/www/certbot
+    entrypoint: sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done;'
+    networks:
+      - optitrade-net
+    restart: unless-stopped
 
   # ── API (always starts) ────────────────────────────────────────────────────
   api:
     build: ./backend
     container_name: optitrade-api
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     env_file:
       - ./backend/.env
     environment:

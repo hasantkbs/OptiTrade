@@ -1,0 +1,95 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# OptiTrade reverse proxy (SERVER STEP 5).
+#
+# Processed by the official nginx image's own envsubst-on-templates
+# entrypoint feature at container start (files under
+# /etc/nginx/templates/*.template -> /etc/nginx/conf.d/*.conf, with
+# ${DOMAIN} substituted from the `proxy` service's own environment -
+# see docker-compose.yml). No custom entrypoint script needed.
+#
+# Topology: Internet -> :80/:443 (this) -> api:8000 (internal Docker
+# network only, never publicly reachable) -> Postgres/Redis (internal
+# only, unchanged from SERVER STEP 1-4).
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Coarse, conservative anti-abuse backstop (item I) - NOT a replacement
+# for the app's own existing per-endpoint slowapi limits (core/rate_limiter.py:
+# 30/min login, 60/min refresh, 5/min password-reset, etc. - see main.py),
+# which stay authoritative and unchanged. This just caps obviously abusive
+# request floods before they even reach the app: 20 req/s per client IP
+# with a burst allowance, generous enough that no legitimate single client
+# should ever hit it.
+limit_req_zone $binary_remote_addr zone=optitrade_backstop:10m rate=20r/s;
+
+# ── HTTP :80 — ACME challenge passthrough + redirect everything else ──────────
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+
+    # Let's Encrypt HTTP-01 challenge (certbot webroot plugin writes here;
+    # must stay reachable over plain HTTP, so it's excluded from the
+    # redirect below). See docs/deployment/https-reverse-proxy.md for the
+    # actual certbot issuance/renewal commands.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ── HTTPS :443 — TLS termination + reverse proxy to the API ───────────────────
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ${DOMAIN};
+
+    # Populated by certbot (see docs/deployment/https-reverse-proxy.md).
+    # Not present until the operator actually issues a certificate for
+    # ${DOMAIN} - this server block will fail to start until then, by
+    # design: no self-signed fallback ships as "the production solution".
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # Security headers (item H) - safe for a JSON API with no browser-
+    # rendered HTML; nothing here is a CSP (which would be meaningless
+    # for a pure JSON API and could only ever break clients, never help).
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer" always;
+
+    limit_req zone=optitrade_backstop burst=40 nodelay;
+
+    location / {
+        proxy_pass http://api:8000;
+
+        # Item G: the API needs to know the ORIGINAL scheme/host/client
+        # IP, not nginx's own (plain-HTTP, internal-network) view of the
+        # request - main.py's RequestLoggingMiddleware and slowapi's
+        # get_remote_address key function both read request.client.host,
+        # which is meaningless without this. The Dockerfile's uvicorn CMD
+        # is configured with --proxy-headers --forwarded-allow-ips='*' to
+        # trust these specifically because api:8000 is never reachable
+        # except from this proxy over the internal Docker network (never
+        # "the API directly exposed" - see that CMD's own comment).
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Conservative, explicit timeouts rather than nginx's defaults -
+        # long enough for this API's own heavier endpoints (Quant/
+        # Monte Carlo analysis can take several seconds) without leaving
+        # a slow/stuck upstream connection open indefinitely.
+        proxy_connect_timeout 10s;
+        proxy_send_timeout    60s;
+        proxy_read_timeout    60s;
+    }
+}

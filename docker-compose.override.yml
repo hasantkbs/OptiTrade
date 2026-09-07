@@ -15,12 +15,23 @@
 # this project's own `postgres` service, which stays internal-only even
 # in dev) - binding the same host port here would just conflict with it.
 #
+# api's :8000 is exposed here too (SERVER STEP 5 changed
+# docker-compose.yml's own `api` service from a published port to
+# `expose: ["8000"]` - internal-network-only, reached only through the
+# `proxy` service in production) - loopback-only, so a host-side
+# process (curl, a browser, an IDE) can still reach the API directly
+# without going through nginx/TLS for local development.
+#
 # Production deployment must NOT include this file - copy/deploy only
 # docker-compose.yml, or run `docker compose -f docker-compose.yml up`
-# explicitly, so redis stays off any public interface exactly as
-# docker-compose.yml alone defines it.
+# explicitly, so redis and the API stay off any public interface
+# exactly as docker-compose.yml alone defines them.
 # ──────────────────────────────────────────────────────────────────────────────
 services:
   redis:
     ports:
       - "127.0.0.1:6379:6379"
+
+  api:
+    ports:
+      - "127.0.0.1:8000:8000"
