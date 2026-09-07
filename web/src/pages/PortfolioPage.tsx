@@ -1,62 +1,131 @@
+import { useSearchParams } from 'react-router-dom'
 import { Card } from '../components/ui/Card'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ErrorState } from '../components/ui/ErrorState'
 import { SkeletonCard } from '../components/ui/Skeleton'
-import { Table, TableCell, TableHeadCell } from '../components/ui/Table'
-import { usePortfolioList } from '../features/dashboard/hooks'
 import { apiErrorMessage } from '../api/client'
+import { usePortfolioDashboard, usePortfolioList } from '../features/dashboard/hooks'
+import { useRefreshPortfolio } from '../features/portfolio/hooks'
+import { PortfolioHeader } from '../features/portfolio/PortfolioHeader'
+import { PortfolioSummary } from '../features/portfolio/PortfolioSummary'
+import { AllocationAnalysis } from '../features/portfolio/AllocationAnalysis'
+import { PositionBreakdown } from '../features/portfolio/PositionBreakdown'
+import { PerformanceHistory } from '../features/portfolio/PerformanceHistory'
+import { DrawdownAnalysis } from '../features/portfolio/DrawdownAnalysis'
+import { CashExposure } from '../features/portfolio/CashExposure'
+import { Diversification } from '../features/portfolio/Diversification'
+import { RiskAnalytics } from '../features/portfolio/RiskAnalytics'
+import { RecentActivity } from '../features/portfolio/RecentActivity'
+import styles from './PortfolioPage.module.css'
 
-/** Backed by GET /portfolios (portfolio/models.py::Portfolio). */
+/**
+ * Backed by GET /portfolios (selector) + GET /dashboard/portfolios/{id}
+ * (everything else - portfolio/models.py::PortfolioDashboard, fetched
+ * once here and passed down as props so every section below is a pure
+ * presentational component, not a second fetcher of the same
+ * resource). The selected portfolio id lives in the URL (`?id=`) so it
+ * survives a refresh/share, and because `usePortfolioDashboard` keys
+ * its query by that id, switching portfolios can never let a slow,
+ * stale response for the previously-selected portfolio overwrite the
+ * newly-selected one's data (WEB STEP 3 §3, §17).
+ */
 export function PortfolioPage() {
-  const { data, isLoading, isError, error, refetch } = usePortfolioList()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const portfolios = usePortfolioList()
 
-  if (isLoading) {
+  const list = portfolios.data ?? []
+  const requestedId = searchParams.get('id')
+  const active = list.find((p) => String(p.id) === requestedId) ?? list[0]
+
+  const dashboardQuery = usePortfolioDashboard(active?.id ?? undefined)
+  const refresh = useRefreshPortfolio(active?.id ?? undefined)
+
+  function selectPortfolio(portfolioId: number) {
+    const next = new URLSearchParams(searchParams)
+    next.set('id', String(portfolioId))
+    setSearchParams(next, { replace: true })
+  }
+
+  if (portfolios.isLoading) {
     return (
-      <Card>
-        <SkeletonCard />
-      </Card>
+      <div className={styles.page}>
+        <Card>
+          <SkeletonCard />
+        </Card>
+      </div>
     )
   }
 
-  if (isError) {
+  if (portfolios.isError) {
     return (
-      <Card>
-        <ErrorState message={apiErrorMessage(error)} onRetry={() => void refetch()} />
-      </Card>
+      <div className={styles.page}>
+        <Card>
+          <ErrorState message={apiErrorMessage(portfolios.error)} onRetry={() => void portfolios.refetch()} />
+        </Card>
+      </div>
     )
   }
 
-  if (!data || data.length === 0) {
+  if (list.length === 0 || !active) {
     return (
-      <Card>
-        <EmptyState
-          title="No portfolios yet"
-          description="Portfolios you create through the API will appear here."
-        />
-      </Card>
+      <div className={styles.page}>
+        <Card>
+          <EmptyState title="No portfolios yet" description="Portfolios you create through the API will appear here." />
+        </Card>
+      </div>
     )
   }
+
+  const extended = dashboardQuery.data
+  const dashboard = extended?.dashboard
 
   return (
-    <Card padding="none">
-      <Table>
-        <thead>
-          <tr>
-            <TableHeadCell>Name</TableHeadCell>
-            <TableHeadCell>Base currency</TableHeadCell>
-            <TableHeadCell align="right">Created</TableHeadCell>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((portfolio) => (
-            <tr key={portfolio.id}>
-              <TableCell>{portfolio.name}</TableCell>
-              <TableCell numeric>{portfolio.base_currency}</TableCell>
-              <TableCell align="right">{new Date(portfolio.created_at).toLocaleDateString()}</TableCell>
-            </tr>
-          ))}
-        </tbody>
-      </Table>
-    </Card>
+    <div className={styles.page}>
+      <PortfolioHeader
+        portfolios={list}
+        active={active}
+        onSelect={selectPortfolio}
+        asOf={dashboard?.as_of}
+        onRefresh={refresh}
+        isRefreshing={dashboardQuery.isFetching}
+      />
+
+      {dashboardQuery.isLoading ? (
+        <Card>
+          <SkeletonCard />
+        </Card>
+      ) : dashboardQuery.isError ? (
+        <Card>
+          <ErrorState message={apiErrorMessage(dashboardQuery.error)} onRetry={() => void dashboardQuery.refetch()} />
+        </Card>
+      ) : dashboard ? (
+        <>
+          <PortfolioSummary dashboard={dashboard} sharpeRatio={extended.sharpe_ratio} currency={active.base_currency} />
+
+          <div className={styles.mainGrid}>
+            <div className={styles.mainColumn}>
+              <AllocationAnalysis allocation={dashboard.allocation} />
+              <PositionBreakdown positions={dashboard.positions} currency={active.base_currency} />
+              <div className={styles.twoUp}>
+                <PerformanceHistory
+                  realizedPnl={dashboard.realized_pnl}
+                  unrealizedPnl={dashboard.unrealized_pnl}
+                  sharpeRatio={extended.sharpe_ratio}
+                  currency={active.base_currency}
+                />
+                <DrawdownAnalysis risk={dashboard.risk} />
+              </div>
+              <RecentActivity portfolioId={active.id ?? dashboard.portfolio_id} />
+            </div>
+
+            <div className={styles.sideColumn}>
+              <CashExposure allocation={dashboard.allocation} cashBalance={dashboard.cash_balance} totalValue={dashboard.total_value} currency={active.base_currency} />
+              <Diversification score={dashboard.risk?.diversification_score ?? null} />
+              <RiskAnalytics risk={dashboard.risk} recommendations={dashboard.recommendations} />
+            </div>
+          </div>
+        </>
+      ) : null}
+    </div>
   )
 }

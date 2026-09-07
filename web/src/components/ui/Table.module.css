@@ -31,6 +31,15 @@
   text-align: right;
 }
 
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sortable:hover {
+  color: var(--color-text-secondary);
+}
+
 .table tbody tr:last-child .td {
   border-bottom: none;
 }

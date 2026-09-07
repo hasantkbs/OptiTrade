@@ -1,0 +1,141 @@
+.unavailable {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.metricLabel {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.metricValue {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.meterRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.meterLabel {
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+  cursor: help;
+  white-space: nowrap;
+}
+
+.meterTrack {
+  height: 0.375rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-hover);
+  overflow: hidden;
+}
+
+.meterFill {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: var(--radius-sm);
+}
+
+.meterValue {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+
+.correlationSection {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.sectionLabel {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-3);
+}
+
+.correlationScroller {
+  overflow-x: auto;
+}
+
+.correlationTable {
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+
+.correlationTable th,
+.correlationTable td {
+  padding: var(--space-1) var(--space-2);
+  text-align: right;
+  color: var(--color-text-secondary);
+}
+
+.correlationTable th:first-child,
+.correlationTable td:first-child {
+  text-align: left;
+  color: var(--color-text-primary);
+}
+
+.recommendationsSection {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-4);
+}
+
+.emptyRecommendations {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+
+.recommendationsList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.recommendationItem {
+  padding-bottom: var(--space-3);
+}
+
+.recommendationItem:not(:last-child) {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.recommendationHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.recommendationMessage {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}

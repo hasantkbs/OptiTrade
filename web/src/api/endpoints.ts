@@ -11,6 +11,7 @@ import type {
   PortfolioDashboardExtended,
   RegisterRequest,
   TokenPairResponse,
+  Transaction,
   UserResponse,
   Watchlist,
   WatchlistDashboardView,
@@ -52,6 +53,17 @@ export const dashboardApi = {
 
 export const portfolioApi = {
   list: () => apiClient.get<Portfolio[]>('/portfolios').then((r) => r.data),
+  /**
+   * The real ledger of deposits/withdrawals/buys/sells/dividends/fees
+   * (portfolio/models.py::Transaction) - despite the URL, this is
+   * distinct from portfolio *snapshot* history (equity curve over
+   * time), which has no read endpoint at all (see PortfolioPage's
+   * PerformanceHistory/DrawdownAnalysis unavailable states).
+   */
+  transactions: (portfolioId: number, symbol?: string) =>
+    apiClient
+      .get<Transaction[]>(`/portfolios/${portfolioId}/history`, { params: symbol ? { symbol } : undefined })
+      .then((r) => r.data),
 }
 
 // ── Watchlists ───────────────────────────────────────────────────────────

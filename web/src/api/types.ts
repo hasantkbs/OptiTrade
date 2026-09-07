@@ -191,6 +191,24 @@ export interface Portfolio {
   created_at: string
 }
 
+export type TransactionType = 'deposit' | 'withdrawal' | 'buy' | 'sell' | 'dividend' | 'fee' | 'tax'
+
+export interface Transaction {
+  id: number | null
+  portfolio_id: number
+  transaction_type: TransactionType
+  symbol: string | null
+  quantity: number | null
+  price: number | null
+  amount: number
+  fee: number
+  tax: number
+  currency: string
+  executed_at: string
+  notes: string
+  created_at: string
+}
+
 export interface AllocationBreakdown {
   by_symbol_pct: Record<string, number>
   by_sector_pct: Record<string, number>
