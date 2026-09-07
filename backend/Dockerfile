@@ -36,11 +36,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Application code
+# Non-root user for security - created before COPY so the chown below
+# has a target, and before USER so root can still perform it.
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+
+# Application code. Left root-owned (no --chown here): the running
+# appuser only ever needs to READ its own source, and a compromised
+# request-handling process shouldn't be able to rewrite it.
 COPY . .
 
-# Non-root user for security
-RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+# models/ is the one directory the app legitimately writes to at
+# runtime (Continuous Learning's model retrain replaces
+# xgb_signal_model.joblib in place - see research/ml_trainer.py). A
+# plain `COPY . .` leaves it root-owned with whatever mode bits the
+# build context's files happened to have (verified in SERVER STEP 2's
+# live Docker check: on this host that was `600`, unreadable by
+# appuser at all - `/ml/status` reported `available: false`, and the
+# in-container retrain's own write failed with EACCES). chown (not
+# chmod 777, not USER root) makes ownership deterministic regardless
+# of what the build context's host permissions happen to be.
+RUN chown -R appuser:appgroup models
+
 USER appuser
 
 EXPOSE 8000
@@ -48,7 +64,17 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Shell form so UVICORN_WORKERS (documented in .env.example, previously
-# inert — this CMD always hardcoded 2 regardless of it) is actually
-# honored; defaults to 2 unchanged if unset.
-CMD sh -c 'exec uvicorn main:app --host 0.0.0.0 --port 8000 --workers "${UVICORN_WORKERS:-2}" --log-level info'
+# JSON-array CMD running `sh -c '...'` explicitly - not a bare
+# `CMD sh -c '...'` string, which Docker itself ALSO wraps in its own
+# `/bin/sh -c "<the whole string>"` (its default behavior for any
+# non-JSON-array CMD), producing sh -c "sh -c '...'": two nested
+# shells, and PID 1 becomes the OUTER one, not the inner `exec`'d
+# uvicorn. Plain `sh` never forwards signals to a child it's merely
+# waiting on, so `docker stop`'s SIGTERM went nowhere - verified
+# (SERVER STEP 3 Docker runtime check): the container never ran its
+# shutdown handler and was hard SIGKILLed after the grace period on
+# every stop. This form has exactly one shell, which `exec`s directly
+# into uvicorn (PID 1), so it receives and acts on SIGTERM itself.
+# ${UVICORN_WORKERS:-2} is still shell-expanded (documented in
+# .env.example; defaults to 2 unchanged if unset).
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port 8000 --workers \"${UVICORN_WORKERS:-2}\" --log-level info"]

@@ -1,6 +1,8 @@
 """
-Regression test for the production audit's "self_evolution_loop blocks
-the entire event loop once a day" Critical finding.
+Regression tests for main.py's self_evolution_loop: the production
+audit's "self_evolution_loop blocks the entire event loop once a day"
+Critical finding, and SERVER STEP 3's "self_evolution_loop trains a
+real model on every startup" Critical finding.
 
 main.py's self_evolution_loop previously called validate_predictions()
 and train_model() directly inside an `async def` - both are synchronous
@@ -24,8 +26,66 @@ import pytest
 import main as main_module
 
 
+def _skip_the_24h_wait_once(monkeypatch) -> None:
+    """Patches asyncio.sleep so self_evolution_loop's *first*
+    `await asyncio.sleep(86400)` resolves immediately, letting the
+    loop reach its one validate/train cycle - every other caller
+    (this test's own ticker included, and the loop's own next 86400s
+    wait once it circles back) is unaffected, since only the exact
+    86400-second call is intercepted, and only the first one at that.
+    SERVER STEP 3 moved that sleep to the START of the loop
+    specifically so a real process never trains on startup; these
+    tests still need to reach the validate/train call itself without
+    waiting a real day, while still exercising exactly one cycle
+    (not an unbounded rapid-fire loop) within the test's short
+    observation window."""
+    real_sleep = asyncio.sleep
+    already_skipped = False
+
+    async def fake_sleep(delay, *args, **kwargs):
+        nonlocal already_skipped
+        if delay == 86400 and not already_skipped:
+            already_skipped = True
+            return
+        await real_sleep(delay, *args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+
+@pytest.mark.asyncio
+async def test_self_evolution_loop_waits_a_full_day_before_its_first_cycle(monkeypatch):
+    """SERVER STEP 3 regression test: production startup must never
+    train a model merely because the process started. Unlike every
+    other test in this file, this one does NOT patch asyncio.sleep -
+    it proves the loop's very first action is the 24h wait, not
+    validate/train."""
+    calls = []
+    monkeypatch.setattr(main_module, "validate_predictions", lambda: calls.append("validate") or 0)
+    monkeypatch.setattr(main_module, "train_model", lambda: calls.append("train"))
+
+    loop_task = asyncio.create_task(main_module.self_evolution_loop())
+    try:
+        # Give the loop's first `await` (the real 86400s sleep) every
+        # chance to have started and yielded control back - if it were
+        # going to call validate/train immediately instead, this would
+        # be more than enough time for that to happen.
+        await asyncio.sleep(0.05)
+    finally:
+        loop_task.cancel()
+        try:
+            await loop_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    assert calls == [], (
+        "self_evolution_loop ran validate/train before its 24h wait - "
+        "production startup must never train a model automatically"
+    )
+
+
 @pytest.mark.asyncio
 async def test_self_evolution_loop_does_not_block_the_event_loop(monkeypatch):
+    _skip_the_24h_wait_once(monkeypatch)
     calls = []
     BLOCK_SECONDS = 0.3
 

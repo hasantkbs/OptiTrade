@@ -13,6 +13,39 @@ from dotenv import load_dotenv
 
 load_dotenv()  # backend/.env varsa (ör. GROQ_API_KEY) burada yüklenir
 
+
+def _validate_production_config() -> None:
+    """Fails fast - before any other startup work, including the heavy
+    imports below - if ENVIRONMENT=production and a genuinely required
+    production secret is missing or obviously a placeholder.
+
+    users/config.py's UsersConfig already handles a missing
+    USERS_JWT_SECRET safely for development: it generates a real random
+    secret once per process and logs a warning. That's the right
+    behavior for a local/dev run, but silent in production (SERVER STEP
+    3 production audit): every worker/replica gets its OWN random
+    secret, so tokens stop validating across them - and across a
+    restart - with no error, just a confusing wave of "invalid token"
+    failures with nothing in the logs pointing at the cause.
+
+    ENVIRONMENT defaults to non-production (unset), so this is a no-op
+    and local development keeps working exactly as before unless an
+    operator explicitly opts in with ENVIRONMENT=production."""
+    if os.getenv("ENVIRONMENT", "").strip().lower() != "production":
+        return
+    secret = os.getenv("USERS_JWT_SECRET", "").strip()
+    if len(secret) < 32:
+        raise RuntimeError(
+            "ENVIRONMENT=production but USERS_JWT_SECRET is missing or "
+            "too short (must be set explicitly, at least 32 characters). "
+            "Refusing to start with a development fallback in production - "
+            "set USERS_JWT_SECRET to a real secret, e.g.: "
+            "python3 -c \"import secrets; print(secrets.token_urlsafe(64))\""
+        )
+
+
+_validate_production_config()
+
 from models.schemas import (
     AnalysisRequest, AnalysisResult, ScanRequest, ScanResult,
     ChartResponse, ChartPoint,
@@ -307,8 +340,22 @@ async def self_evolution_loop() -> None:
     _run_in_executor below), same as every other blocking call in this
     file, so a daily validation/retraining cycle never freezes the
     event loop (and therefore every concurrent request) for its
-    duration."""
+    duration.
+
+    The 24h wait is deliberately the FIRST thing this loop does, not
+    the last (production audit CRITICAL, SERVER STEP 3): with the wait
+    at the end, every leader-worker startup - including a plain
+    container restart, with no real elapsed time and no external
+    trigger - ran a full validate+retrain cycle immediately, hitting
+    live Yahoo Finance for ~20 symbols and writing to the model
+    artifact on every single boot. Production startup must be
+    deterministic and must never automatically perform an expensive
+    training operation - see research/ml_trainer.py's own
+    `_deploy_if_not_regressed` for the (unchanged) promotion gate that
+    still protects whatever this loop does produce, whenever it
+    eventually runs."""
     while True:
+        await asyncio.sleep(86400)  # 24 saat bekle - bkz. yukarıdaki docstring
         try:
             logger.info("Kendi kendini geliştirme döngüsü çalışıyor...")
             # 1. Tahminleri doğrula
@@ -325,9 +372,6 @@ async def self_evolution_loop() -> None:
 
         except Exception as e:
             logger.error(f"Self-evolution döngüsünde hata: {e}")
-
-        # 24 saat bekle (86400 saniye)
-        await asyncio.sleep(86400)
 
 
 _WATCHLIST_ALERT_SCAN_INTERVAL_SECONDS = 60
@@ -429,7 +473,7 @@ async def startup_event() -> None:
     init_db()
     global _pipeline_service, _portfolio_service, _portfolio_analytics, _portfolio_risk
     global _portfolio_optimization, _portfolio_rebalancing, _portfolio_scenarios
-    global _portfolio_recommendations, _portfolio_dashboard
+    global _portfolio_recommendations, _portfolio_dashboard, _background_tasks
     try:
         _pipeline_service = PipelineService()
     except Exception as e:
@@ -532,10 +576,12 @@ async def startup_event() -> None:
     except Exception as e:
         logger.error(f"Analytics & Dashboard Platform baslatilamadi: {e}")
     if acquire_scheduler_leader_lock():
-        asyncio.create_task(self_evolution_loop())
-        asyncio.create_task(alert_scan_loop())
-        asyncio.create_task(paper_trading_fill_loop())
-        asyncio.create_task(retention_purge_loop())
+        _background_tasks = [
+            asyncio.create_task(self_evolution_loop()),
+            asyncio.create_task(alert_scan_loop()),
+            asyncio.create_task(paper_trading_fill_loop()),
+            asyncio.create_task(retention_purge_loop()),
+        ]
     else:
         logger.info(
             "Background scheduler loops (self-evolution/alert-scan/"
@@ -546,6 +592,14 @@ async def startup_event() -> None:
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
+    # Cancel the leader worker's own background loops (a no-op list on
+    # every non-leader worker) so a SIGTERM ends them via a clean
+    # CancelledError at their current `await` instead of just abandoning
+    # them when the event loop closes underneath them.
+    for task in _background_tasks:
+        task.cancel()
+    if _background_tasks:
+        await asyncio.gather(*_background_tasks, return_exceptions=True)
     await dispose_engine()
     release_scheduler_leader_lock()
 
@@ -585,6 +639,12 @@ SELL_CODES = {"STRONG_SELL", "SELL"}
 
 # Thread pool for parallel yfinance calls
 _executor = ThreadPoolExecutor(max_workers=16)
+
+# This worker's own leader-only background loops (self-evolution/
+# alert-scan/paper-trading-fill/retention-purge) - empty on every
+# non-leader worker, and until startup_event runs. See shutdown_event
+# for why these are tracked instead of fire-and-forget.
+_background_tasks: List[asyncio.Task] = []
 
 # Quant Research Platform pipeline — constructed once at startup (see
 # startup_event) and reused across every request; None until then.
