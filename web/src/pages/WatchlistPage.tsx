@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { Card, CardHeader, CardSubtitle, CardTitle } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -72,7 +73,9 @@ export function WatchlistPage() {
           <tbody>
             {items.data.map((item) => (
               <tr key={item.id}>
-                <TableCell numeric>{item.symbol}</TableCell>
+                <TableCell numeric>
+                  <Link to={`/assets/${item.symbol}`}>{item.symbol}</Link>
+                </TableCell>
                 <TableCell>{item.folder ?? '—'}</TableCell>
                 <TableCell align="right">
                   {item.is_favorite ? <Badge tone="accent">Favorite</Badge> : null}

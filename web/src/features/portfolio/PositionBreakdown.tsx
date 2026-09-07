@@ -92,7 +92,9 @@ export function PositionBreakdown({ positions, currency }: PositionBreakdownProp
           <tbody>
             {sorted.map((position) => (
               <tr key={position.symbol}>
-                <TableCell numeric>{position.symbol}</TableCell>
+                <TableCell numeric>
+                  <Link to={`/assets/${position.symbol}`}>{position.symbol}</Link>
+                </TableCell>
                 <TableCell align="right" numeric>
                   {position.quantity}
                 </TableCell>

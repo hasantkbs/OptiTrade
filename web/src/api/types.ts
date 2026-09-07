@@ -317,6 +317,89 @@ export interface Alert {
   created_at: string
 }
 
+export interface AddWatchlistItemRequest {
+  symbol: string
+  is_favorite?: boolean
+  folder?: string | null
+  tags?: string[]
+  notes?: string
+}
+
+// ── Price / Chart (main.py's raw dict response + models/schemas.py) ────
+
+/** GET /price/{symbol} returns a plain dict, not a named Pydantic model -
+ * this mirrors its exact keys. No currency/exchange/previous-close field
+ * exists on it - only `price` and the already-computed `change_pct`. */
+export interface PriceQuote {
+  symbol: string
+  price: number
+  change_pct: number
+  timestamp: string
+}
+
+export type ChartPeriod = '1mo' | '3mo' | '6mo' | '1y'
+
+export interface ChartPoint {
+  date: string
+  close: number
+  volume: number
+  rsi: number | null
+}
+
+export interface ChartResponse {
+  symbol: string
+  period: string
+  points: ChartPoint[]
+  change_pct: number
+  high: number
+  low: number
+}
+
+// ── Quant Research Platform (pipeline/models.py + decision_engine/models.py) ─
+
+export type Prediction = 'BUY' | 'HOLD' | 'SELL'
+export type EngineExecutionStatus = 'success' | 'timeout' | 'failed' | 'invalid'
+
+export interface EngineBreakdownItem {
+  engine_name: string
+  engine_version: string
+  status: EngineExecutionStatus
+  prediction: Prediction | null
+  confidence: number | null
+  expected_return: number | null
+  volatility: number | null
+  evidence: string[]
+}
+
+export interface QuantRiskAssessment {
+  risk_level: string
+  expected_volatility: number
+  data_sufficiency: number
+}
+
+export interface PipelineMetadata {
+  pipeline_version: string
+  total_duration_ms: number
+  stage_durations_ms: Record<string, number>
+  engines_available: number
+  engines_succeeded: number
+  degraded: boolean
+  timestamp: string
+}
+
+export interface PipelineResponse {
+  symbol: string
+  decision: Prediction
+  confidence: number
+  expected_return: number
+  expected_volatility: number
+  engine_breakdown: EngineBreakdownItem[]
+  evidence: string[]
+  risk: QuantRiskAssessment
+  explanation: string
+  metadata: PipelineMetadata
+}
+
 // ── Generic API error shape (FastAPI's default HTTPException body) ─────
 
 export interface ApiErrorBody {

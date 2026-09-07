@@ -117,6 +117,12 @@ apiClient.interceptors.response.use(
   },
 )
 
+/** True when the backend responded 404 - used to distinguish "this
+ * symbol genuinely doesn't exist" from a transient/network failure. */
+export function isNotFoundError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 404
+}
+
 /** Extracts a human-readable message from the backend's standard
  * HTTPException body ({"detail": "..."}) or FastAPI's validation-error
  * shape ({"detail": [{"msg": "..."}]}), for centralized error display. */

@@ -2,13 +2,18 @@ import { apiClient } from './client'
 import type {
   Alert,
   AlertDashboardView,
+  AddWatchlistItemRequest,
+  ChartPeriod,
+  ChartResponse,
   EngineDashboardView,
   LearningDashboardView,
   LoginRequest,
   MarketDashboardView,
   OverviewMetrics,
+  PipelineResponse,
   Portfolio,
   PortfolioDashboardExtended,
+  PriceQuote,
   RegisterRequest,
   TokenPairResponse,
   Transaction,
@@ -72,10 +77,39 @@ export const watchlistApi = {
   list: () => apiClient.get<Watchlist[]>('/watchlists').then((r) => r.data),
   items: (watchlistId: number) =>
     apiClient.get<WatchlistItem[]>(`/watchlists/${watchlistId}/items`).then((r) => r.data),
+  addItem: (watchlistId: number, body: AddWatchlistItemRequest) =>
+    apiClient.post<WatchlistItem>(`/watchlists/${watchlistId}/items`, body).then((r) => r.data),
+  removeItem: (watchlistId: number, symbol: string) =>
+    apiClient.delete<{ status: string }>(`/watchlists/${watchlistId}/items/${encodeURIComponent(symbol)}`).then((r) => r.data),
 }
 
 // ── Alerts ───────────────────────────────────────────────────────────────
 
 export const alertsApi = {
   list: () => apiClient.get<Alert[]>('/alerts').then((r) => r.data),
+}
+
+// ── Asset Explorer: price / chart / quant analysis ──────────────────────
+// GET /price and GET /chart require no auth on the backend, but the
+// request interceptor attaches a bearer token whenever one exists
+// anyway (harmless - same as every other call here).
+
+export const priceApi = {
+  get: (symbol: string) => apiClient.get<PriceQuote>(`/price/${encodeURIComponent(symbol)}`).then((r) => r.data),
+}
+
+export const chartApi = {
+  get: (symbol: string, period: ChartPeriod) =>
+    apiClient.get<ChartResponse>(`/chart/${encodeURIComponent(symbol)}`, { params: { period } }).then((r) => r.data),
+}
+
+export const quantApi = {
+  /**
+   * The sole canonical decision path (pipeline.service.PipelineService,
+   * behind /quant/analyze) - the legacy /analyze endpoint is a pinned,
+   * separate scoring system this app deliberately does not surface (see
+   * that endpoint's own backend docstring).
+   */
+  analyze: (symbol: string, assetType = 'stock') =>
+    apiClient.post<PipelineResponse>('/quant/analyze', { symbol, asset_type: assetType }).then((r) => r.data),
 }

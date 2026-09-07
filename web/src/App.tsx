@@ -15,6 +15,7 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage').then((m) => ({ 
 const PortfolioPage = lazy(() => import('./pages/PortfolioPage').then((m) => ({ default: m.PortfolioPage })))
 const WatchlistPage = lazy(() => import('./pages/WatchlistPage').then((m) => ({ default: m.WatchlistPage })))
 const AssetsPage = lazy(() => import('./pages/AssetsPage').then((m) => ({ default: m.AssetsPage })))
+const AssetDetailPage = lazy(() => import('./pages/AssetDetailPage').then((m) => ({ default: m.AssetDetailPage })))
 const AlertsPage = lazy(() => import('./pages/AlertsPage').then((m) => ({ default: m.AlertsPage })))
 const LearningPage = lazy(() => import('./pages/LearningPage').then((m) => ({ default: m.LearningPage })))
 
@@ -63,6 +64,14 @@ export function App() {
           element={
             <Shell title="Assets">
               <AssetsPage />
+            </Shell>
+          }
+        />
+        <Route
+          path="/assets/:symbol"
+          element={
+            <Shell title="Asset">
+              <AssetDetailPage />
             </Shell>
           }
         />

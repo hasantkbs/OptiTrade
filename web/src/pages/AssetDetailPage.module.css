@@ -1,0 +1,51 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.grid {
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: 2fr 1fr;
+  grid-template-areas:
+    'chart    risk'
+    'decision risk'
+    'engines  explanation';
+  align-items: start;
+}
+
+.chart {
+  grid-area: chart;
+}
+
+.decision {
+  grid-area: decision;
+}
+
+.engines {
+  grid-area: engines;
+}
+
+.risk {
+  grid-area: risk;
+}
+
+.explanation {
+  grid-area: explanation;
+}
+
+/* Desktop is chart-first (WEB STEP 4 §14); mobile reorders to
+   identity/price (in the header, above this grid) -> decision ->
+   chart -> engines -> risk -> explanation (WEB STEP 4 §15). */
+@media (max-width: 1100px) {
+  .grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'decision'
+      'chart'
+      'engines'
+      'risk'
+      'explanation';
+  }
+}

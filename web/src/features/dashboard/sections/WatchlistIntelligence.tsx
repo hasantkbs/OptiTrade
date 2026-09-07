@@ -68,7 +68,9 @@ export function WatchlistIntelligence() {
                 <ul className={styles.itemList}>
                   {items.data.slice(0, 6).map((item) => (
                     <li key={item.id} className={styles.itemRow}>
-                      <span className={`num ${styles.symbol}`}>{item.symbol}</span>
+                      <Link to={`/assets/${item.symbol}`} className={`num ${styles.symbol}`}>
+                        {item.symbol}
+                      </Link>
                       <span className={styles.folder}>{item.folder ?? '—'}</span>
                       {item.is_favorite ? <Badge tone="accent">★</Badge> : null}
                     </li>
