@@ -5,6 +5,7 @@ import type {
   AddWatchlistItemRequest,
   ChartPeriod,
   ChartResponse,
+  CreateAlertRequest,
   EngineDashboardView,
   LearningDashboardView,
   LoginRequest,
@@ -15,6 +16,7 @@ import type {
   PortfolioDashboardExtended,
   PriceQuote,
   RegisterRequest,
+  ScanReport,
   TokenPairResponse,
   Transaction,
   UserResponse,
@@ -87,6 +89,16 @@ export const watchlistApi = {
 
 export const alertsApi = {
   list: () => apiClient.get<Alert[]>('/alerts').then((r) => r.data),
+  create: (body: CreateAlertRequest) => apiClient.post<Alert>('/alerts', body).then((r) => r.data),
+  setEnabled: (alertId: number, enabled: boolean) =>
+    apiClient.patch<Alert>(`/alerts/${alertId}/enabled`, { enabled }).then((r) => r.data),
+  remove: (alertId: number) => apiClient.delete<{ status: string }>(`/alerts/${alertId}`).then((r) => r.data),
+  /**
+   * On-demand scan of the caller's own alerts only
+   * (main.py::scan_my_alerts -> AlertScheduler.run_scan) - no body, no
+   * polling; strictly a user-triggered action (rate-limited 5/minute).
+   */
+  scan: () => apiClient.post<ScanReport>('/alerts/scan').then((r) => r.data),
 }
 
 // ── Asset Explorer: price / chart / quant analysis ──────────────────────

@@ -300,6 +300,36 @@ export interface WatchlistItem {
 
 export type AlertCategory = 'price' | 'technical' | 'decision' | 'news' | 'portfolio'
 
+/** watchlist/models.py::AlertType - every value the backend's own enum
+ * defines, verified against the current repository (WEB STEP 6 audit).
+ * Not the "priceAbove/decisionBuy" camelCase list from earlier
+ * assumptions - the real backend uses these exact snake_case values. */
+export type AlertType =
+  | 'price_above'
+  | 'price_below'
+  | 'price_percent_move'
+  | 'price_gap'
+  | 'rsi_threshold'
+  | 'macd_crossover'
+  | 'ema_crossover'
+  | 'bollinger_breakout'
+  | 'volume_spike'
+  | 'atr_expansion'
+  | 'decision_buy'
+  | 'decision_sell'
+  | 'confidence_change'
+  | 'expected_return_change'
+  | 'risk_change'
+  | 'news_high_impact'
+  | 'news_sector'
+  | 'news_breaking'
+  | 'portfolio_allocation_exceeded'
+  | 'portfolio_var_exceeded'
+  | 'portfolio_drawdown_exceeded'
+  | 'portfolio_concentration'
+
+export type AlertSeverity = 'info' | 'warning' | 'critical'
+
 export interface Alert {
   id: number | null
   owner: string
@@ -307,14 +337,66 @@ export interface Alert {
   symbol: string | null
   portfolio_id: number | null
   category: AlertCategory
-  alert_type: string
+  alert_type: AlertType
   parameters: Record<string, number>
   cooldown_minutes: number
   enabled: boolean
-  last_state: string | null
+  last_state: Record<string, number>
   last_checked_at: string | null
   last_triggered_at: string | null
   created_at: string
+}
+
+export interface CreateAlertRequest {
+  category: AlertCategory
+  alert_type: AlertType
+  parameters?: Record<string, number>
+  watchlist_id?: number | null
+  symbol?: string | null
+  portfolio_id?: number | null
+  cooldown_minutes?: number
+}
+
+/** watchlist/models.py::AlertTriggerEvent - only ever seen inside a
+ * ScanReport outcome; never a standalone field on `Alert` itself. */
+export interface AlertTriggerEvent {
+  alert_id: number
+  owner: string
+  symbol: string | null
+  portfolio_id: number | null
+  category: AlertCategory
+  alert_type: AlertType
+  severity: AlertSeverity
+  message: string
+  evidence: Record<string, number>
+  related_decision: Prediction | null
+  triggered_at: string
+}
+
+export type AlertCheckStatus =
+  | 'triggered'
+  | 'not_triggered'
+  | 'skipped_cooldown'
+  | 'skipped_dedup'
+  | 'skipped_not_due'
+  | 'timeout'
+  | 'failed'
+
+export interface AlertCheckOutcome {
+  alert_id: number
+  status: AlertCheckStatus
+  duration_ms: number
+  attempts: number
+  error_type: string | null
+  trigger_event: AlertTriggerEvent | null
+}
+
+export interface ScanReport {
+  started_at: string
+  total_alerts: number
+  checked_count: number
+  triggered_count: number
+  outcomes: AlertCheckOutcome[]
 }
 
 export interface AddWatchlistItemRequest {

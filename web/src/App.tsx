@@ -18,6 +18,7 @@ const AssetsPage = lazy(() => import('./pages/AssetsPage').then((m) => ({ defaul
 const AssetDetailPage = lazy(() => import('./pages/AssetDetailPage').then((m) => ({ default: m.AssetDetailPage })))
 const DecisionsPage = lazy(() => import('./pages/DecisionsPage').then((m) => ({ default: m.DecisionsPage })))
 const AlertsPage = lazy(() => import('./pages/AlertsPage').then((m) => ({ default: m.AlertsPage })))
+const AnalystPage = lazy(() => import('./pages/AnalystPage').then((m) => ({ default: m.AnalystPage })))
 const LearningPage = lazy(() => import('./pages/LearningPage').then((m) => ({ default: m.LearningPage })))
 
 function Shell({ title, children }: { title: string; children: ReactNode }) {
@@ -96,10 +97,7 @@ export function App() {
           path="/ai-analyst"
           element={
             <Shell title="AI Analyst">
-              <UnavailablePage
-                title="AI Analyst not available yet"
-                description="The backend's explanation engine isn't currently exposed over the API."
-              />
+              <AnalystPage />
             </Shell>
           }
         />

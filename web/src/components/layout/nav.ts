@@ -18,7 +18,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/assets', label: 'Assets', available: true },
   { to: '/decisions', label: 'Decisions', available: true },
   { to: '/alerts', label: 'Alerts', available: true },
-  { to: '/ai-analyst', label: 'AI Analyst', available: false },
+  { to: '/ai-analyst', label: 'AI Analyst', available: true },
   { to: '/learning', label: 'Learning', available: true },
   { to: '/research', label: 'Research', available: false },
 ]
