@@ -30,3 +30,28 @@
   font-size: var(--text-xs);
   color: var(--color-text-tertiary);
 }
+
+.unavailable {
+  color: var(--color-text-tertiary);
+}
+
+.labelWithHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: help;
+}
+
+.hintMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-strong);
+  font-size: 0.625rem;
+  font-weight: var(--weight-semibold);
+  text-transform: none;
+  letter-spacing: normal;
+}

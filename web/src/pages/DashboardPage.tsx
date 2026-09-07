@@ -1,30 +1,32 @@
-import { KpiCardsSection } from '../features/dashboard/sections/KpiCardsSection'
-import { EngineScoreSection } from '../features/dashboard/sections/EngineScoreSection'
-import { DecisionDistributionSection } from '../features/dashboard/sections/DecisionDistributionSection'
-import { PortfolioSummarySection } from '../features/dashboard/sections/PortfolioSummarySection'
-import { WatchlistSummarySection } from '../features/dashboard/sections/WatchlistSummarySection'
-import { RecentAlertsSection } from '../features/dashboard/sections/RecentAlertsSection'
-import { RecentDecisionsSection } from '../features/dashboard/sections/RecentDecisionsSection'
+import { DashboardKpis } from '../features/dashboard/sections/DashboardKpis'
+import { PortfolioPerformance } from '../features/dashboard/sections/PortfolioPerformance'
+import { EngineIntelligence } from '../features/dashboard/sections/EngineIntelligence'
+import { MarketOverview } from '../features/dashboard/sections/MarketOverview'
+import { RecentDecisions } from '../features/dashboard/sections/RecentDecisions'
+import { LearningOverview } from '../features/dashboard/sections/LearningOverview'
+import { WatchlistIntelligence } from '../features/dashboard/sections/WatchlistIntelligence'
+import { AlertsOverview } from '../features/dashboard/sections/AlertsOverview'
 import styles from './DashboardPage.module.css'
 
 export function DashboardPage() {
   return (
     <div className={styles.page}>
-      <KpiCardsSection />
+      <DashboardKpis />
 
       <div className={styles.mainGrid}>
         <div className={styles.mainColumn}>
-          <EngineScoreSection />
+          <PortfolioPerformance />
+          <EngineIntelligence />
           <div className={styles.twoUp}>
-            <PortfolioSummarySection />
-            <DecisionDistributionSection />
+            <MarketOverview />
+            <RecentDecisions />
           </div>
-          <RecentDecisionsSection />
+          <LearningOverview />
         </div>
 
         <div className={styles.sideColumn}>
-          <WatchlistSummarySection />
-          <RecentAlertsSection />
+          <WatchlistIntelligence />
+          <AlertsOverview />
         </div>
       </div>
     </div>

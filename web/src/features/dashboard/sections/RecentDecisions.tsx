@@ -8,7 +8,7 @@ import { EmptyState } from '../../../components/ui/EmptyState'
  * API). Per WEB STEP 1 §5, this is shown honestly rather than
  * fabricated - wiring this up is a backend task for a later step.
  */
-export function RecentDecisionsSection() {
+export function RecentDecisions() {
   return (
     <Card>
       <CardHeader>

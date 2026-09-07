@@ -1,0 +1,20 @@
+.card {
+  background: var(--color-bg);
+  box-shadow: none;
+}
+
+.title {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.viewAll {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+.viewAll:hover {
+  color: var(--color-accent-hover);
+}

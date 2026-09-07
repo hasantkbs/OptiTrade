@@ -63,23 +63,39 @@ export interface OverviewMetrics {
   generated_at: string
 }
 
+export type RollingWindow = '7d' | '30d' | '90d' | 'lifetime'
+export type DriftType = 'degrading' | 'improving' | 'unstable' | 'stable'
+
 export interface AccuracyMetrics {
-  accuracy: number
+  engine_name: string
+  engine_version: string
+  window: RollingWindow
   sample_count: number
-  [key: string]: unknown
+  accuracy: number
+  precision: number
+  recall: number
+  calibration_error: number
+  confidence_reliability: number
+  expected_return_error: number
+  volatility_error: number
+  computed_at: string
 }
 
 export interface DriftSignal {
   engine_name: string
   engine_version: string
-  status: string
-  [key: string]: unknown
+  drift_type: DriftType
+  magnitude: number
+  recent_window: RollingWindow
+  baseline_window: RollingWindow
+  evidence: string
+  detected_at: string
 }
 
 export interface EngineAccuracySnapshot {
   engine_name: string
   engine_version: string
-  accuracy_by_window: Record<string, AccuracyMetrics>
+  accuracy_by_window: Partial<Record<RollingWindow, AccuracyMetrics>>
   current_weight: number | null
   latest_drift: DriftSignal | null
 }
@@ -176,13 +192,17 @@ export interface Portfolio {
 }
 
 export interface AllocationBreakdown {
-  by_symbol: Record<string, number>
-  [key: string]: unknown
+  by_symbol_pct: Record<string, number>
+  by_sector_pct: Record<string, number>
+  by_country_pct: Record<string, number>
+  by_currency_pct: Record<string, number>
+  cash_weight_pct: number
 }
 
 export interface RiskAnalytics {
   volatility_pct: number
   beta: number | null
+  correlation_matrix: Record<string, Record<string, number>>
   diversification_score: number
   var_95_pct: number
   cvar_95_pct: number
@@ -192,6 +212,33 @@ export interface RiskAnalytics {
   concentration_risk: number
 }
 
+export interface PositionAnalytics {
+  symbol: string
+  quantity: number
+  average_cost: number
+  current_price: number
+  cost_basis: number
+  current_value: number
+  unrealized_pnl: number
+  unrealized_pnl_pct: number
+  realized_pnl: number
+  weight_pct: number
+  sector: string
+  country: string
+  currency: string
+}
+
+export type RecommendationType = 'rebalance' | 'overweight' | 'diversification' | 'concentration' | 'decision_signal'
+export type RecommendationSeverity = 'info' | 'warning' | 'critical'
+
+export interface Recommendation {
+  recommendation_type: RecommendationType
+  severity: RecommendationSeverity
+  symbol: string | null
+  message: string
+  evidence: string[]
+}
+
 export interface PortfolioDashboard {
   portfolio_id: number
   as_of: string
@@ -199,10 +246,10 @@ export interface PortfolioDashboard {
   total_value: number
   realized_pnl: number
   unrealized_pnl: number
-  positions: unknown[]
+  positions: PositionAnalytics[]
   allocation: AllocationBreakdown
   risk: RiskAnalytics | null
-  recommendations: unknown[]
+  recommendations: Recommendation[]
 }
 
 export interface PortfolioDashboardExtended {
@@ -243,8 +290,13 @@ export interface Alert {
   portfolio_id: number | null
   category: AlertCategory
   alert_type: string
+  parameters: Record<string, number>
+  cooldown_minutes: number
   enabled: boolean
-  [key: string]: unknown
+  last_state: string | null
+  last_checked_at: string | null
+  last_triggered_at: string | null
+  created_at: string
 }
 
 // ── Generic API error shape (FastAPI's default HTTPException body) ─────
