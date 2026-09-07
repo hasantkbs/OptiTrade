@@ -57,7 +57,7 @@ from core.analyzer import analyze
 from core.ml_predictor import get_model_info
 from core.monitoring import init_db, validate_predictions, get_performance_stats, purge_old_predictions
 from core.logging_config import setup_logging
-from core.infra_config import acquire_scheduler_leader_lock, release_scheduler_leader_lock
+from core.infra_config import acquire_scheduler_leader_lock, release_scheduler_leader_lock, schema_init_lock
 from db.session import dispose_engine
 from middleware.request_logging import RequestLoggingMiddleware
 from research.ml_trainer import train as train_model
@@ -474,107 +474,108 @@ async def startup_event() -> None:
     global _pipeline_service, _portfolio_service, _portfolio_analytics, _portfolio_risk
     global _portfolio_optimization, _portfolio_rebalancing, _portfolio_scenarios
     global _portfolio_recommendations, _portfolio_dashboard, _background_tasks
-    try:
-        _pipeline_service = PipelineService()
-    except Exception as e:
-        logger.error(f"Quant pipeline baslatilamadi: {e}")
-    try:
-        _portfolio_service = PortfolioService()
-        _portfolio_analytics = PositionAnalyticsService(portfolio_service=_portfolio_service)
-        _portfolio_risk = RiskAnalyticsService(position_analytics_service=_portfolio_analytics)
-        _portfolio_rebalancing = RebalancingService(position_analytics_service=_portfolio_analytics)
-        # Both optimization and recommendations reuse the same live
-        # Quant Research Platform pipeline for their forward-looking
-        # views (requirement 4's "Reuse existing Prediction Pipeline
-        # outputs", requirement 7's "Use Decision Engine outputs") -
-        # `None` (views disabled) until `_pipeline_service` itself is
-        # ready, exactly like every other consumer of it in this file.
-        _portfolio_optimization = PortfolioOptimizationService(
-            price_service=_portfolio_service.price_service, pipeline_service=_pipeline_service,
-        )
-        _portfolio_scenarios = ScenarioAnalysisService(position_analytics_service=_portfolio_analytics)
-        _portfolio_recommendations = RecommendationEngine(
-            position_analytics_service=_portfolio_analytics, risk_analytics_service=_portfolio_risk,
-            rebalancing_service=_portfolio_rebalancing, pipeline_service=_pipeline_service,
-        )
-        _portfolio_dashboard = PortfolioDashboardService(
-            portfolio_service=_portfolio_service, position_analytics_service=_portfolio_analytics,
-            risk_analytics_service=_portfolio_risk, recommendation_engine=_portfolio_recommendations,
-        )
-    except Exception as e:
-        logger.error(f"Portfolio Intelligence Platform baslatilamadi: {e}")
+    with schema_init_lock():
+        try:
+            _pipeline_service = PipelineService()
+        except Exception as e:
+            logger.error(f"Quant pipeline baslatilamadi: {e}")
+        try:
+            _portfolio_service = PortfolioService()
+            _portfolio_analytics = PositionAnalyticsService(portfolio_service=_portfolio_service)
+            _portfolio_risk = RiskAnalyticsService(position_analytics_service=_portfolio_analytics)
+            _portfolio_rebalancing = RebalancingService(position_analytics_service=_portfolio_analytics)
+            # Both optimization and recommendations reuse the same live
+            # Quant Research Platform pipeline for their forward-looking
+            # views (requirement 4's "Reuse existing Prediction Pipeline
+            # outputs", requirement 7's "Use Decision Engine outputs") -
+            # `None` (views disabled) until `_pipeline_service` itself is
+            # ready, exactly like every other consumer of it in this file.
+            _portfolio_optimization = PortfolioOptimizationService(
+                price_service=_portfolio_service.price_service, pipeline_service=_pipeline_service,
+            )
+            _portfolio_scenarios = ScenarioAnalysisService(position_analytics_service=_portfolio_analytics)
+            _portfolio_recommendations = RecommendationEngine(
+                position_analytics_service=_portfolio_analytics, risk_analytics_service=_portfolio_risk,
+                rebalancing_service=_portfolio_rebalancing, pipeline_service=_pipeline_service,
+            )
+            _portfolio_dashboard = PortfolioDashboardService(
+                portfolio_service=_portfolio_service, position_analytics_service=_portfolio_analytics,
+                risk_analytics_service=_portfolio_risk, recommendation_engine=_portfolio_recommendations,
+            )
+        except Exception as e:
+            logger.error(f"Portfolio Intelligence Platform baslatilamadi: {e}")
 
-    global _users_repository, _users_authentication, _users_authorization, _users_sessions
-    global _users_organizations, _users_teams, _users_api_keys, _users_preferences
-    global _users_audit, _users_service, _users_watchlist_bridge, _watchlist_scheduler
-    try:
-        _users_repository = UsersRepository()
-        _users_sessions = SessionService(_users_repository)
-        _users_authentication = AuthenticationService(_users_repository, session_cache=_users_sessions)
-        _users_authorization = AuthorizationService(_users_repository)
-        _users_organizations = OrganizationService(_users_repository, _users_authorization)
-        _users_teams = TeamService(_users_repository, _users_authorization)
-        _users_audit = AuditService(_users_repository)
-        _users_api_keys = APIKeyService(_users_repository, _users_authorization, _users_audit)
-        _users_watchlist_bridge = WatchlistService()
-        # Reuses _users_watchlist_bridge's own repository/connection pool
-        # (same convention as portfolio_sync's watchlist_repository= above)
-        # instead of opening a second one just for the scheduler.
-        _watchlist_scheduler = AlertScheduler(repository=_users_watchlist_bridge.repository)
-        _users_preferences = PreferencesService(
-            _users_repository, portfolio_service=_portfolio_service, watchlist_service=_users_watchlist_bridge,
-        )
-        _users_service = UserService(_users_repository, _users_authentication)
-    except Exception as e:
-        logger.error(f"User & Organization Platform baslatilamadi: {e}")
+        global _users_repository, _users_authentication, _users_authorization, _users_sessions
+        global _users_organizations, _users_teams, _users_api_keys, _users_preferences
+        global _users_audit, _users_service, _users_watchlist_bridge, _watchlist_scheduler
+        try:
+            _users_repository = UsersRepository()
+            _users_sessions = SessionService(_users_repository)
+            _users_authentication = AuthenticationService(_users_repository, session_cache=_users_sessions)
+            _users_authorization = AuthorizationService(_users_repository)
+            _users_organizations = OrganizationService(_users_repository, _users_authorization)
+            _users_teams = TeamService(_users_repository, _users_authorization)
+            _users_audit = AuditService(_users_repository)
+            _users_api_keys = APIKeyService(_users_repository, _users_authorization, _users_audit)
+            _users_watchlist_bridge = WatchlistService()
+            # Reuses _users_watchlist_bridge's own repository/connection pool
+            # (same convention as portfolio_sync's watchlist_repository= above)
+            # instead of opening a second one just for the scheduler.
+            _watchlist_scheduler = AlertScheduler(repository=_users_watchlist_bridge.repository)
+            _users_preferences = PreferencesService(
+                _users_repository, portfolio_service=_portfolio_service, watchlist_service=_users_watchlist_bridge,
+            )
+            _users_service = UserService(_users_repository, _users_authentication)
+        except Exception as e:
+            logger.error(f"User & Organization Platform baslatilamadi: {e}")
 
-    global _paper_trading_repository, _paper_trading_service, _paper_trading_scheduler
-    try:
-        _paper_trading_repository = PaperTradingRepository()
-        feature_store_service = get_default_feature_store_service()
-        portfolio_sync = PortfolioSyncService(
-            _paper_trading_repository, _portfolio_service, watchlist_service=_users_watchlist_bridge,
-            watchlist_repository=_users_watchlist_bridge.repository if _users_watchlist_bridge else None,
-        )
-        position_service = PositionService(_portfolio_service)
-        journal_service = JournalService(_paper_trading_repository, _pipeline_service, feature_store_service=feature_store_service)
-        _paper_trading_service = PaperTradingService(
-            _paper_trading_repository, portfolio_sync, position_service, journal_service,
-        )
-        _paper_trading_scheduler = PaperTradingScheduler(_paper_trading_repository, portfolio_sync)
-    except Exception as e:
-        logger.error(f"Paper Trading Platform baslatilamadi: {e}")
+        global _paper_trading_repository, _paper_trading_service, _paper_trading_scheduler
+        try:
+            _paper_trading_repository = PaperTradingRepository()
+            feature_store_service = get_default_feature_store_service()
+            portfolio_sync = PortfolioSyncService(
+                _paper_trading_repository, _portfolio_service, watchlist_service=_users_watchlist_bridge,
+                watchlist_repository=_users_watchlist_bridge.repository if _users_watchlist_bridge else None,
+            )
+            position_service = PositionService(_portfolio_service)
+            journal_service = JournalService(_paper_trading_repository, _pipeline_service, feature_store_service=feature_store_service)
+            _paper_trading_service = PaperTradingService(
+                _paper_trading_repository, portfolio_sync, position_service, journal_service,
+            )
+            _paper_trading_scheduler = PaperTradingScheduler(_paper_trading_repository, portfolio_sync)
+        except Exception as e:
+            logger.error(f"Paper Trading Platform baslatilamadi: {e}")
 
-    global _dashboard_repository, _dashboard_service, _dashboard_scheduler
-    try:
-        _dashboard_repository = DashboardRepository()
-        dashboard_overview_service = OverviewDashboardService(_dashboard_repository)
-        dashboard_engine_service = EngineDashboardService(_dashboard_repository)
-        dashboard_market_service = MarketDashboardService()
-        _dashboard_service = DashboardService(
-            _dashboard_repository,
-            overview_service=dashboard_overview_service,
-            engine_dashboard_service=dashboard_engine_service,
-            model_dashboard_service=ModelDashboardService(_dashboard_repository),
-            portfolio_dashboard_service=(
-                DashboardPortfolioService(portfolio_dashboard_service=_portfolio_dashboard, portfolio_service=_portfolio_service)
-                if _portfolio_dashboard is not None else DashboardPortfolioService()
-            ),
-            watchlist_dashboard_service=(
-                WatchlistDashboardService(watchlist_service=_users_watchlist_bridge)
-                if _users_watchlist_bridge is not None else WatchlistDashboardService()
-            ),
-            paper_trading_dashboard_service=(
-                PaperTradingDashboardService(paper_trading_repository=_paper_trading_repository)
-                if _paper_trading_repository is not None else PaperTradingDashboardService()
-            ),
-            learning_dashboard_service=LearningDashboardService(_dashboard_repository),
-            alert_dashboard_service=AlertDashboardService(_dashboard_repository),
-            market_dashboard_service=dashboard_market_service,
-        )
-        _dashboard_scheduler = DashboardScheduler(dashboard_overview_service, dashboard_market_service, dashboard_engine_service)
-    except Exception as e:
-        logger.error(f"Analytics & Dashboard Platform baslatilamadi: {e}")
+        global _dashboard_repository, _dashboard_service, _dashboard_scheduler
+        try:
+            _dashboard_repository = DashboardRepository()
+            dashboard_overview_service = OverviewDashboardService(_dashboard_repository)
+            dashboard_engine_service = EngineDashboardService(_dashboard_repository)
+            dashboard_market_service = MarketDashboardService()
+            _dashboard_service = DashboardService(
+                _dashboard_repository,
+                overview_service=dashboard_overview_service,
+                engine_dashboard_service=dashboard_engine_service,
+                model_dashboard_service=ModelDashboardService(_dashboard_repository),
+                portfolio_dashboard_service=(
+                    DashboardPortfolioService(portfolio_dashboard_service=_portfolio_dashboard, portfolio_service=_portfolio_service)
+                    if _portfolio_dashboard is not None else DashboardPortfolioService()
+                ),
+                watchlist_dashboard_service=(
+                    WatchlistDashboardService(watchlist_service=_users_watchlist_bridge)
+                    if _users_watchlist_bridge is not None else WatchlistDashboardService()
+                ),
+                paper_trading_dashboard_service=(
+                    PaperTradingDashboardService(paper_trading_repository=_paper_trading_repository)
+                    if _paper_trading_repository is not None else PaperTradingDashboardService()
+                ),
+                learning_dashboard_service=LearningDashboardService(_dashboard_repository),
+                alert_dashboard_service=AlertDashboardService(_dashboard_repository),
+                market_dashboard_service=dashboard_market_service,
+            )
+            _dashboard_scheduler = DashboardScheduler(dashboard_overview_service, dashboard_market_service, dashboard_engine_service)
+        except Exception as e:
+            logger.error(f"Analytics & Dashboard Platform baslatilamadi: {e}")
     if acquire_scheduler_leader_lock():
         _background_tasks = [
             asyncio.create_task(self_evolution_loop()),

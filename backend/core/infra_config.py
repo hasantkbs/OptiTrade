@@ -35,7 +35,9 @@ undermining every one of those existing hardening passes.
 """
 from __future__ import annotations
 
+import logging
 import os
+from contextlib import contextmanager
 from typing import Tuple
 
 from redis.backoff import NoBackoff
@@ -185,3 +187,96 @@ def release_scheduler_leader_lock() -> None:
         except Exception:
             pass
         _scheduler_leader_lock_conn = None
+
+
+# SERVER STEP 4 (database initialization race): a SECOND, deliberately
+# distinct pg_advisory_lock key from _SCHEDULER_LEADER_LOCK_KEY above.
+# The two locks answer unrelated questions - "which one worker owns the
+# background loops, forever, for this process's lifetime" (scheduler)
+# vs. "block here until no other worker is concurrently creating
+# schema" (this one) - and must never share a key: doing so would let
+# whichever worker fails to become scheduler leader also skip schema
+# initialization it still needs to perform, and would let a worker
+# holding the schema lock be mistaken for the scheduler leader.
+_SCHEMA_INIT_LOCK_KEY = 727002
+
+
+@contextmanager
+def schema_init_lock():
+    """Serializes PostgreSQL schema initialization (every repository's
+    own `CREATE TABLE/INDEX IF NOT EXISTS`, run once per repository at
+    construction - see PostgresRepositoryBase._init_schema and each
+    repository module's own inline equivalent) across concurrent
+    uvicorn workers racing to construct the same repositories against a
+    genuinely fresh database.
+
+    `CREATE TABLE IF NOT EXISTS` guards against a table that already
+    exists, but the existence check and the creation are not atomic
+    across two separate concurrent sessions - two workers can both see
+    "doesn't exist yet", both proceed, and whichever commits second
+    hits a real PostgreSQL catalog-level conflict (observed live,
+    SERVER STEP 3: `duplicate key value violates unique constraint
+    "pg_type_typname_nsp_index"`). Unlike
+    acquire_scheduler_leader_lock's non-blocking pg_try_advisory_lock
+    (exactly one worker ever "wins", for its whole lifetime), this uses
+    the BLOCKING `pg_advisory_lock`: every worker must still construct
+    its own repositories - there is no "leader" for serving requests -
+    just never at the literal same instant as another worker doing the
+    identical CREATE statements. A worker that finds the lock already
+    held simply blocks until it's free (no arbitrary sleep/retry loop),
+    then proceeds - by then every table already exists, so its own
+    CREATE TABLE IF NOT EXISTS calls are genuine no-ops.
+
+    A context manager rather than a bare acquire/release pair: the lock
+    is released in `finally` on every path, including an unhandled
+    exception from inside the `with` block, so one worker's failure
+    (schema or otherwise) can never leave a following worker blocked
+    forever on a lock nobody will release. Exceptions raised inside the
+    `with` block are never caught here - they propagate exactly as
+    they would without this wrapper (see main.py's own per-platform
+    try/except, which is what actually handles them; this function
+    changes serialization only, never error-swallowing behavior).
+
+    Fails open (proceeds without holding the lock, logged) if
+    PostgreSQL itself can't be reached at all - every repository
+    construction inside the `with` block needs that same connection
+    and will fail identically and visibly through its own existing
+    error handling regardless of whether this lock was held, so there
+    is no race left to prevent in that case, matching
+    acquire_scheduler_leader_lock's identical fail-open rationale for a
+    single-worker/local-dev run."""
+    import psycopg2
+
+    conn = None
+    try:
+        host, port, db, user, password = postgres_settings_from_env()
+        conn = psycopg2.connect(
+            host=host, port=port, dbname=db, user=user, password=password,
+            connect_timeout=postgres_connect_timeout_seconds(),
+        )
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            # Blocking - waits for another worker's in-progress schema
+            # initialization to finish rather than racing it.
+            cur.execute("SELECT pg_advisory_lock(%s)", (_SCHEMA_INIT_LOCK_KEY,))
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "schema_init_lock: could not reach PostgreSQL to serialize "
+            "schema initialization (%s) - proceeding unserialized; each "
+            "repository's own construction will still fail visibly if "
+            "the database is genuinely unreachable.",
+            exc,
+        )
+        if conn is not None:
+            conn.close()
+        yield
+        return
+
+    try:
+        yield
+    finally:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_INIT_LOCK_KEY,))
+        finally:
+            conn.close()
