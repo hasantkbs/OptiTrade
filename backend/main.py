@@ -877,6 +877,15 @@ def root() -> Dict[str, str]:
 def health() -> Dict[str, str]:
     return {"status": "healthy"}
 
+@app.get("/feature-store/health")
+def feature_store_health() -> Dict[str, bool]:
+    """PostgreSQL (offline store) + Redis (online store) connectivity -
+    each side is a single `SELECT 1`/`PING`, so this stays as lightweight
+    and deterministic as `/health` itself (see
+    `feature_store.service.FeatureStoreService.health_check`, built for
+    exactly this endpoint but never wired in until now)."""
+    return get_default_feature_store_service().health_check()
+
 @app.get("/ml/status")
 def ml_status() -> Dict[str, Any]:
     return get_model_info()
