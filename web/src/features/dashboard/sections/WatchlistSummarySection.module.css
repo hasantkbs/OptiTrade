@@ -1,0 +1,23 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.stats {
+  display: flex;
+  gap: var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.stats strong {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.symbols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
