@@ -16,6 +16,7 @@ const PortfolioPage = lazy(() => import('./pages/PortfolioPage').then((m) => ({ 
 const WatchlistPage = lazy(() => import('./pages/WatchlistPage').then((m) => ({ default: m.WatchlistPage })))
 const AssetsPage = lazy(() => import('./pages/AssetsPage').then((m) => ({ default: m.AssetsPage })))
 const AssetDetailPage = lazy(() => import('./pages/AssetDetailPage').then((m) => ({ default: m.AssetDetailPage })))
+const DecisionsPage = lazy(() => import('./pages/DecisionsPage').then((m) => ({ default: m.DecisionsPage })))
 const AlertsPage = lazy(() => import('./pages/AlertsPage').then((m) => ({ default: m.AlertsPage })))
 const LearningPage = lazy(() => import('./pages/LearningPage').then((m) => ({ default: m.LearningPage })))
 
@@ -79,10 +80,7 @@ export function App() {
           path="/decisions"
           element={
             <Shell title="Decisions">
-              <UnavailablePage
-                title="Decisions not available yet"
-                description="The backend doesn't currently expose a Decision Engine execution feed over the API."
-              />
+              <DecisionsPage />
             </Shell>
           }
         />
