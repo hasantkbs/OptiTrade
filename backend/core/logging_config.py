@@ -28,6 +28,14 @@ class _JSONFormatter(logging.Formatter):
             "ts":      datetime.now(timezone.utc).isoformat(),
             "level":   record.levelname,
             "logger":  record.name,
+            # SERVER STEP 6: worker identity. Production runs 2 uvicorn
+            # worker processes (see Dockerfile) with independent log
+            # streams interleaved on stdout - without a PID, "which
+            # worker logged this?" is unanswerable, which matters
+            # specifically for correlating scheduler-leader-election
+            # and schema-init-lock lines (main.py/core/infra_config.py)
+            # across the two.
+            "pid":     os.getpid(),
             "msg":     record.getMessage(),
         }
         # Include any extra structured fields the caller attached

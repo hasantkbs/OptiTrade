@@ -33,6 +33,18 @@ class TestJSONFormatter:
         assert "logger" in parsed
         assert "msg" in parsed
 
+    def test_pid_field_present_and_matches_current_process(self):
+        """SERVER STEP 6: worker identity - every structured log line
+        carries the logging process's own PID (production runs 2
+        uvicorn workers with interleaved log streams; without this,
+        "which worker logged this?" is unanswerable)."""
+        import os
+
+        fmt = _JSONFormatter()
+        record = self._make_record("test message")
+        parsed = json.loads(fmt.format(record))
+        assert parsed["pid"] == os.getpid()
+
     def test_message_matches(self):
         fmt = _JSONFormatter()
         record = self._make_record("my message")

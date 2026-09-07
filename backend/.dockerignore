@@ -6,3 +6,20 @@ venv/
 *.log
 .DS_Store
 .env
+
+# Firebase service-account credentials (SERVER STEP 6): never bake this
+# into an image layer if an operator's local build context happens to
+# have one present - main.py reads it from FIREBASE_CREDENTIALS_PATH at
+# runtime, mounted or provided some other way, never from the image.
+firebase-credentials.json
+
+# Dev/test-only - never imported by the production app, no reason to
+# ship them in the image (SERVER STEP 6).
+tests/
+.pytest_cache/
+.coverage
+backtest_results.csv
+backtest_results.json
+test_engine.py
+requirements-dev.txt
+ml_training_artifacts/

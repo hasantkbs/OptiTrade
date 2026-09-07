@@ -607,6 +607,11 @@ async def startup_event() -> None:
         except Exception as e:
             logger.error(f"Analytics & Dashboard Platform baslatilamadi: {e}")
     if acquire_scheduler_leader_lock():
+        logger.info(
+            "Bu worker scheduler leader oldu; background loop'lar "
+            "(self-evolution/alert-scan/paper-trading-fill/retention-purge) "
+            "burada baslatiliyor."
+        )
         _background_tasks = [
             asyncio.create_task(self_evolution_loop()),
             asyncio.create_task(alert_scan_loop()),
@@ -623,6 +628,7 @@ async def startup_event() -> None:
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
+    logger.info("Shutdown basladi.")
     # Cancel the leader worker's own background loops (a no-op list on
     # every non-leader worker) so a SIGTERM ends them via a clean
     # CancelledError at their current `await` instead of just abandoning
@@ -633,6 +639,7 @@ async def shutdown_event() -> None:
         await asyncio.gather(*_background_tasks, return_exceptions=True)
     await dispose_engine()
     release_scheduler_leader_lock()
+    logger.info("Shutdown tamamlandi.")
 
 @app.get("/ml/performance")
 def get_ml_performance(days: int = 30) -> Dict[str, Any]:

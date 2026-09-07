@@ -1,3 +1,15 @@
+# ── Shared config (SERVER STEP 6) ───────────────────────────────────────────────
+# Every service's container logs go to stdout/stderr, captured by Docker's
+# default json-file driver - which has NO size limit by default. Capped
+# here at 3 x 10MB = 30MB per container so a noisy/long-running deployment
+# can't slowly fill the host disk. Not a centralized logging system (out
+# of this step's scope) - just a bound on local log growth.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 # ── Networks ──────────────────────────────────────────────────────────────────
 networks:
   optitrade-net:
@@ -7,8 +19,10 @@ networks:
 volumes:
   optitrade-postgres-data:
   optitrade-redis-data:
-  optitrade-letsencrypt:      # certbot's /etc/letsencrypt - certs + account keys, never in git
-  optitrade-certbot-webroot:  # ACME HTTP-01 challenge files, shared between `proxy` and `certbot`
+  optitrade-letsencrypt:        # certbot's /etc/letsencrypt - certs + account keys, never in git
+  optitrade-certbot-webroot:    # ACME HTTP-01 challenge files, shared between `proxy` and `certbot`
+  optitrade-postgres-backups:   # pg_dump output (SERVER STEP 6) - deliberately NOT the Postgres
+                                 # data directory itself; see scripts/backup-postgres.sh
 
 # ── Services ──────────────────────────────────────────────────────────────────
 services:
@@ -41,6 +55,11 @@ services:
     networks:
       - optitrade-net
     restart: unless-stopped
+    logging: *default-logging
+    # nginx itself is extremely lightweight - this is a generous safety
+    # ceiling against a runaway worker process, not a tuned budget.
+    mem_limit: 128m
+    cpus: "0.5"
 
   # ── Let's Encrypt certificate issuance/renewal (SERVER STEP 5) ─────────────
   # Not started by `docker compose up` (profile-gated). Issue a cert once:
@@ -60,6 +79,48 @@ services:
     networks:
       - optitrade-net
     restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 128m
+    cpus: "0.25"
+
+  # ── PostgreSQL backup (SERVER STEP 6) ───────────────────────────────────────
+  # Runs scripts/backup-postgres.sh immediately on start (a fresh baseline
+  # backup is wanted right away - unlike the app's own startup-training
+  # fix in SERVER STEP 3, there is no expensive-work-on-every-restart
+  # concern for a single pg_dump), then every 24h. Same minimal-loop
+  # pattern as `certbot` above - not a new application scheduler, no
+  # relation to/reuse of either PostgreSQL advisory lock (727001/727002)
+  # this backend already uses. See docs/deployment/postgres-backups.md
+  # for the restore procedure and retention policy.
+  backup:
+    image: postgres:17
+    container_name: optitrade-backup
+    environment:
+      - FEATURE_STORE_POSTGRES_HOST=postgres
+      - FEATURE_STORE_POSTGRES_PORT=5432
+      - FEATURE_STORE_POSTGRES_DB=${FEATURE_STORE_POSTGRES_DB:-optitrade}
+      - FEATURE_STORE_POSTGRES_USER=${FEATURE_STORE_POSTGRES_USER:-optitrade_user}
+      - FEATURE_STORE_POSTGRES_PASSWORD=${FEATURE_STORE_POSTGRES_PASSWORD:?required}
+      - RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-7}
+      - BACKUP_DIR=/backups
+    volumes:
+      - ./scripts/backup-postgres.sh:/backup-postgres.sh:ro
+      - ./scripts/backup-entrypoint.sh:/backup-entrypoint.sh:ro
+      - optitrade-postgres-backups:/backups
+    # Starts as root (no `user:` override) specifically so
+    # backup-entrypoint.sh can fix /backups' ownership once, then drops
+    # to the postgres:17 image's own `postgres` user for everything
+    # else - see that script's own header for why.
+    entrypoint: sh /backup-entrypoint.sh
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - optitrade-net
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+    cpus: "0.5"
 
   # ── API (always starts) ────────────────────────────────────────────────────
   api:
@@ -93,6 +154,16 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    logging: *default-logging
+    # Generous ceiling, not a tuned budget (SERVER STEP 6) - 2 uvicorn
+    # workers (Dockerfile) each independently loading
+    # xgboost/tensorflow/catboost/lightgbm models and running yfinance/
+    # pandas analysis; a tight limit here risks an OOM-kill of a
+    # legitimate request rather than actually protecting anything. Still
+    # bounded, so one runaway process can't starve Postgres/Redis/nginx
+    # on the same host.
+    mem_limit: 4g
+    cpus: "2.0"
 
   postgres:
     image: postgres:17
@@ -112,6 +183,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    logging: *default-logging
+    # Conservative default for a single-tenant deployment on modest
+    # hardware; Postgres itself will use less than this under light/
+    # moderate load (this project's actual current scale) via its own
+    # shared_buffers/work_mem defaults, which stay well under 1GB.
+    mem_limit: 1g
+    cpus: "1.0"
 
   # ── Redis (cache + message broker) ────────────────────────────────────────
   redis:
@@ -133,3 +211,9 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+    logging: *default-logging
+    # Redis already self-limits via --maxmemory 256mb above; this is
+    # just a hard container ceiling slightly above that for process
+    # overhead, not a second independent budget.
+    mem_limit: 320m
+    cpus: "0.5"

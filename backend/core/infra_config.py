@@ -245,9 +245,13 @@ def schema_init_lock():
     is no race left to prevent in that case, matching
     acquire_scheduler_leader_lock's identical fail-open rationale for a
     single-worker/local-dev run."""
+    import time
+
     import psycopg2
 
+    logger = logging.getLogger(__name__)
     conn = None
+    started_at = time.perf_counter()
     try:
         host, port, db, user, password = postgres_settings_from_env()
         conn = psycopg2.connect(
@@ -260,7 +264,7 @@ def schema_init_lock():
             # initialization to finish rather than racing it.
             cur.execute("SELECT pg_advisory_lock(%s)", (_SCHEMA_INIT_LOCK_KEY,))
     except Exception as exc:
-        logging.getLogger(__name__).warning(
+        logger.warning(
             "schema_init_lock: could not reach PostgreSQL to serialize "
             "schema initialization (%s) - proceeding unserialized; each "
             "repository's own construction will still fail visibly if "
@@ -272,11 +276,20 @@ def schema_init_lock():
         yield
         return
 
+    # SERVER STEP 6 observability: a wait_ms above ~0 means this worker
+    # was genuinely blocked behind another worker's in-progress schema
+    # initialization - the exact condition this lock exists to handle
+    # safely, worth being able to see in production logs.
+    logger.info(
+        "schema_init_lock: acquired (waited %.1fms).",
+        (time.perf_counter() - started_at) * 1000,
+    )
     try:
         yield
     finally:
         try:
             with conn.cursor() as cur:
                 cur.execute("SELECT pg_advisory_unlock(%s)", (_SCHEMA_INIT_LOCK_KEY,))
+            logger.info("schema_init_lock: released.")
         finally:
             conn.close()
