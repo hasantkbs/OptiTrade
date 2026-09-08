@@ -6,6 +6,8 @@ import type {
   ChartPeriod,
   ChartResponse,
   CreateAlertRequest,
+  CreatePortfolioRequest,
+  CreateWatchlistRequest,
   EngineDashboardView,
   LearningDashboardView,
   LoginRequest,
@@ -60,6 +62,7 @@ export const dashboardApi = {
 
 export const portfolioApi = {
   list: () => apiClient.get<Portfolio[]>('/portfolios').then((r) => r.data),
+  create: (body: CreatePortfolioRequest) => apiClient.post<Portfolio>('/portfolios', body).then((r) => r.data),
   /**
    * The real ledger of deposits/withdrawals/buys/sells/dividends/fees
    * (portfolio/models.py::Transaction) - despite the URL, this is
@@ -77,6 +80,7 @@ export const portfolioApi = {
 
 export const watchlistApi = {
   list: () => apiClient.get<Watchlist[]>('/watchlists').then((r) => r.data),
+  create: (body: CreateWatchlistRequest) => apiClient.post<Watchlist>('/watchlists', body).then((r) => r.data),
   items: (watchlistId: number) =>
     apiClient.get<WatchlistItem[]>(`/watchlists/${watchlistId}/items`).then((r) => r.data),
   addItem: (watchlistId: number, body: AddWatchlistItemRequest) =>

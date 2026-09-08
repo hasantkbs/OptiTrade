@@ -70,6 +70,14 @@ describe('AssetHeader', () => {
     expect(screen.queryByRole('button', { name: /watchlist/i })).not.toBeInTheDocument()
   })
 
+  it('links the no-watchlist hint to the Watchlist page so it is a real action, not a dead end', () => {
+    renderHeader({ price, watchlist: { ...baseWatchlist(), hasWatchlist: false } })
+    expect(screen.getByRole('link', { name: 'Create a watchlist to track this symbol' })).toHaveAttribute(
+      'href',
+      '/watchlist',
+    )
+  })
+
   it('calls onRefresh when Refresh is clicked', async () => {
     const user = userEvent.setup()
     const { onRefresh } = renderHeader({ price })

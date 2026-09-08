@@ -1,5 +1,6 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { portfolioApi } from '../../api/endpoints'
+import type { CreatePortfolioRequest } from '../../api/types'
 
 /**
  * Portfolio-page-specific data hooks. `usePortfolioList` and
@@ -17,6 +18,23 @@ export function usePortfolioTransactions(portfolioId: number | undefined, symbol
     queryFn: () => portfolioApi.transactions(portfolioId as number, symbol),
     enabled: portfolioId !== undefined,
     staleTime: TRANSACTIONS_STALE_MS,
+  })
+}
+
+/** POST /portfolios (portfolio/models.py::CreatePortfolioRequest) - a
+ * user may hold any number of portfolios, there is no uniqueness
+ * constraint on name, and no default portfolio is created for a new
+ * account (confirmed against the backend service/repository directly).
+ * Invalidates `['portfolios']` only, matching `useCreateAlert`'s own
+ * scoped-invalidation convention - the newly created portfolio needs no
+ * dashboard/transactions data yet. */
+export function useCreatePortfolio() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: CreatePortfolioRequest) => portfolioApi.create(body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+    },
   })
 }
 

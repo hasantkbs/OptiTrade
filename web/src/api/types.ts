@@ -26,6 +26,15 @@ export interface TokenPairResponse {
   expires_in: number
 }
 
+export interface CreatePortfolioRequest {
+  name: string
+  /** Optional - portfolio/models.py::CreatePortfolioRequest defaults this
+   * server-side (Portfolio.base_currency = "USD") when omitted. The
+   * request schema also has a deprecated `owner` field the backend
+   * always ignores (owner is the authenticated caller) - never sent. */
+  base_currency?: string
+}
+
 export interface UserResponse {
   id: number
   email: string
@@ -438,6 +447,10 @@ export interface ScanReport {
   checked_count: number
   triggered_count: number
   outcomes: AlertCheckOutcome[]
+}
+
+export interface CreateWatchlistRequest {
+  name: string
 }
 
 export interface AddWatchlistItemRequest {

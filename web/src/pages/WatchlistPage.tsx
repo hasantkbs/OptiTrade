@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Button } from '../components/ui/Button'
 import { Card, CardHeader, CardSubtitle, CardTitle } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -6,10 +8,24 @@ import { ErrorState } from '../components/ui/ErrorState'
 import { SkeletonCard } from '../components/ui/Skeleton'
 import { Table, TableCell, TableHeadCell } from '../components/ui/Table'
 import { useWatchlistItems, useWatchlists } from '../features/dashboard/hooks'
+import { CreateWatchlistDialog } from '../features/watchlist/CreateWatchlistDialog'
 import { apiErrorMessage } from '../api/client'
 
-/** Backed by GET /watchlists + GET /watchlists/{id}/items (watchlist/models.py). */
+/**
+ * Backed by GET /watchlists + GET /watchlists/{id}/items (watchlist/models.py).
+ *
+ * Only the empty state can open `CreateWatchlistDialog` - it creates the
+ * user's one (and, today, only reachable) watchlist. There is no
+ * watchlist selector anywhere in the app yet (every consumer - this
+ * page, Asset Detail, Dashboard, Decisions - independently reads
+ * `watchlists[0]`), so a second "New watchlist" entry point here would
+ * create a watchlist nothing could ever show again - a genuine dead end,
+ * not a supported multi-watchlist feature. Re-add a create action to
+ * this branch once a real selector exists to make every watchlist
+ * reachable, not before (multi-resource UX audit).
+ */
 export function WatchlistPage() {
+  const [createOpen, setCreateOpen] = useState(false)
   const watchlists = useWatchlists()
   const first = watchlists.data?.[0]
   const items = useWatchlistItems(first?.id ?? undefined)
@@ -32,9 +48,20 @@ export function WatchlistPage() {
 
   if (!watchlists.data || watchlists.data.length === 0) {
     return (
-      <Card>
-        <EmptyState title="No watchlists yet" description="Watchlists you create will appear here." />
-      </Card>
+      <>
+        <Card>
+          <EmptyState
+            title="No watchlists yet"
+            description="Create a watchlist to track assets and decisions."
+            action={
+              <Button size="sm" onClick={() => setCreateOpen(true)}>
+                Create watchlist
+              </Button>
+            }
+          />
+        </Card>
+        <CreateWatchlistDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      </>
     )
   }
 
@@ -59,7 +86,11 @@ export function WatchlistPage() {
         </div>
       ) : !items.data || items.data.length === 0 ? (
         <div style={{ padding: 'var(--space-5)' }}>
-          <EmptyState title="No symbols yet" description="Symbols added to this watchlist will appear here." />
+          <EmptyState
+            title="No symbols yet"
+            description="Open an asset and use “Add to watchlist” to track it here."
+            action={<Link to="/assets">Browse assets</Link>}
+          />
         </div>
       ) : (
         <Table>

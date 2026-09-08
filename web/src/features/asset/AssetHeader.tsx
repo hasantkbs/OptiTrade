@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { Tooltip } from '../../components/ui/Tooltip'
@@ -71,7 +71,9 @@ export function AssetHeader({ symbol, price, isLoading, isError, errorMessage, o
             {watchlist.isInWatchlist ? 'Remove from watchlist' : 'Add to watchlist'}
           </Button>
         ) : !watchlist.isLoading ? (
-          <span className={styles.watchlistHint}>Create a watchlist to track this symbol</span>
+          <Link to="/watchlist" className={styles.watchlistHint}>
+            Create a watchlist to track this symbol
+          </Link>
         ) : null}
         <Button variant="secondary" size="sm" onClick={onRefresh} isLoading={isRefreshing}>
           Refresh

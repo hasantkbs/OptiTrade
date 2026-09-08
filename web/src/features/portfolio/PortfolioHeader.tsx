@@ -11,9 +11,10 @@ interface PortfolioHeaderProps {
   asOf?: string
   onRefresh: () => void
   isRefreshing?: boolean
+  onCreateNew: () => void
 }
 
-export function PortfolioHeader({ portfolios, active, onSelect, asOf, onRefresh, isRefreshing }: PortfolioHeaderProps) {
+export function PortfolioHeader({ portfolios, active, onSelect, asOf, onRefresh, isRefreshing, onCreateNew }: PortfolioHeaderProps) {
   return (
     <div className={styles.header}>
       <div>
@@ -39,9 +40,14 @@ export function PortfolioHeader({ portfolios, active, onSelect, asOf, onRefresh,
           {asOf ? ` · As of ${new Date(asOf).toLocaleString()}` : ''}
         </p>
       </div>
-      <Button variant="secondary" size="sm" onClick={onRefresh} isLoading={isRefreshing}>
-        Refresh
-      </Button>
+      <div className={styles.actions}>
+        <Button variant="secondary" size="sm" onClick={onCreateNew}>
+          New portfolio
+        </Button>
+        <Button variant="secondary" size="sm" onClick={onRefresh} isLoading={isRefreshing}>
+          Refresh
+        </Button>
+      </div>
     </div>
   )
 }

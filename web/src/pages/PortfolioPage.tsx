@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ErrorState } from '../components/ui/ErrorState'
@@ -6,6 +8,7 @@ import { SkeletonCard } from '../components/ui/Skeleton'
 import { apiErrorMessage } from '../api/client'
 import { usePortfolioDashboard, usePortfolioList } from '../features/dashboard/hooks'
 import { useRefreshPortfolio } from '../features/portfolio/hooks'
+import { CreatePortfolioDialog } from '../features/portfolio/CreatePortfolioDialog'
 import { PortfolioHeader } from '../features/portfolio/PortfolioHeader'
 import { PortfolioSummary } from '../features/portfolio/PortfolioSummary'
 import { AllocationAnalysis } from '../features/portfolio/AllocationAnalysis'
@@ -31,6 +34,7 @@ import styles from './PortfolioPage.module.css'
  */
 export function PortfolioPage() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const [createOpen, setCreateOpen] = useState(false)
   const portfolios = usePortfolioList()
 
   const list = portfolios.data ?? []
@@ -70,8 +74,17 @@ export function PortfolioPage() {
     return (
       <div className={styles.page}>
         <Card>
-          <EmptyState title="No portfolios yet" description="Portfolios you create through the API will appear here." />
+          <EmptyState
+            title="No portfolios yet"
+            description="Create a portfolio to start tracking allocation and risk."
+            action={
+              <Button size="sm" onClick={() => setCreateOpen(true)}>
+                Create portfolio
+              </Button>
+            }
+          />
         </Card>
+        <CreatePortfolioDialog open={createOpen} onClose={() => setCreateOpen(false)} />
       </div>
     )
   }
@@ -88,7 +101,9 @@ export function PortfolioPage() {
         asOf={dashboard?.as_of}
         onRefresh={refresh}
         isRefreshing={dashboardQuery.isFetching}
+        onCreateNew={() => setCreateOpen(true)}
       />
+      <CreatePortfolioDialog open={createOpen} onClose={() => setCreateOpen(false)} />
 
       {dashboardQuery.isLoading ? (
         <Card>

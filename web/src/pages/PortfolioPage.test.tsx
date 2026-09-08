@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -8,7 +8,7 @@ import { dashboardApi, portfolioApi } from '../api/endpoints'
 
 vi.mock('../api/endpoints', () => ({
   dashboardApi: { portfolio: vi.fn() },
-  portfolioApi: { list: vi.fn(), transactions: vi.fn() },
+  portfolioApi: { list: vi.fn(), transactions: vi.fn(), create: vi.fn() },
 }))
 
 const mockedDashboardApi = vi.mocked(dashboardApi)
@@ -57,6 +57,34 @@ describe('PortfolioPage', () => {
     mockedPortfolioApi.list.mockResolvedValueOnce([])
     renderPage()
     await waitFor(() => expect(screen.getByText('No portfolios yet')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Create portfolio' })).toBeInTheDocument()
+  })
+
+  it('creates a portfolio from the empty state and shows it without a manual refresh', async () => {
+    const user = userEvent.setup()
+    // A stateful mock (not a fixed queue of `.mockResolvedValueOnce`
+    // calls) so `list` genuinely reflects the "backend" state at the
+    // time of each call, including the invalidation-triggered refetch
+    // after creation succeeds - this is what actually exercises "no
+    // manual refresh needed", not just a hardcoded second response.
+    let portfolios: typeof portfolioA[] = []
+    mockedPortfolioApi.list.mockImplementation(() => Promise.resolve(portfolios))
+    mockedPortfolioApi.create.mockImplementationOnce(async () => {
+      portfolios = [portfolioA]
+      return portfolioA
+    })
+    mockedDashboardApi.portfolio.mockResolvedValueOnce(extendedFor(1, 25000))
+    renderPage()
+    await waitFor(() => expect(screen.getByText('No portfolios yet')).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: 'Create portfolio' }))
+    const dialog = screen.getByRole('dialog')
+    await user.type(within(dialog).getByLabelText('Portfolio name'), 'Core')
+    await user.click(within(dialog).getByRole('button', { name: 'Create portfolio' }))
+
+    await waitFor(() => expect(mockedPortfolioApi.create).toHaveBeenCalledWith({ name: 'Core' }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core' })).toBeInTheDocument())
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('shows a retryable error state when the portfolio list fails to load', async () => {
@@ -101,6 +129,17 @@ describe('PortfolioPage', () => {
     await new Promise((resolve) => setTimeout(resolve, 60))
     expect(screen.getByText('$99,000')).toBeInTheDocument()
     expect(screen.queryByText('$25,000')).not.toBeInTheDocument()
+  })
+
+  it('offers a way to create another portfolio once one already exists', async () => {
+    const user = userEvent.setup()
+    mockedPortfolioApi.list.mockResolvedValue([portfolioA])
+    mockedDashboardApi.portfolio.mockResolvedValue(extendedFor(1, 25000))
+    renderPage()
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core' })).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: 'New portfolio' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
   it('invalidates and refetches the current portfolio when Refresh is clicked', async () => {
