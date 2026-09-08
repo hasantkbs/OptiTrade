@@ -165,6 +165,32 @@ services:
     mem_limit: 4g
     cpus: "2.0"
 
+  # ── Frontend (Algorix integrated deployment) ────────────────────────────────
+  # Static SPA build served by a small non-root nginx container. Not
+  # part of the OptiTrade backend network - it needs no access to
+  # postgres/redis/api at all, only a loopback host port so the host's
+  # existing Algorix system nginx can reverse-proxy /optitrade/ to it
+  # (see /etc/nginx/sites-available/algorixstudio). Never bound to
+  # 0.0.0.0 - matches the loopback-only convention already used for
+  # `api`/`redis` in docker-compose.override.yml.
+  frontend:
+    build: ./web
+    container_name: optitrade-frontend
+    ports:
+      - "127.0.0.1:4010:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging: *default-logging
+    # A static file server has negligible resource needs - generous
+    # safety ceiling, not a tuned budget.
+    mem_limit: 128m
+    cpus: "0.25"
+
   postgres:
     image: postgres:17
     container_name: optitrade-postgres

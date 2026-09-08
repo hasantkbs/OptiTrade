@@ -19,11 +19,17 @@ const queryClient = new QueryClient({
   },
 })
 
+// Matches Vite's own `base` (vite.config.ts) so the router agrees with
+// where the app is actually mounted (root locally, /optitrade/ under
+// the Algorix integrated deployment) - BASE_URL always has a trailing
+// slash, which React Router's basename tolerates fine.
+const basename = import.meta.env.BASE_URL.replace(/\/$/, '')
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
+        <BrowserRouter basename={basename}>
           <App />
         </BrowserRouter>
       </QueryClientProvider>

@@ -5,12 +5,14 @@ import type { ApiErrorBody, TokenPairResponse } from './types'
  * Base URL resolution:
  * - Local dev: Vite's own dev-server proxy forwards /api -> the backend
  *   directly (see vite.config.ts) - no CORS involved at all in dev.
- * - Production build: same-origin /api, expected to be routed to the
- *   backend by the reverse proxy (nginx, SERVER STEP 5) once that route
- *   is added there. Never a hardcoded domain - this repo has no real
- *   production domain yet (see docs/deployment/https-reverse-proxy.md).
+ * - Production build (Algorix integrated deployment): same-origin
+ *   /optitrade/api, set at build time via VITE_API_BASE_URL (see
+ *   web/Dockerfile) and routed to the OptiTrade API container by the
+ *   existing Algorix system nginx's own /optitrade/api/ location - same
+ *   origin as the frontend, so no CORS is involved in production either.
+ *   Never a hardcoded domain.
  */
-const BASE_URL = '/api'
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
 const ACCESS_TOKEN_KEY = 'optitrade.access_token'
 const REFRESH_TOKEN_KEY = 'optitrade.refresh_token'
