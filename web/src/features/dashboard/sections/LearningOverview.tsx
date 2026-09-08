@@ -8,12 +8,13 @@ import { apiErrorMessage } from '../../../api/client'
 import styles from './LearningOverview.module.css'
 
 /**
- * Backed by GET /dashboard/learning (dashboard/models.py::LearningDashboardView.engine_rankings)
- * only - other fields on that view (recent_samples, promotion_candidates,
- * calibration_history) are typed as opaque arrays because the backend
- * hasn't stabilized their shape, so nothing is rendered from them here
- * rather than guessing a structure (WEB STEP 2 §10). Deliberately
- * smaller/quieter than the portfolio and market sections above it.
+ * Backed by GET /dashboard/learning (dashboard/models.py::
+ * LearningDashboardView.engine_rankings) only - the view's other real
+ * fields (recent_samples, promotion_candidates, calibration_history,
+ * drift_alerts) are fully typed and rendered on the dedicated
+ * /learning page (WEB STEP 7) rather than duplicated here.
+ * Deliberately smaller/quieter than the portfolio and market sections
+ * above it.
  */
 export function LearningOverview() {
   const { data, isLoading, isError, error, refetch } = useLearningDashboard()

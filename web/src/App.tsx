@@ -5,7 +5,6 @@ import { ProtectedRoute } from './auth/ProtectedRoute'
 import { AppShell } from './components/layout/AppShell'
 import { FullPageSpinner } from './components/ui/FullPageSpinner'
 import { LoginPage } from './pages/LoginPage'
-import { UnavailablePage } from './pages/UnavailablePage'
 
 // Route-level code splitting: DashboardPage (and its chart sections)
 // pulls in recharts, by far the heaviest dependency in this app - no
@@ -20,6 +19,7 @@ const DecisionsPage = lazy(() => import('./pages/DecisionsPage').then((m) => ({ 
 const AlertsPage = lazy(() => import('./pages/AlertsPage').then((m) => ({ default: m.AlertsPage })))
 const AnalystPage = lazy(() => import('./pages/AnalystPage').then((m) => ({ default: m.AnalystPage })))
 const LearningPage = lazy(() => import('./pages/LearningPage').then((m) => ({ default: m.LearningPage })))
+const ResearchPage = lazy(() => import('./pages/ResearchPage').then((m) => ({ default: m.ResearchPage })))
 
 function Shell({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -113,10 +113,7 @@ export function App() {
           path="/research"
           element={
             <Shell title="Research">
-              <UnavailablePage
-                title="Research not available yet"
-                description="Research Lab is intentionally isolated from the production API and has no public endpoint."
-              />
+              <ResearchPage />
             </Shell>
           }
         />

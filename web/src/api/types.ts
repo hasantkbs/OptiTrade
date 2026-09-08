@@ -172,12 +172,53 @@ export interface EngineRanking {
   rank: number
 }
 
+/** dashboard/models.py::LearningSampleSnapshot - `source` is the real
+ * live/shadow distinction (learning/models.py::SampleSource); a shadow
+ * sample is collected by invoking an engine's vote() outside any live
+ * decision and never influences one (WEB STEP 7 audit). */
+export type SampleSource = 'live' | 'shadow'
+
+export interface LearningSampleSnapshot {
+  symbol: string
+  source: SampleSource
+  decision: Prediction
+  confidence: number
+  decided_at: string
+  evaluated: boolean
+  correct: boolean | null
+}
+
+/**
+ * learning/models.py::PromotionCandidate - "a recommendation for a
+ * human (or a future automated step) to review, never an automatic
+ * promotion" (the backend model's own docstring). Never used here to
+ * drive an action - read-only display only (WEB STEP 7).
+ */
+export interface PromotionCandidate {
+  engine_name: string
+  candidate_version: string
+  live_version: string
+  window: RollingWindow
+  candidate_accuracy: number
+  live_accuracy: number
+  candidate_sample_count: number
+}
+
+export interface CalibrationHistoryPoint {
+  engine_name: string
+  engine_version: string
+  window: RollingWindow
+  calibration_error: number
+  confidence_reliability: number
+  computed_at: string
+}
+
 export interface LearningDashboardView {
   engine_rankings: EngineRanking[]
-  recent_samples: unknown[]
-  promotion_candidates: unknown[]
+  recent_samples: LearningSampleSnapshot[]
+  promotion_candidates: PromotionCandidate[]
   drift_alerts: DriftSignal[]
-  calibration_history: unknown[]
+  calibration_history: CalibrationHistoryPoint[]
   generated_at: string
 }
 
