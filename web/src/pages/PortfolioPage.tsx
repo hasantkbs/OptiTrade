@@ -8,6 +8,7 @@ import { SkeletonCard } from '../components/ui/Skeleton'
 import { apiErrorMessage } from '../api/client'
 import { usePortfolioDashboard, usePortfolioList } from '../features/dashboard/hooks'
 import { useRefreshPortfolio } from '../features/portfolio/hooks'
+import { AddCashDialog } from '../features/portfolio/AddCashDialog'
 import { AddPositionDialog } from '../features/portfolio/AddPositionDialog'
 import { CreatePortfolioDialog } from '../features/portfolio/CreatePortfolioDialog'
 import { PortfolioHeader } from '../features/portfolio/PortfolioHeader'
@@ -37,6 +38,7 @@ export function PortfolioPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [createOpen, setCreateOpen] = useState(false)
   const [addPositionOpen, setAddPositionOpen] = useState(false)
+  const [addCashOpen, setAddCashOpen] = useState(false)
   const portfolios = usePortfolioList()
 
   const list = portfolios.data ?? []
@@ -105,9 +107,16 @@ export function PortfolioPage() {
         isRefreshing={dashboardQuery.isFetching}
         onCreateNew={() => setCreateOpen(true)}
         onAddPosition={() => setAddPositionOpen(true)}
+        onAddCash={() => setAddCashOpen(true)}
       />
       <CreatePortfolioDialog open={createOpen} onClose={() => setCreateOpen(false)} />
       <AddPositionDialog portfolioId={active.id ?? undefined} open={addPositionOpen} onClose={() => setAddPositionOpen(false)} />
+      <AddCashDialog
+        portfolioId={active.id ?? undefined}
+        baseCurrency={active.base_currency}
+        open={addCashOpen}
+        onClose={() => setAddCashOpen(false)}
+      />
 
       {dashboardQuery.isLoading ? (
         <Card>

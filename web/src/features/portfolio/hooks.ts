@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { portfolioApi } from '../../api/endpoints'
-import type { CreatePortfolioRequest, TradeRequest } from '../../api/types'
+import type { CreatePortfolioRequest, DepositRequest, TradeRequest } from '../../api/types'
 
 /**
  * Portfolio-page-specific data hooks. `usePortfolioList` and
@@ -52,6 +52,25 @@ export function useAddPosition(portfolioId: number | undefined) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (body: TradeRequest) => portfolioApi.buy(portfolioId as number, body),
+    onSuccess: () => {
+      if (portfolioId === undefined) return
+      void queryClient.invalidateQueries({ queryKey: ['dashboard', 'portfolio', portfolioId] })
+      void queryClient.invalidateQueries({ queryKey: ['portfolios', portfolioId, 'transactions'] })
+    },
+  })
+}
+
+/** POST /portfolios/{id}/deposit (portfolio/service.py's
+ * PortfolioService.deposit) - records one real cash DEPOSIT transaction;
+ * cash_balance is never set here, only replayed by the backend from the
+ * transaction ledger (same `['dashboard', 'portfolio', portfolioId]`
+ * query `useAddPosition` invalidates - the dashboard's cash_balance/
+ * total_value are both derived from that same replay, so one
+ * invalidation refreshes both). */
+export function useDeposit(portfolioId: number | undefined) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: DepositRequest) => portfolioApi.deposit(portfolioId as number, body),
     onSuccess: () => {
       if (portfolioId === undefined) return
       void queryClient.invalidateQueries({ queryKey: ['dashboard', 'portfolio', portfolioId] })

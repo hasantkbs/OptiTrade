@@ -274,6 +274,16 @@ export interface TradeRequest {
   notes?: string
 }
 
+/** portfolio/models.py::DepositRequest - body for POST
+ * /portfolios/{id}/deposit. Cash is never a stored field on `Portfolio`
+ * itself - the backend replays it from the transaction ledger, so a
+ * deposit is just another `Transaction` this appends to. */
+export interface DepositRequest {
+  amount: number
+  currency?: string
+  notes?: string
+}
+
 export interface AllocationBreakdown {
   by_symbol_pct: Record<string, number>
   by_sector_pct: Record<string, number>

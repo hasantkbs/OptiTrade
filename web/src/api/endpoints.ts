@@ -8,6 +8,7 @@ import type {
   CreateAlertRequest,
   CreatePortfolioRequest,
   CreateWatchlistRequest,
+  DepositRequest,
   EngineDashboardView,
   LearningDashboardView,
   LoginRequest,
@@ -86,6 +87,14 @@ export const portfolioApi = {
     apiClient.post<Transaction>(`/portfolios/${portfolioId}/buy`, body).then((r) => r.data),
   sell: (portfolioId: number, body: TradeRequest) =>
     apiClient.post<Transaction>(`/portfolios/${portfolioId}/sell`, body).then((r) => r.data),
+  /**
+   * Records a real cash DEPOSIT (portfolio/service.py's
+   * PortfolioService.deposit) - cash_balance is never set here; it's
+   * always replayed by the backend from the transaction ledger this
+   * appends to (GET /dashboard/portfolios/{id}).
+   */
+  deposit: (portfolioId: number, body: DepositRequest) =>
+    apiClient.post<Transaction>(`/portfolios/${portfolioId}/deposit`, body).then((r) => r.data),
 }
 
 // ── Watchlists ───────────────────────────────────────────────────────────
