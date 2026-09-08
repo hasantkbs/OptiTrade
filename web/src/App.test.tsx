@@ -36,6 +36,11 @@ describe('App routing', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument())
   })
 
+  it('shows the registration screen at /register', async () => {
+    renderAppAt('/register')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create account' })).toBeInTheDocument())
+  })
+
   it('redirects an unauthenticated visitor from a protected route to /login', async () => {
     renderAppAt('/portfolio')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument())

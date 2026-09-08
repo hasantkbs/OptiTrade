@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -11,6 +11,11 @@ export function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // Set only by a redirect from RegisterPage right after a successful
+  // POST /auth/register - that endpoint returns the created account, not
+  // a session (see RegisterPage's own comment), so this is the point
+  // where the user is told to actually sign in.
+  const justRegistered = Boolean((location.state as { justRegistered?: boolean } | null)?.justRegistered)
 
   if (status === 'authenticated') {
     const from = (location.state as { from?: Location } | null)?.from
@@ -39,6 +44,12 @@ export function LoginPage() {
           <span className={styles.brandName}>OptiTrade</span>
         </div>
         <p className={styles.tagline}>Quant analytics &amp; decision intelligence</p>
+
+        {justRegistered ? (
+          <p className={styles.success} role="status">
+            Account created. Sign in to continue.
+          </p>
+        ) : null}
 
         <form className={styles.form} onSubmit={handleSubmit}>
           <Input
@@ -70,6 +81,10 @@ export function LoginPage() {
             Sign in
           </Button>
         </form>
+
+        <p className={styles.footer}>
+          Don&apos;t have an account? <Link to="/register">Create account</Link>
+        </p>
       </div>
     </div>
   )

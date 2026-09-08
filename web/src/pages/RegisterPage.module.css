@@ -61,12 +61,6 @@
   margin: 0;
 }
 
-.success {
-  font-size: var(--text-sm);
-  color: var(--color-positive);
-  margin: 0 0 var(--space-4);
-}
-
 .submit {
   width: 100%;
   margin-top: var(--space-1);
