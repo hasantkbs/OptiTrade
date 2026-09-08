@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { authApi } from '../api/endpoints'
 import { apiErrorMessage, setSessionExpiredHandler, tokenStorage } from '../api/client'
 import type { UserResponse } from '../api/types'
@@ -21,12 +22,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('checking')
   const [user, setUser] = useState<UserResponse | null>(null)
   const [loginError, setLoginError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
 
+  // The single choke point for logout, a failed session restoration,
+  // AND a failed token refresh (see setSessionExpiredHandler below) -
+  // clearing the TanStack Query cache here, not just the tokens, is
+  // what guarantees a previous account's cached portfolio/alerts/
+  // dashboard data can never flash on screen for whoever uses this
+  // browser next (WEB STEP 8 Phase 2: "protected data is not displayed
+  // after logout").
   const clearSession = useCallback(() => {
     tokenStorage.clear()
     setUser(null)
     setStatus('unauthenticated')
-  }, [])
+    queryClient.clear()
+  }, [queryClient])
 
   // Session persistence: on load, if a token pair already exists (a
   // previous browser session), verify it against the backend rather

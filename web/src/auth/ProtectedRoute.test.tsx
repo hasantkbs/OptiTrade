@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProtectedRoute } from './ProtectedRoute'
@@ -18,22 +19,25 @@ vi.mock('../api/endpoints', () => ({
 const mockedAuthApi = vi.mocked(authApi)
 
 function renderProtected() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <MemoryRouter initialEntries={['/dashboard']}>
-      <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<div>Login screen</div>} />
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <div>Secret dashboard content</div>
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
-      </AuthProvider>
-    </MemoryRouter>,
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<div>Login screen</div>} />
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <div>Secret dashboard content</div>
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   )
 }
 

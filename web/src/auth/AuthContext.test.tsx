@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AuthProvider, useAuth } from './AuthContext'
 import { tokenStorage } from '../api/client'
@@ -49,6 +50,20 @@ function Probe() {
   )
 }
 
+/** AuthProvider now reads `useQueryClient()` (to clear the cache on
+ * logout/session-expiry - WEB STEP 8), so it must be rendered inside a
+ * real QueryClientProvider even in these auth-only tests. */
+function renderAuth() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return { client, ...render(
+    <QueryClientProvider client={client}>
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>
+    </QueryClientProvider>,
+  ) }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   tokenStorage.clear()
@@ -56,11 +71,7 @@ beforeEach(() => {
 
 describe('AuthProvider', () => {
   it('starts unauthenticated when no stored session exists', async () => {
-    render(
-      <AuthProvider>
-        <Probe />
-      </AuthProvider>,
-    )
+    renderAuth()
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'))
   })
 
@@ -68,11 +79,7 @@ describe('AuthProvider', () => {
     tokenStorage.setTokens({ access_token: 'a', refresh_token: 'b' })
     mockedAuthApi.me.mockResolvedValueOnce(user)
 
-    render(
-      <AuthProvider>
-        <Probe />
-      </AuthProvider>,
-    )
+    renderAuth()
 
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
     expect(screen.getByTestId('user')).toHaveTextContent('trader@optitrade.io')
@@ -82,11 +89,7 @@ describe('AuthProvider', () => {
     tokenStorage.setTokens({ access_token: 'stale', refresh_token: 'stale' })
     mockedAuthApi.me.mockRejectedValueOnce(new Error('401'))
 
-    render(
-      <AuthProvider>
-        <Probe />
-      </AuthProvider>,
-    )
+    renderAuth()
 
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'))
     expect(tokenStorage.getAccessToken()).toBeNull()
@@ -101,11 +104,7 @@ describe('AuthProvider', () => {
     })
     mockedAuthApi.me.mockResolvedValueOnce(user)
 
-    render(
-      <AuthProvider>
-        <Probe />
-      </AuthProvider>,
-    )
+    renderAuth()
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'))
 
     await act(async () => {
@@ -119,11 +118,7 @@ describe('AuthProvider', () => {
   it('surfaces a login error without leaking credentials and stays unauthenticated', async () => {
     mockedAuthApi.login.mockRejectedValueOnce(new Error('invalid email or password'))
 
-    render(
-      <AuthProvider>
-        <Probe />
-      </AuthProvider>,
-    )
+    renderAuth()
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'))
 
     await act(async () => {
@@ -139,11 +134,7 @@ describe('AuthProvider', () => {
     mockedAuthApi.me.mockResolvedValueOnce(user)
     mockedAuthApi.logout.mockRejectedValueOnce(new Error('network error'))
 
-    render(
-      <AuthProvider>
-        <Probe />
-      </AuthProvider>,
-    )
+    renderAuth()
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
 
     await act(async () => {
@@ -152,5 +143,23 @@ describe('AuthProvider', () => {
 
     expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated')
     expect(tokenStorage.getAccessToken()).toBeNull()
+  })
+
+  it('clears the TanStack Query cache on logout, so a previous session\'s data can never leak into the next one', async () => {
+    tokenStorage.setTokens({ access_token: 'a', refresh_token: 'b' })
+    mockedAuthApi.me.mockResolvedValueOnce(user)
+    mockedAuthApi.logout.mockResolvedValueOnce({ status: 'ok' })
+
+    const { client } = renderAuth()
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
+
+    client.setQueryData(['portfolios'], [{ id: 1, name: 'Previous user portfolio' }])
+    expect(client.getQueryData(['portfolios'])).toBeDefined()
+
+    await act(async () => {
+      await userEvent.click(screen.getByText('logout'))
+    })
+
+    expect(client.getQueryData(['portfolios'])).toBeUndefined()
   })
 })

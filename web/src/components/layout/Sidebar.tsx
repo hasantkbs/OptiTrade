@@ -36,15 +36,24 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile }: Side
               end={item.to === '/'}
               onClick={onCloseMobile}
               className={({ isActive }) => clsx(styles.link, isActive && styles.linkActive)}
+              aria-label={item.label}
+              title={collapsed ? item.label : undefined}
             >
-              <span className={styles.linkLabel}>{!collapsed ? item.label : item.label.slice(0, 2)}</span>
+              <span className={styles.linkLabel} aria-hidden={collapsed || undefined}>
+                {!collapsed ? item.label : item.label.slice(0, 2)}
+              </span>
               {!item.available && !collapsed ? <span className={styles.soon}>Soon</span> : null}
             </NavLink>
           ))}
         </nav>
 
-        <button type="button" className={styles.collapseButton} onClick={onToggle}>
-          {collapsed ? '»' : '« Collapse'}
+        <button
+          type="button"
+          className={styles.collapseButton}
+          onClick={onToggle}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          <span aria-hidden="true">{collapsed ? '»' : '« Collapse'}</span>
         </button>
       </aside>
     </>
