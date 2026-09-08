@@ -72,4 +72,14 @@ describe('PositionBreakdown', () => {
     const links = screen.getAllByRole('link', { name: 'Technology' })
     expect(links[0]).toHaveAttribute('href', '/assets')
   })
+
+  it('shows average cost and current price - real PositionAnalytics fields, never re-derived', () => {
+    renderTable()
+    const rows = screen.getAllByRole('row').slice(1)
+    // Default sort is weight descending, so MSFT (weight 45) is first.
+    expect(within(rows[0]).getByText('$300.00')).toBeInTheDocument()
+    expect(within(rows[0]).getByText('$280.00')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('$150.00')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('$180.00')).toBeInTheDocument()
+  })
 })

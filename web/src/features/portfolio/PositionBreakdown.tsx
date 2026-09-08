@@ -5,7 +5,15 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { Table, TableCell, TableHeadCell } from '../../components/ui/Table'
 import type { PositionAnalytics } from '../../api/types'
 
-type SortKey = 'symbol' | 'quantity' | 'current_value' | 'weight_pct' | 'unrealized_pnl' | 'unrealized_pnl_pct'
+type SortKey =
+  | 'symbol'
+  | 'quantity'
+  | 'average_cost'
+  | 'current_price'
+  | 'current_value'
+  | 'weight_pct'
+  | 'unrealized_pnl'
+  | 'unrealized_pnl_pct'
 type SortDir = 'asc' | 'desc'
 
 interface PositionBreakdownProps {
@@ -20,6 +28,8 @@ function formatCurrency(value: number, currency: string) {
 const COLUMNS: { key: SortKey; label: string; align: 'left' | 'right' }[] = [
   { key: 'symbol', label: 'Symbol', align: 'left' },
   { key: 'quantity', label: 'Quantity', align: 'right' },
+  { key: 'average_cost', label: 'Avg cost', align: 'right' },
+  { key: 'current_price', label: 'Current price', align: 'right' },
   { key: 'current_value', label: 'Market value', align: 'right' },
   { key: 'weight_pct', label: 'Weight', align: 'right' },
   { key: 'unrealized_pnl', label: 'Unrealized P&L', align: 'right' },
@@ -97,6 +107,12 @@ export function PositionBreakdown({ positions, currency }: PositionBreakdownProp
                 </TableCell>
                 <TableCell align="right" numeric>
                   {position.quantity}
+                </TableCell>
+                <TableCell align="right" numeric>
+                  {formatCurrency(position.average_cost, position.currency || currency)}
+                </TableCell>
+                <TableCell align="right" numeric>
+                  {formatCurrency(position.current_price, position.currency || currency)}
                 </TableCell>
                 <TableCell align="right" numeric>
                   {formatCurrency(position.current_value, position.currency || currency)}

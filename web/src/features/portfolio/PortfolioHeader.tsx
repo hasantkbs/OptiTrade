@@ -12,9 +12,19 @@ interface PortfolioHeaderProps {
   onRefresh: () => void
   isRefreshing?: boolean
   onCreateNew: () => void
+  onAddPosition: () => void
 }
 
-export function PortfolioHeader({ portfolios, active, onSelect, asOf, onRefresh, isRefreshing, onCreateNew }: PortfolioHeaderProps) {
+export function PortfolioHeader({
+  portfolios,
+  active,
+  onSelect,
+  asOf,
+  onRefresh,
+  isRefreshing,
+  onCreateNew,
+  onAddPosition,
+}: PortfolioHeaderProps) {
   return (
     <div className={styles.header}>
       <div>
@@ -41,6 +51,9 @@ export function PortfolioHeader({ portfolios, active, onSelect, asOf, onRefresh,
         </p>
       </div>
       <div className={styles.actions}>
+        <Button size="sm" onClick={onAddPosition}>
+          + Add position
+        </Button>
         <Button variant="secondary" size="sm" onClick={onCreateNew}>
           New portfolio
         </Button>

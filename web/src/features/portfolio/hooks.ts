@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { portfolioApi } from '../../api/endpoints'
-import type { CreatePortfolioRequest } from '../../api/types'
+import type { CreatePortfolioRequest, TradeRequest } from '../../api/types'
 
 /**
  * Portfolio-page-specific data hooks. `usePortfolioList` and
@@ -34,6 +34,28 @@ export function useCreatePortfolio() {
     mutationFn: (body: CreatePortfolioRequest) => portfolioApi.create(body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+    },
+  })
+}
+
+/** POST /portfolios/{id}/buy (portfolio/service.py's PortfolioService.buy)
+ * - records one real BUY transaction; the backend replays the whole
+ * ledger to derive the resulting position/average-cost/P&L, never
+ * computed here. There is no separate positions query to invalidate:
+ * `usePortfolioDashboard`'s `['dashboard', 'portfolio', portfolioId]`
+ * already carries `positions` (GET /dashboard/portfolios/{id} embeds
+ * exactly the same PositionAnalytics the standalone GET /portfolios/
+ * {id}/positions would return - see PortfolioDashboardService.build) -
+ * invalidating it is what refreshes the Positions table. Transaction
+ * history is invalidated separately since it's a distinct query. */
+export function useAddPosition(portfolioId: number | undefined) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: TradeRequest) => portfolioApi.buy(portfolioId as number, body),
+    onSuccess: () => {
+      if (portfolioId === undefined) return
+      void queryClient.invalidateQueries({ queryKey: ['dashboard', 'portfolio', portfolioId] })
+      void queryClient.invalidateQueries({ queryKey: ['portfolios', portfolioId, 'transactions'] })
     },
   })
 }

@@ -8,7 +8,7 @@ import { dashboardApi, portfolioApi } from '../api/endpoints'
 
 vi.mock('../api/endpoints', () => ({
   dashboardApi: { portfolio: vi.fn() },
-  portfolioApi: { list: vi.fn(), transactions: vi.fn(), create: vi.fn() },
+  portfolioApi: { list: vi.fn(), transactions: vi.fn(), create: vi.fn(), buy: vi.fn() },
 }))
 
 const mockedDashboardApi = vi.mocked(dashboardApi)
@@ -99,6 +99,22 @@ describe('PortfolioPage', () => {
     renderPage()
     await waitFor(() => expect(screen.getByText('$25,000')).toBeInTheDocument())
     expect(screen.getByRole('heading', { name: 'Core' })).toBeInTheDocument()
+  })
+
+  it('offers an obvious Add position action that opens the Add Position dialog', async () => {
+    const user = userEvent.setup()
+    mockedPortfolioApi.list.mockResolvedValueOnce([portfolioA])
+    mockedDashboardApi.portfolio.mockResolvedValueOnce(extendedFor(1, 25000))
+    renderPage()
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Core' })).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: '+ Add position' }))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('heading', { name: 'Add position' })).toBeInTheDocument()
+    expect(within(dialog).getByLabelText('Symbol')).toBeInTheDocument()
+    // Preserved existing actions, per scope control.
+    expect(screen.getByRole('button', { name: 'New portfolio' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument()
   })
 
   it('does not offer a portfolio selector with only one portfolio', async () => {

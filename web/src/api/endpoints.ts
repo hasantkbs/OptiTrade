@@ -20,6 +20,7 @@ import type {
   RegisterRequest,
   ScanReport,
   TokenPairResponse,
+  TradeRequest,
   Transaction,
   UserResponse,
   Watchlist,
@@ -74,6 +75,17 @@ export const portfolioApi = {
     apiClient
       .get<Transaction[]>(`/portfolios/${portfolioId}/history`, { params: symbol ? { symbol } : undefined })
       .then((r) => r.data),
+  /**
+   * Records a real BUY/SELL transaction (portfolio/service.py's
+   * PortfolioService.buy/sell) - positions, average cost, and realized/
+   * unrealized P&L are never computed here; they're always replayed by
+   * the backend from the transaction ledger this appends to (GET
+   * /dashboard/portfolios/{id}, already wired in PortfolioPage).
+   */
+  buy: (portfolioId: number, body: TradeRequest) =>
+    apiClient.post<Transaction>(`/portfolios/${portfolioId}/buy`, body).then((r) => r.data),
+  sell: (portfolioId: number, body: TradeRequest) =>
+    apiClient.post<Transaction>(`/portfolios/${portfolioId}/sell`, body).then((r) => r.data),
 }
 
 // ── Watchlists ───────────────────────────────────────────────────────────

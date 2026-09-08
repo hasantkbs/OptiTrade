@@ -259,6 +259,21 @@ export interface Transaction {
   created_at: string
 }
 
+/** portfolio/models.py::TradeRequest - body for both POST
+ * /portfolios/{id}/buy and .../sell. The backend uppercases `symbol`
+ * itself (PortfolioService.buy/sell) and always resolves the *current*
+ * market price separately, only for valuation - `price` here is the
+ * trade's own historical entry/exit price and must come from the user,
+ * never be auto-filled from a live quote. */
+export interface TradeRequest {
+  symbol: string
+  quantity: number
+  price: number
+  fee?: number
+  tax?: number
+  notes?: string
+}
+
 export interface AllocationBreakdown {
   by_symbol_pct: Record<string, number>
   by_sector_pct: Record<string, number>
