@@ -156,3 +156,49 @@ class MarketScanResult(BaseModel):
     started_at: datetime
     completed_at: datetime
     duration_ms: float = Field(..., ge=0.0)
+
+
+# ── Opportunity Ranking (presentation layer over a MarketScanResult) ────
+
+
+class RankingReason(BaseModel):
+    """The two derived ordering keys not already present on
+    `OpportunityAssessment` - `label_priority` (lower = ranked first;
+    see `intelligence.opportunity_ranking.LABEL_PRIORITY`) and
+    `risk_rank` (lower = lower risk = ranked first). Confidence,
+    expected_return, data_sufficiency, and the classification itself
+    are already on `RankedOpportunity.assessment` - not duplicated
+    here, so comparing two items' `assessment` + `reason` together
+    fully explains their relative order without a composite score."""
+
+    label_priority: int = Field(..., ge=0)
+    risk_rank: int = Field(..., ge=0)
+
+
+class RankedOpportunity(BaseModel):
+    """One already-analyzed, already-classified symbol's position in a
+    ranking. `assessment` (Phase B's classification) and `response`
+    (Phase C's canonical `PipelineResponse`) are referenced, not
+    copied field-by-field - full traceability back to the real
+    Decision Engine output stays one attribute away."""
+
+    rank: int = Field(..., ge=1)
+    symbol: str
+    assessment: OpportunityAssessment
+    response: PipelineResponse
+    reason: RankingReason
+
+
+class OpportunityRankingResult(BaseModel):
+    """The full outcome of one `intelligence.opportunity_ranking.
+    rank_opportunities(scan_result)` call. `failed_symbols` mirrors the
+    scan's own failures (never ranked); `unclassifiable_symbols` is the
+    rare defensive case where a successfully-scanned symbol's result
+    could not be classified at all - excluded rather than crashing the
+    whole ranking."""
+
+    ranked: List[RankedOpportunity] = Field(default_factory=list)
+    failed_symbols: List[str] = Field(default_factory=list)
+    unclassifiable_symbols: List[str] = Field(default_factory=list)
+    ranked_count: int = Field(..., ge=0)
+    total_scanned_count: int = Field(..., ge=0)

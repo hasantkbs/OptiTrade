@@ -17,6 +17,9 @@ engine, never a vote, never an LLM call:
 - `market_scanner`: batch-orchestrates the canonical
   `pipeline.PipelineService.run()` across many symbols under bounded
   concurrency and a per-symbol timeout - never a second analysis path.
+- `opportunity_ranking`: deterministically orders an already-produced
+  `MarketScanResult`'s successful symbols by their `opportunity`
+  classification - a presentation layer, never a composite score.
 
 Nothing in this package votes, scores, overrides a Tier-A decision, or
 calls an LLM. `pipeline.PipelineService` + `decision_engine` remain the
@@ -31,17 +34,22 @@ from intelligence.models import (
     MarketScanResult,
     OpportunityAssessment,
     OpportunityLabel,
+    OpportunityRankingResult,
+    RankedOpportunity,
+    RankingReason,
     RiskBucket,
     ScanSymbolFailure,
     ScanSymbolResult,
     ScanSymbolStatus,
 )
 from intelligence.opportunity import OpportunityIntelligenceService, classify_opportunity
+from intelligence.opportunity_ranking import LABEL_PRIORITY, rank_opportunities, scan_and_rank
 
 __all__ = [
     "ChangeSignificance",
     "DecisionChange",
     "DecisionHistoryDiffService",
+    "LABEL_PRIORITY",
     "MarketAlert",
     "MarketAnomalyDetector",
     "MarketScanResult",
@@ -49,12 +57,17 @@ __all__ = [
     "OpportunityAssessment",
     "OpportunityIntelligenceService",
     "OpportunityLabel",
+    "OpportunityRankingResult",
     "PipelineRunnerProtocol",
+    "RankedOpportunity",
+    "RankingReason",
     "RiskBucket",
     "ScanSymbolFailure",
     "ScanSymbolResult",
     "ScanSymbolStatus",
     "classify_opportunity",
     "diff_decisions",
+    "rank_opportunities",
     "risk_bucket_for_volatility",
+    "scan_and_rank",
 ]
