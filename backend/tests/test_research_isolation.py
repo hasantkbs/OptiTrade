@@ -3,12 +3,15 @@ Guards the production/research boundary introduced in Sprint 1, Task 7,
 and extended for `research_lab` (the Continuous Learning-era Research
 Lab package), the production execution pipeline, `ml_training` (the ML
 Training Platform), `model_serving` (the Model Serving Platform),
-`portfolio` (the Portfolio Intelligence Platform), and `watchlist` (the
-Watchlist & Alert Platform): nothing under core/, v2/, models/, data/,
+`portfolio` (the Portfolio Intelligence Platform), `watchlist` (the
+Watchlist & Alert Platform), and `intelligence` (the decision-history-
+diff/opportunity-classification/anomaly-detection primitives - none of
+which are a second decision engine and none of which may ever depend
+on research/training code): nothing under core/, v2/, models/, data/,
 api/, feature_store/, decision_engine/, engine_registry/, engines/,
-learning/, pipeline/, explanation_engine/, portfolio/, or watchlist/
-should import the `research`, `research_lab`, or `ml_training`
-packages. Research/training code may depend on production code (it
+learning/, pipeline/, explanation_engine/, portfolio/, watchlist/, or
+intelligence/ should import the `research`, `research_lab`, or
+`ml_training` packages. Research/training code may depend on production code (it
 already does - core.indicators, core.scoring, and research_lab/
 ml_training both reuse learning/feature_store/decision_engine
 extensively); production (including the production-adjacent Continuous
@@ -41,6 +44,7 @@ PRODUCTION_DIRS = [
     "core", "v2", "models", "data", "api",
     "feature_store", "decision_engine", "engine_registry", "engines", "learning",
     "pipeline", "explanation_engine", "portfolio", "watchlist", "users", "paper_trading", "dashboard",
+    "intelligence",
 ]
 FORBIDDEN_PACKAGES = ["research", "research_lab", "ml_training"]
 
@@ -172,6 +176,16 @@ def test_paper_trading_package_exists():
         "models.py", "schemas.py", "exceptions.py", "config.py",
     }
     actual = {p.name for p in paper_trading_dir.glob("*.py")}
+    assert expected_modules <= actual
+
+
+def test_intelligence_package_exists():
+    intelligence_dir = BACKEND_ROOT / "intelligence"
+    assert intelligence_dir.is_dir()
+    expected_modules = {
+        "config.py", "exceptions.py", "models.py", "decision_diff.py", "opportunity.py", "anomaly.py",
+    }
+    actual = {p.name for p in intelligence_dir.glob("*.py")}
     assert expected_modules <= actual
 
 
