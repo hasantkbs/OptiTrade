@@ -202,3 +202,97 @@ class OpportunityRankingResult(BaseModel):
     unclassifiable_symbols: List[str] = Field(default_factory=list)
     ranked_count: int = Field(..., ge=0)
     total_scanned_count: int = Field(..., ge=0)
+
+
+# ── Portfolio Intelligence (change-detection over an existing portfolio) ─
+
+
+class PositionFindingType(str, Enum):
+    """Product-facing decision-support language (never an instruction to
+    buy/sell) for a change detected on one open position."""
+
+    DECISION_DETERIORATED = "DECISION_DETERIORATED"
+    RISK_INCREASED = "RISK_INCREASED"
+    OPPORTUNITY_IMPROVED = "OPPORTUNITY_IMPROVED"
+    OPPORTUNITY_DETERIORATED = "OPPORTUNITY_DETERIORATED"
+    DATA_QUALITY_REDUCED = "DATA_QUALITY_REDUCED"
+    REVIEW_POSITION = "REVIEW_POSITION"
+
+
+class PortfolioFindingType(str, Enum):
+    """Portfolio-wide (not single-position) findings. Only one exists in
+    this phase, and it only ever fires when an operator has explicitly
+    configured `PortfolioIntelligenceConfig.large_position_weight_pct` -
+    see that field's docstring for why no default threshold is invented."""
+
+    CONCENTRATION_THRESHOLD_EXCEEDED = "CONCENTRATION_THRESHOLD_EXCEEDED"
+
+
+class PositionFinding(BaseModel):
+    """One deterministic, decision-support finding for one symbol.
+    `decision_change`/`opportunity_assessment` are referenced (not
+    copied field-by-field) so the finding stays traceable back to the
+    canonical `DecisionOutput`s behind it without duplicating their
+    data. `significance` is always Phase B's own `ChangeSignificance`
+    (from `decision_change.significance` where the finding derives from
+    a `DecisionChange`) - never a new severity scale."""
+
+    portfolio_id: int
+    symbol: str
+    finding_type: PositionFindingType
+    significance: ChangeSignificance
+    previous_state: Optional[str] = None
+    current_state: Optional[str] = None
+    decision_change: Optional[DecisionChange] = None
+    opportunity_assessment: Optional[OpportunityAssessment] = None
+    detected_at: datetime
+
+
+class PortfolioFinding(BaseModel):
+    """One portfolio-wide finding - currently only concentration, and
+    only when explicitly configured (see `PortfolioFindingType`)."""
+
+    portfolio_id: int
+    finding_type: PortfolioFindingType
+    significance: ChangeSignificance
+    symbol: Optional[str] = None
+    previous_state: Optional[str] = None
+    current_state: Optional[str] = None
+    detected_at: datetime
+
+
+class PortfolioIntelligenceSnapshot(BaseModel):
+    """The minimum per-position state needed to compare a portfolio over
+    time - deliberately not the full `portfolio.models.PortfolioDashboard`
+    response. `current_value`/`allocation_pct` are populated only when
+    the caller supplies already-computed `PositionAnalytics` (this
+    module never fetches a live price itself); `decision`/
+    `opportunity_assessment`/`risk_bucket` are populated only when the
+    symbol has recorded Decision Engine history."""
+
+    portfolio_id: int
+    symbol: str
+    quantity: float = Field(..., ge=0.0)
+    current_value: Optional[float] = None
+    allocation_pct: Optional[float] = None
+    decision: Optional[Prediction] = None
+    opportunity_assessment: Optional[OpportunityAssessment] = None
+    risk_bucket: Optional[RiskBucket] = None
+
+
+class PortfolioIntelligenceResult(BaseModel):
+    """The full outcome of one `intelligence.portfolio_intelligence.
+    PortfolioIntelligenceService.evaluate_portfolio(portfolio_id)` call.
+    `unavailable_symbols` covers both "never analyzed" (no Decision
+    Engine history at all) and "lookup failed" (a per-symbol exception,
+    isolated the same way `MarketScanner`/`rank_opportunities` isolate a
+    single bad symbol) - both are handled conservatively: no finding is
+    produced for a symbol that can't be evaluated."""
+
+    portfolio_id: int
+    evaluated_at: datetime
+    position_snapshots: List[PortfolioIntelligenceSnapshot] = Field(default_factory=list)
+    position_findings: List[PositionFinding] = Field(default_factory=list)
+    portfolio_findings: List[PortfolioFinding] = Field(default_factory=list)
+    unavailable_symbols: List[str] = Field(default_factory=list)
+    summary: str

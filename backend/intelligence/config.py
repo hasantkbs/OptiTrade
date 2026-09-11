@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -113,3 +114,31 @@ class MarketScannerConfig:
             max_parallel_symbols=int(os.getenv("MARKET_SCANNER_MAX_PARALLEL_SYMBOLS", "3")),
             symbol_timeout_seconds=float(os.getenv("MARKET_SCANNER_SYMBOL_TIMEOUT_SECONDS", "30.0")),
         )
+
+
+@dataclass(frozen=True)
+class PortfolioIntelligenceConfig:
+    """Runtime settings for `intelligence.portfolio_intelligence`.
+
+    `large_position_weight_pct` deliberately defaults to `None`
+    (disabled): `portfolio.recommendations.RecommendationEngine` already
+    has its own hardcoded overweight/concentration thresholds (25%/40%
+    position weight, 40% sector weight, 0.5/0.7 HHI concentration_risk),
+    but those are a live-market-data-dependent *recommendation* system,
+    a different concern from this module's *change-detection* one - and
+    Phase E's own instructions are explicit that no new financial
+    threshold may be silently invented here. Rather than duplicate (or
+    guess at reusing) that system's numbers, portfolio-level
+    concentration findings stay off by default; setting this value (via
+    `PORTFOLIO_INTELLIGENCE_LARGE_POSITION_WEIGHT_PCT`) is the reusable
+    hook a future phase (or an operator) can use to turn them on with a
+    deliberately-chosen number, once `PositionAnalytics.weight_pct` is
+    supplied to `PortfolioIntelligenceService.evaluate_portfolio`."""
+
+    large_position_weight_pct: Optional[float] = None
+
+    @classmethod
+    def from_env(cls) -> "PortfolioIntelligenceConfig":
+        load_dotenv()
+        raw = os.getenv("PORTFOLIO_INTELLIGENCE_LARGE_POSITION_WEIGHT_PCT")
+        return cls(large_position_weight_pct=float(raw) if raw not in (None, "") else None)

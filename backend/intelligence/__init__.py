@@ -20,6 +20,11 @@ engine, never a vote, never an LLM call:
 - `opportunity_ranking`: deterministically orders an already-produced
   `MarketScanResult`'s successful symbols by their `opportunity`
   classification - a presentation layer, never a composite score.
+- `portfolio_intelligence`: evaluates an EXISTING portfolio's open
+  positions for material decision/risk/opportunity/data-quality changes,
+  composing `portfolio.service.PortfolioService`, decision history, and
+  the primitives above - decision support only, never a buy/sell
+  instruction.
 
 Nothing in this package votes, scores, overrides a Tier-A decision, or
 calls an LLM. `pipeline.PipelineService` + `decision_engine` remain the
@@ -35,6 +40,12 @@ from intelligence.models import (
     OpportunityAssessment,
     OpportunityLabel,
     OpportunityRankingResult,
+    PortfolioFinding,
+    PortfolioFindingType,
+    PortfolioIntelligenceResult,
+    PortfolioIntelligenceSnapshot,
+    PositionFinding,
+    PositionFindingType,
     RankedOpportunity,
     RankingReason,
     RiskBucket,
@@ -44,6 +55,7 @@ from intelligence.models import (
 )
 from intelligence.opportunity import OpportunityIntelligenceService, classify_opportunity
 from intelligence.opportunity_ranking import LABEL_PRIORITY, rank_opportunities, scan_and_rank
+from intelligence.portfolio_intelligence import PortfolioIntelligenceService
 
 __all__ = [
     "ChangeSignificance",
@@ -59,6 +71,13 @@ __all__ = [
     "OpportunityLabel",
     "OpportunityRankingResult",
     "PipelineRunnerProtocol",
+    "PortfolioFinding",
+    "PortfolioFindingType",
+    "PortfolioIntelligenceResult",
+    "PortfolioIntelligenceService",
+    "PortfolioIntelligenceSnapshot",
+    "PositionFinding",
+    "PositionFindingType",
     "RankedOpportunity",
     "RankingReason",
     "RiskBucket",
