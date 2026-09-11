@@ -296,3 +296,77 @@ class PortfolioIntelligenceResult(BaseModel):
     portfolio_findings: List[PortfolioFinding] = Field(default_factory=list)
     unavailable_symbols: List[str] = Field(default_factory=list)
     summary: str
+
+
+# ── Watchlist Intelligence (change-detection over an existing watchlist) ─
+
+
+class WatchlistFindingType(str, Enum):
+    """Product-facing decision-support language for a change detected on
+    one watchlisted symbol - a distinct enum from `PositionFindingType`
+    (rather than reusing it) because a watchlist symbol is not a held
+    position: `REVIEW_SYMBOL` names the rollup accordingly, and there is
+    no portfolio-only concept (allocation/quantity) in this domain."""
+
+    DECISION_DETERIORATED = "DECISION_DETERIORATED"
+    RISK_INCREASED = "RISK_INCREASED"
+    OPPORTUNITY_IMPROVED = "OPPORTUNITY_IMPROVED"
+    OPPORTUNITY_DETERIORATED = "OPPORTUNITY_DETERIORATED"
+    DATA_QUALITY_REDUCED = "DATA_QUALITY_REDUCED"
+    REVIEW_SYMBOL = "REVIEW_SYMBOL"
+
+
+class WatchlistFinding(BaseModel):
+    """One deterministic, decision-support finding for one watchlisted
+    symbol. `decision_change`/`opportunity_assessment` are referenced
+    (not copied field-by-field), and `significance` is always Phase B's
+    own `ChangeSignificance` - exactly the same conventions
+    `intelligence.portfolio_intelligence.PositionFinding` already
+    established, applied to the watchlist domain."""
+
+    watchlist_id: int
+    symbol: str
+    finding_type: WatchlistFindingType
+    significance: ChangeSignificance
+    previous_state: Optional[str] = None
+    current_state: Optional[str] = None
+    decision_change: Optional[DecisionChange] = None
+    opportunity_assessment: Optional[OpportunityAssessment] = None
+    detected_at: datetime
+
+
+class WatchlistSymbolSnapshot(BaseModel):
+    """The minimum per-symbol state needed to compare a watchlist over
+    time. `current_decision`/`previous_decision` are included directly
+    (they are the two values `decision_change` was built from) so a
+    consumer never needs to re-derive them; `opportunity` is only
+    populated when the symbol has recorded Decision Engine history.
+    Findings for this symbol live on `WatchlistIntelligenceResult.
+    findings`, not duplicated here - filter that list by `symbol`."""
+
+    watchlist_id: int
+    symbol: str
+    current_decision: Optional[Prediction] = None
+    previous_decision: Optional[Prediction] = None
+    decision_change: Optional[DecisionChange] = None
+    opportunity: Optional[OpportunityAssessment] = None
+
+
+class WatchlistIntelligenceResult(BaseModel):
+    """The full outcome of one `intelligence.watchlist_intelligence.
+    WatchlistIntelligenceService.evaluate_watchlist(watchlist_id)` call.
+    `evaluated_symbols` is the deduplicated, order-preserving symbol list
+    actually evaluated (mirrors `watchlist.repository`'s own
+    `UNIQUE (watchlist_id, symbol)` contract); `unavailable_symbols`
+    covers both "never analyzed" and "lookup failed", isolated the same
+    way `MarketScanner`/`PortfolioIntelligenceService` isolate a single
+    bad symbol - no finding is ever produced for a symbol that can't be
+    evaluated."""
+
+    watchlist_id: int
+    evaluated_at: datetime
+    evaluated_symbols: List[str] = Field(default_factory=list)
+    symbol_snapshots: List[WatchlistSymbolSnapshot] = Field(default_factory=list)
+    findings: List[WatchlistFinding] = Field(default_factory=list)
+    unavailable_symbols: List[str] = Field(default_factory=list)
+    summary: str

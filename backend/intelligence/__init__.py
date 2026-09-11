@@ -25,6 +25,11 @@ engine, never a vote, never an LLM call:
   composing `portfolio.service.PortfolioService`, decision history, and
   the primitives above - decision support only, never a buy/sell
   instruction.
+- `watchlist_intelligence`: the watchlist-domain twin of
+  `portfolio_intelligence` - evaluates an EXISTING watchlist's symbols
+  for the same material decision/risk/opportunity/data-quality changes,
+  composing `watchlist.watchlist_service.WatchlistService` instead of
+  the Portfolio Intelligence Platform.
 
 Nothing in this package votes, scores, overrides a Tier-A decision, or
 calls an LLM. `pipeline.PipelineService` + `decision_engine` remain the
@@ -52,10 +57,15 @@ from intelligence.models import (
     ScanSymbolFailure,
     ScanSymbolResult,
     ScanSymbolStatus,
+    WatchlistFinding,
+    WatchlistFindingType,
+    WatchlistIntelligenceResult,
+    WatchlistSymbolSnapshot,
 )
 from intelligence.opportunity import OpportunityIntelligenceService, classify_opportunity
 from intelligence.opportunity_ranking import LABEL_PRIORITY, rank_opportunities, scan_and_rank
 from intelligence.portfolio_intelligence import PortfolioIntelligenceService
+from intelligence.watchlist_intelligence import WatchlistIntelligenceService
 
 __all__ = [
     "ChangeSignificance",
@@ -84,6 +94,11 @@ __all__ = [
     "ScanSymbolFailure",
     "ScanSymbolResult",
     "ScanSymbolStatus",
+    "WatchlistFinding",
+    "WatchlistFindingType",
+    "WatchlistIntelligenceResult",
+    "WatchlistIntelligenceService",
+    "WatchlistSymbolSnapshot",
     "classify_opportunity",
     "diff_decisions",
     "rank_opportunities",
