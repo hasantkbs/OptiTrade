@@ -14,6 +14,9 @@ engine, never a vote, never an LLM call:
 - `anomaly`: the canonical `MarketAnomalyDetector` (moved from
   `core.market_anomaly_detector`, which now re-exports this module for
   backward compatibility).
+- `market_scanner`: batch-orchestrates the canonical
+  `pipeline.PipelineService.run()` across many symbols under bounded
+  concurrency and a per-symbol timeout - never a second analysis path.
 
 Nothing in this package votes, scores, overrides a Tier-A decision, or
 calls an LLM. `pipeline.PipelineService` + `decision_engine` remain the
@@ -21,12 +24,17 @@ only canonical production decision path.
 """
 from intelligence.anomaly import MarketAlert, MarketAnomalyDetector
 from intelligence.decision_diff import DecisionHistoryDiffService, diff_decisions, risk_bucket_for_volatility
+from intelligence.market_scanner import MarketScanner, PipelineRunnerProtocol
 from intelligence.models import (
     ChangeSignificance,
     DecisionChange,
+    MarketScanResult,
     OpportunityAssessment,
     OpportunityLabel,
     RiskBucket,
+    ScanSymbolFailure,
+    ScanSymbolResult,
+    ScanSymbolStatus,
 )
 from intelligence.opportunity import OpportunityIntelligenceService, classify_opportunity
 
@@ -36,10 +44,16 @@ __all__ = [
     "DecisionHistoryDiffService",
     "MarketAlert",
     "MarketAnomalyDetector",
+    "MarketScanResult",
+    "MarketScanner",
     "OpportunityAssessment",
     "OpportunityIntelligenceService",
     "OpportunityLabel",
+    "PipelineRunnerProtocol",
     "RiskBucket",
+    "ScanSymbolFailure",
+    "ScanSymbolResult",
+    "ScanSymbolStatus",
     "classify_opportunity",
     "diff_decisions",
     "risk_bucket_for_volatility",

@@ -16,6 +16,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from decision_engine.models import Prediction
+from pipeline.models import PipelineResponse
 
 
 class RiskBucket(str, Enum):
@@ -100,3 +101,58 @@ class OpportunityAssessment(BaseModel):
     reason_codes: List[str] = Field(default_factory=list)
 
     timestamp: datetime
+
+
+# ── Market Scanner (batch canonical-pipeline orchestration) ─────────────
+
+
+class ScanSymbolStatus(str, Enum):
+    SUCCESS = "success"
+    TIMEOUT = "timeout"
+    FAILED = "failed"
+
+
+class ScanSymbolResult(BaseModel):
+    """One symbol's successful scan outcome. `response` is the exact,
+    unmodified `pipeline.models.PipelineResponse` `PipelineService.run()`
+    already produces - the canonical result type, never re-derived or
+    duplicated field-by-field."""
+
+    symbol: str
+    status: ScanSymbolStatus = ScanSymbolStatus.SUCCESS
+    response: PipelineResponse
+    duration_ms: float = Field(..., ge=0.0)
+
+
+class ScanSymbolFailure(BaseModel):
+    """One symbol's failed scan outcome. Only the exception's type name
+    is captured (matching `pipeline.executor.EngineExecutionResult`'s
+    and `watchlist.scheduler.AlertCheckOutcome`'s own convention) -
+    never the raw exception message, which could carry internal detail
+    not meant for a caller of this structured result."""
+
+    symbol: str
+    status: ScanSymbolStatus  # TIMEOUT or FAILED
+    error_type: str
+    duration_ms: float = Field(..., ge=0.0)
+
+
+class MarketScanResult(BaseModel):
+    """The full outcome of one `MarketScanner.scan(symbols)` call.
+    `unique_symbols` is deduplicated (case-insensitive) but preserves
+    the first-occurrence order of the originally requested list -
+    `successful`/`failed` are reported in that same deterministic
+    order, not completion order."""
+
+    requested_count: int = Field(..., ge=0)
+    unique_symbols: List[str] = Field(default_factory=list)
+    unique_count: int = Field(..., ge=0)
+
+    successful: List[ScanSymbolResult] = Field(default_factory=list)
+    failed: List[ScanSymbolFailure] = Field(default_factory=list)
+    successful_count: int = Field(..., ge=0)
+    failed_count: int = Field(..., ge=0)
+
+    started_at: datetime
+    completed_at: datetime
+    duration_ms: float = Field(..., ge=0.0)

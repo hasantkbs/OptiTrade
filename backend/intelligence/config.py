@@ -81,3 +81,35 @@ class IntelligenceConfig:
                 os.getenv("INTELLIGENCE_MIN_DATA_SUFFICIENCY_FOR_CLASSIFICATION", "0.34")
             ),
         )
+
+
+@dataclass(frozen=True)
+class MarketScannerConfig:
+    """Runtime settings for `intelligence.market_scanner.MarketScanner`.
+
+    Deliberately separate from `PipelineConfig.max_parallel_workers`/
+    `engine_timeout_seconds` - those bound how many *engines* run
+    concurrently for one symbol inside a single `PipelineService.run()`
+    call; these bound how many *symbols* the scanner runs concurrently,
+    each a full `PipelineService.run()` call in its own right. A
+    conservative default (3 concurrent full pipeline runs) is chosen
+    because each one already fans out its own bounded thread pool
+    internally (`ParallelEngineExecutor`) - the scanner's concurrency is
+    on top of that, not instead of it.
+    """
+
+    max_parallel_symbols: int = 3
+    # Generous ceiling for one full PipelineService.run() call (multiple
+    # engines with their own retries, plus explanation/learning stages)
+    # - not a tuned budget, matching the "generous ceiling, not a tuned
+    # budget" convention already used for container resource limits
+    # elsewhere in this project.
+    symbol_timeout_seconds: float = 30.0
+
+    @classmethod
+    def from_env(cls) -> "MarketScannerConfig":
+        load_dotenv()
+        return cls(
+            max_parallel_symbols=int(os.getenv("MARKET_SCANNER_MAX_PARALLEL_SYMBOLS", "3")),
+            symbol_timeout_seconds=float(os.getenv("MARKET_SCANNER_SYMBOL_TIMEOUT_SECONDS", "30.0")),
+        )
