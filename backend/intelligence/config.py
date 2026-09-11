@@ -142,3 +142,45 @@ class PortfolioIntelligenceConfig:
         load_dotenv()
         raw = os.getenv("PORTFOLIO_INTELLIGENCE_LARGE_POSITION_WEIGHT_PCT")
         return cls(large_position_weight_pct=float(raw) if raw not in (None, "") else None)
+
+
+@dataclass(frozen=True)
+class BackgroundIntelligenceConfig:
+    """Runtime settings for `intelligence.background_intelligence`.
+
+    `batch_size` is deliberately a distinct concept from
+    `MarketScannerConfig.max_parallel_symbols` (3) - that bounds how many
+    *concurrent* full `PipelineService.run()` calls one `MarketScanner.
+    scan()` invocation makes; `batch_size` bounds how many symbols are
+    handed to `scan()` *per scheduled tick* (run through that same
+    bounded concurrency, some sequentially). 10 is chosen so a tick
+    actually exercises `max_parallel_symbols=3` concurrency (more than
+    one wave) without ever approaching "the whole market universe in one
+    operation", the exact hazard Step 5 warns against.
+
+    `scan_interval_seconds` cannot reuse an existing interval verbatim -
+    there is no prior "run PipelineService across many symbols on a
+    timer" convention to copy - so it is picked by comparison to the
+    two existing cadences already running in `main.py`: far more
+    frequent than the once-a-day self-evolution/retention-purge loops
+    (86400s, appropriate for slow, heavy jobs), far less frequent than
+    the 30-60s alert-scan/paper-trading-fill loops (appropriate for
+    cheap DB-bound checks) - 300s (5 minutes) reflects that a full
+    batch of real, multi-engine `PipelineService.run()` calls is
+    meaningfully more expensive than either of those, not a copied
+    constant."""
+
+    enabled: bool = True
+    batch_size: int = 10
+    market: str = "US"
+    scan_interval_seconds: int = 300
+
+    @classmethod
+    def from_env(cls) -> "BackgroundIntelligenceConfig":
+        load_dotenv()
+        return cls(
+            enabled=os.getenv("BACKGROUND_INTELLIGENCE_ENABLED", "true").strip().lower() not in ("false", "0", ""),
+            batch_size=int(os.getenv("BACKGROUND_INTELLIGENCE_BATCH_SIZE", "10")),
+            market=os.getenv("BACKGROUND_INTELLIGENCE_MARKET", "US"),
+            scan_interval_seconds=int(os.getenv("BACKGROUND_INTELLIGENCE_SCAN_INTERVAL_SECONDS", "300")),
+        )

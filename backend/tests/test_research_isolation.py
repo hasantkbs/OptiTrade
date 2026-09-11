@@ -185,6 +185,7 @@ def test_intelligence_package_exists():
     expected_modules = {
         "config.py", "exceptions.py", "models.py", "decision_diff.py", "opportunity.py", "anomaly.py",
         "market_scanner.py", "opportunity_ranking.py", "portfolio_intelligence.py", "watchlist_intelligence.py",
+        "background_intelligence.py",
     }
     actual = {p.name for p in intelligence_dir.glob("*.py")}
     assert expected_modules <= actual

@@ -75,6 +75,8 @@ from v2.api.router import router as v2_router
 from api.v1.router import api_v1_router
 from core.rate_limiter import limiter
 from pipeline import PipelineResponse, PipelineService, QuantAnalysisRequest
+from intelligence.background_intelligence import BackgroundIntelligenceOrchestrator
+from intelligence.models import BackgroundScanStatus
 from model_serving import MLPredictionRequest, MLPredictionResult, ServingHealthReport
 from model_serving.exceptions import InsufficientFeatureDataError, ModelServingError, NoActiveModelError
 from portfolio import (
@@ -443,6 +445,36 @@ async def paper_trading_fill_loop() -> None:
             logger.error(f"Paper trading dolum döngüsünde hata: {e}")
 
 
+async def background_intelligence_scan_loop() -> None:
+    """Periodically runs one bounded batch through
+    `BackgroundIntelligenceOrchestrator.run_once` (intelligence/
+    background_intelligence.py, Phase G) - the canonical MarketScanner
+    (Phase C) + rank_opportunities (Phase D), never a second scan/
+    ranking path. Same shape as alert_scan_loop/paper_trading_fill_loop
+    above: run_once is synchronous and internally overlap-guarded, so it
+    is offloaded to the shared executor exactly like every other
+    blocking call in this file - the loop never fires the next tick
+    until the current one's executor call returns, which is itself
+    already sufficient to prevent overlapping scans without any extra
+    coordination here."""
+    orchestrator = _background_intelligence
+    if orchestrator is None:
+        return
+    interval = orchestrator.config.scan_interval_seconds
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            result = await _run_in_executor(orchestrator.run_once)
+            if result.status == BackgroundScanStatus.COMPLETED and result.requested_symbols:
+                logger.info(
+                    f"Background intelligence: {len(result.successful_symbols)} basarili, "
+                    f"{len(result.failed_symbols)} basarisiz, {len(result.timeout_symbols)} zaman asimi "
+                    f"({len(result.requested_symbols)} sembol tarandi)."
+                )
+        except Exception as e:
+            logger.error(f"Background intelligence scan döngüsünde hata: {e}")
+
+
 _RETENTION_PURGE_INTERVAL_SECONDS = 86400  # once a day, matching self_evolution_loop's cadence
 
 
@@ -504,11 +536,27 @@ async def startup_event() -> None:
     global _pipeline_service, _portfolio_service, _portfolio_analytics, _portfolio_risk
     global _portfolio_optimization, _portfolio_rebalancing, _portfolio_scenarios
     global _portfolio_recommendations, _portfolio_dashboard, _background_tasks
+    global _background_intelligence
     with schema_init_lock():
         try:
             _pipeline_service = PipelineService()
         except Exception as e:
             logger.error(f"Quant pipeline baslatilamadi: {e}")
+        if _pipeline_service is not None:
+            try:
+                # Reuses the same MarketScanner (Phase C) that
+                # market_scan_endpoint (if any) would use - never a
+                # second scan implementation - built on this process's
+                # own _pipeline_service so it shares the same Decision
+                # Engine/Feature Store connections rather than opening a
+                # second set.
+                from intelligence.market_scanner import MarketScanner
+
+                _background_intelligence = BackgroundIntelligenceOrchestrator(
+                    scanner=MarketScanner(pipeline_service=_pipeline_service),
+                )
+            except Exception as e:
+                logger.error(f"Background Intelligence Orchestration baslatilamadi: {e}")
         try:
             _portfolio_service = PortfolioService()
             _portfolio_analytics = PositionAnalyticsService(portfolio_service=_portfolio_service)
@@ -609,20 +657,22 @@ async def startup_event() -> None:
     if acquire_scheduler_leader_lock():
         logger.info(
             "Bu worker scheduler leader oldu; background loop'lar "
-            "(self-evolution/alert-scan/paper-trading-fill/retention-purge) "
-            "burada baslatiliyor."
+            "(self-evolution/alert-scan/paper-trading-fill/retention-purge/"
+            "background-intelligence) burada baslatiliyor."
         )
         _background_tasks = [
             asyncio.create_task(self_evolution_loop()),
             asyncio.create_task(alert_scan_loop()),
             asyncio.create_task(paper_trading_fill_loop()),
             asyncio.create_task(retention_purge_loop()),
+            asyncio.create_task(background_intelligence_scan_loop()),
         ]
     else:
         logger.info(
             "Background scheduler loops (self-evolution/alert-scan/"
-            "paper-trading-fill/retention-purge) already running on "
-            "another worker; not starting a duplicate copy here."
+            "paper-trading-fill/retention-purge/background-intelligence) "
+            "already running on another worker; not starting a duplicate "
+            "copy here."
         )
 
 
@@ -725,6 +775,12 @@ _paper_trading_scheduler: Optional[PaperTradingScheduler] = None
 _dashboard_repository: Optional[DashboardRepository] = None
 _dashboard_service: Optional[DashboardService] = None
 _dashboard_scheduler: Optional[DashboardScheduler] = None
+
+# Background Intelligence Orchestration (Phase G) — batches the
+# canonical MarketScanner (Phase C) + rank_opportunities (Phase D) over
+# the existing market symbol universe. Same convention: constructed once
+# in startup_event, reused by background_intelligence_scan_loop below.
+_background_intelligence: Optional[BackgroundIntelligenceOrchestrator] = None
 
 # ── Firebase Auth Dependency ───────────────────────────────────────────────────
 async def verify_firebase_token(

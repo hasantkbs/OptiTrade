@@ -30,15 +30,28 @@ engine, never a vote, never an LLM call:
   for the same material decision/risk/opportunity/data-quality changes,
   composing `watchlist.watchlist_service.WatchlistService` instead of
   the Portfolio Intelligence Platform.
+- `background_intelligence`: batches `market_scanner.MarketScanner`
+  (Phase C) and `opportunity_ranking.rank_opportunities` (Phase D) into
+  one bounded, schedulable tick over the existing market symbol
+  universe (`core.market_config`) - global market intelligence only,
+  meant to be driven by the existing leader-elected scheduler loop in
+  `main.py`, never a second scanner/ranking/scheduler implementation.
 
 Nothing in this package votes, scores, overrides a Tier-A decision, or
 calls an LLM. `pipeline.PipelineService` + `decision_engine` remain the
 only canonical production decision path.
 """
 from intelligence.anomaly import MarketAlert, MarketAnomalyDetector
+from intelligence.background_intelligence import (
+    BackgroundIntelligenceOrchestrator,
+    MarketConfigUniverseProvider,
+    UniverseProviderProtocol,
+)
 from intelligence.decision_diff import DecisionHistoryDiffService, diff_decisions, risk_bucket_for_volatility
 from intelligence.market_scanner import MarketScanner, PipelineRunnerProtocol
 from intelligence.models import (
+    BackgroundScanResult,
+    BackgroundScanStatus,
     ChangeSignificance,
     DecisionChange,
     MarketScanResult,
@@ -68,12 +81,16 @@ from intelligence.portfolio_intelligence import PortfolioIntelligenceService
 from intelligence.watchlist_intelligence import WatchlistIntelligenceService
 
 __all__ = [
+    "BackgroundIntelligenceOrchestrator",
+    "BackgroundScanResult",
+    "BackgroundScanStatus",
     "ChangeSignificance",
     "DecisionChange",
     "DecisionHistoryDiffService",
     "LABEL_PRIORITY",
     "MarketAlert",
     "MarketAnomalyDetector",
+    "MarketConfigUniverseProvider",
     "MarketScanResult",
     "MarketScanner",
     "OpportunityAssessment",
@@ -94,6 +111,7 @@ __all__ = [
     "ScanSymbolFailure",
     "ScanSymbolResult",
     "ScanSymbolStatus",
+    "UniverseProviderProtocol",
     "WatchlistFinding",
     "WatchlistFindingType",
     "WatchlistIntelligenceResult",

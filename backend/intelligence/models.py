@@ -370,3 +370,48 @@ class WatchlistIntelligenceResult(BaseModel):
     findings: List[WatchlistFinding] = Field(default_factory=list)
     unavailable_symbols: List[str] = Field(default_factory=list)
     summary: str
+
+
+# ── Background Intelligence Orchestration (batches Phase C + Phase D) ───
+
+
+class BackgroundScanStatus(str, Enum):
+    """The outcome of one `BackgroundIntelligenceOrchestrator.run_once()`
+    call. `SKIPPED_DISABLED`/`SKIPPED_OVERLAP` are not failures - they
+    mean the job correctly declined to run this tick (configuration, or
+    a previous tick still in flight); `FAILED` means a batch-level
+    infrastructure problem (the universe provider or the scanner itself
+    raised) prevented any scanning this tick - distinct from a
+    per-symbol failure, which is already captured in `failed_symbols`/
+    `timeout_symbols` under `COMPLETED`."""
+
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED_DISABLED = "skipped_disabled"
+    SKIPPED_OVERLAP = "skipped_overlap"
+
+
+class BackgroundScanResult(BaseModel):
+    """The full outcome of one background market-intelligence tick:
+    `MarketScanner.scan()` (Phase C) over one bounded batch of the
+    configured universe, then `rank_opportunities()` (Phase D) over
+    the successful results - never a new scan or ranking
+    implementation. `ranked_opportunities` references Phase D's own
+    `OpportunityRankingResult` rather than copying its fields.
+    `error_type` (never a raw exception message) is only set when
+    `status == FAILED`. Deterministic except for `execution_id`
+    (a fresh identifier per tick) and the timestamps/duration."""
+
+    execution_id: str
+    status: BackgroundScanStatus
+    requested_symbols: List[str] = Field(default_factory=list)
+    successful_symbols: List[str] = Field(default_factory=list)
+    failed_symbols: List[str] = Field(default_factory=list)
+    timeout_symbols: List[str] = Field(default_factory=list)
+    ranked_opportunities: Optional[OpportunityRankingResult] = None
+    error_type: Optional[str] = None
+    started_at: datetime
+    completed_at: datetime
+    duration_ms: float = Field(..., ge=0.0)
+    cursor_before: int = Field(..., ge=0)
+    cursor_after: int = Field(..., ge=0)
