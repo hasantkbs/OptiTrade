@@ -1,4 +1,17 @@
 """Shared pytest fixtures for FastAPI (main.py) integration tests."""
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load test-only env overrides (backend/.env.test) BEFORE anything below
+# imports `main` - main.py reads ALLOWED_HOSTS/ENVIRONMENT at import
+# time while building the FastAPI app and its middleware, so this must
+# run first. override=True is what lets .env.test's values win over
+# backend/.env's production configuration (backend/.env is loaded by
+# main.py/users.config with override=False, so once a key is already
+# set here it's left alone). See .env.test's own comments for why.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env.test", override=True)
+
 import pytest
 from fastapi.testclient import TestClient
 

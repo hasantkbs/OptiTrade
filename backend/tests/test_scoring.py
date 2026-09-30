@@ -70,7 +70,12 @@ def _score(monkeypatch, **overrides):
         macd_signal=None,
     )
     params.update(overrides)
-    return compute_score(**params)
+    # compute_score() returns a 4th `contributions` element (per-indicator
+    # explainability breakdown) - these tests document score/signal
+    # behavior only, so drop it and keep returning the (score, long,
+    # short) triple every call site here already unpacks.
+    score, long_signals, short_signals, _contributions = compute_score(**params)
+    return score, long_signals, short_signals
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -422,7 +427,7 @@ def test_cci_all_zones(monkeypatch):
 def test_cci_zero_crossing_adds_message_but_no_score_change(monkeypatch):
     score, longs, _ = _score(monkeypatch, cci=0.0)
     assert score == 50
-    assert any("sifir bölgesi" in s for s in longs)
+    assert any("sifir bolgesi" in s for s in longs)
 
 
 def test_cci_neg150_and_200_fall_to_the_weaker_adjacent_tier(monkeypatch):
@@ -617,7 +622,7 @@ def test_compute_score_falls_back_to_base_score_if_session_step_raises(monkeypat
         raise RuntimeError("boom")
 
     monkeypatch.setattr("core.scoring.compute_session_score", raising_session_score)
-    score, _, _ = compute_score(
+    score, _, _, _contributions = compute_score(
         current_price=100.0, potential_price=None, volume_ratio=1.0,
         balance_status="Notr", rsi=15.0, macd=None, macd_signal=None,
     )
@@ -637,7 +642,7 @@ def test_compute_score_emits_a_structured_log_when_session_step_raises(monkeypat
 
     monkeypatch.setattr("core.scoring.compute_session_score", raising_session_score)
     with caplog.at_level(logging_module.WARNING, logger="core.scoring"):
-        score, _, _ = compute_score(
+        score, _, _, _contributions = compute_score(
             current_price=100.0, potential_price=None, volume_ratio=1.0,
             balance_status="Notr", rsi=15.0, macd=None, macd_signal=None,
         )
@@ -667,7 +672,7 @@ def test_compute_score_prepends_session_signals_only_during_overlap(monkeypatch)
         }
 
     monkeypatch.setattr("core.scoring.compute_session_score", fake_session_score)
-    _, longs, _ = compute_score(
+    _, longs, _, _contributions = compute_score(
         current_price=80.0, potential_price=100.0, volume_ratio=1.0,
         balance_status="Notr", rsi=None, macd=None, macd_signal=None,
     )
