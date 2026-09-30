@@ -3,6 +3,33 @@
 Date: 2026-07-27
 Status: Analysis only — no code changed, no architecture altered.
 
+> **Superseded — 2026-09-29.** The gaps this document identified in
+> §1 (Decision Engine) and §3 (Feature Store) have since been built:
+> `backend/decision_engine/` (single aggregating orchestrator over a
+> voting-engine registry) and `backend/feature_store/` (Redis online +
+> PostgreSQL offline store) both now exist, wired together by
+> `backend/pipeline/` and served behind `POST /quant/analyze`, which
+> `main.py`'s own docstring now calls "the sole canonical production
+> decision path." §2 (LLM role) is also resolved for that path:
+> `explanation_engine/` only ever explains an already-decided
+> `DecisionOutput`, never produces one.
+>
+> This does **not** mean the "three parallel decision paths" problem
+> this document describes is closed, though — `core/analyzer.py`
+> (legacy `/analyze`), `v2/core/engine.py` (`/v2/analyze`), and
+> `core/hybrid_engine.py`/`core/ai_trader_persona.py` (`/api/v1/signals/
+> analyze`, where an LLM still *is* the decision) are all still live
+> today, each still doing its own independent analysis rather than
+> deferring to `decision_engine`. The difference from this document's
+> account is that a fourth, compliant path was added alongside them
+> rather than being built by consolidating them — so what "merge the
+> three parallel paths" now means is deciding what to do with these
+> three now that a canonical fourth alternative already exists, not
+> building that alternative from scratch. Kept below
+> unedited as the original decision record; treat any "does not exist"
+> claim about the Decision Engine, LLM role, or Feature Store as
+> historical, not current.
+
 ## Purpose
 
 This document compares the **current backend implementation** (as it exists

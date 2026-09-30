@@ -3,6 +3,16 @@
 Date: 2026-07-27
 Status: Analysis only — no code changed, no architecture altered.
 
+> **Superseded — 2026-09-29.** `backend/feature_store/` now exists
+> (`online_store.py` on Redis, `offline_store.py` on PostgreSQL,
+> `resolution.py`, `validation.py`, versioned per `models.py`) and is
+> the live dependency of `decision_engine/` and `pipeline/` (see
+> `docs/architecture/gap-analysis.md`'s own superseded-note for how
+> those fit together). Every "does not exist" finding below about
+> Redis, PostgreSQL, versioning, or point-in-time correctness describes
+> the pre-Sprint-2 state this document was written to close, not the
+> current one — kept unedited as the original decision record.
+
 ## Purpose
 
 Sprint 1 (Repository Refactoring) is complete: the backend is now protected
