@@ -16,6 +16,7 @@ from core.investor_persona import HorizonView, InvestorRecommendation
 from core.market_anomaly_detector import MarketAlert
 from core.regime_scanner import MarketRegime, ScannedSymbol
 from core.risk_manager import RiskLevels
+from decision_engine.models import DecisionOutput, Prediction
 
 
 def _scanned(symbol="AAPL", regime=MarketRegime.TRENDING_BULL):
@@ -61,6 +62,27 @@ def _risk():
     )
 
 
+def _decision_output(symbol="AAPL", decision=Prediction.BUY, confidence=0.70):
+    """Default (BUY, 0.70) is deliberately chosen to map onto the exact
+    same (TradeSignal.BUY, confidence_score=70) `_trade_rec()` already
+    hardcodes - so `_apply_canonical_decision`'s override is a no-op for
+    every pre-existing exact-equality assertion (`result == [_trade_rec()]`)
+    below, and only the dedicated Decision Engine tests further down
+    need a differing value to prove the override actually happens."""
+    return DecisionOutput(
+        symbol=symbol, decision=decision, confidence=confidence,
+        expected_return=0.01, expected_volatility=0.02,
+        aggregation_strategy_version="test", data_sufficiency=1.0,
+        evidence=[], engine_results=[],
+    )
+
+
+def _make_decision_engine(**decide_kwargs) -> MagicMock:
+    mock = MagicMock()
+    mock.decide.return_value = _decision_output(**decide_kwargs)
+    return mock
+
+
 def _make_engine(**overrides) -> HybridTradingEngine:
     defaults = dict(
         scanner=MagicMock(),
@@ -70,6 +92,7 @@ def _make_engine(**overrides) -> HybridTradingEngine:
         investor_persona=MagicMock(),
         news_adapter=MagicMock(),
         anomaly_detector=MagicMock(),
+        decision_engine=_make_decision_engine(),
     )
     defaults.update(overrides)
     return HybridTradingEngine(**defaults)
@@ -237,6 +260,54 @@ class TestCheckAlerts:
         result = engine.check_alerts(["AAPL"])
 
         assert result == [alert]
+
+
+class TestCanonicalDecisionOverride:
+    """The Decision Engine is the single decision authority for
+    profile="trader" - the LLM's own signal/confidence_score must never
+    reach the caller unmodified (gap-analysis.md section 2)."""
+
+    def test_decision_engine_output_overrides_the_llm_signal(self):
+        engine = _make_engine(decision_engine=_make_decision_engine(decision=Prediction.SELL, confidence=0.9))
+        engine.scanner.scan_and_filter.return_value = [_scanned()]
+        engine.analyzer.analyze.return_value = _analysis()
+        engine.news_adapter.get_sentiment.return_value = None
+        engine.risk_manager.calculate.return_value = _risk()
+        engine.ai_persona.generate_recommendation.return_value = _trade_rec()  # says BUY/70
+        engine.anomaly_detector.detect.return_value = None
+
+        result = engine.run(["AAPL"])
+
+        engine.decision_engine.decide.assert_called_once_with("AAPL")
+        assert result[0].signal == TradeSignal.STRONG_SELL  # 0.9 crosses the "strong" bar
+        assert result[0].confidence_score == 90
+        assert result[0].entry_price == 180.0  # risk_manager-sourced, unaffected
+
+    def test_decision_engine_failure_falls_back_to_the_llm_signal(self):
+        engine = _make_engine()
+        engine.decision_engine.decide.side_effect = RuntimeError("boom")
+        engine.scanner.scan_and_filter.return_value = [_scanned()]
+        engine.analyzer.analyze.return_value = _analysis()
+        engine.news_adapter.get_sentiment.return_value = None
+        engine.risk_manager.calculate.return_value = _risk()
+        engine.ai_persona.generate_recommendation.return_value = _trade_rec()  # says BUY/70
+        engine.anomaly_detector.detect.return_value = None
+
+        result = engine.run(["AAPL"])
+
+        assert result == [_trade_rec()]  # unchanged - LLM's own signal survives
+
+    def test_investor_profile_never_consults_the_decision_engine(self):
+        engine = _make_engine()
+        engine.scanner.scan_and_filter.return_value = [_scanned()]
+        engine.analyzer.analyze.return_value = _analysis()
+        engine.news_adapter.get_sentiment.return_value = None
+        engine.investor_persona.generate_recommendation.return_value = _investor_rec()
+        engine.anomaly_detector.detect.return_value = None
+
+        engine.run(["AAPL"], profile="investor")
+
+        engine.decision_engine.decide.assert_not_called()
         assert engine.analyzer.analyze.call_count == 1  # run() sırasında çekilen veri yeniden kullanıldı
 
     def test_check_alerts_handles_missing_analysis(self):

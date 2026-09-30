@@ -23,7 +23,28 @@ from fastapi import HTTPException
 
 import v2.api.router as v2_router
 import v2.core.backtest_engine as v2_backtest
+from decision_engine.models import DecisionOutput, Prediction
 from v2.models.schemas import BacktestPoint, SignalSide
+
+
+class _FakeDecisionEngine:
+    """Fixed BUY/0.5 - none of this file's tests assert on
+    aggregated_score/confidence values (it's about asyncio dispatch, not
+    decision correctness), this just keeps every test here from making a
+    real Decision Engine call (Feature Store/Postgres/live engines)."""
+
+    def decide(self, symbol: str) -> DecisionOutput:
+        return DecisionOutput(
+            symbol=symbol, decision=Prediction.BUY, confidence=0.5,
+            expected_return=0.0, expected_volatility=0.0,
+            aggregation_strategy_version="test", data_sufficiency=1.0,
+            evidence=[], engine_results=[],
+        )
+
+
+@pytest.fixture(autouse=True)
+def _fake_decision_engine(monkeypatch):
+    monkeypatch.setattr(v2_router.engine, "decision_engine", _FakeDecisionEngine())
 
 
 def _ohlcv(rows: int = 60) -> pd.DataFrame:

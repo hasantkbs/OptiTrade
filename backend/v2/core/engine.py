@@ -3,8 +3,9 @@ import json
 import logging
 import time
 import pandas as pd
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
+from decision_engine.models import DecisionOutput, Prediction
 from v2.indicators.base import BaseIndicator
 from v2.models.schemas import EngineResult, IndicatorOutput, SignalSide
 from v2.ml.predictor import MLPredictorV2
@@ -26,12 +27,19 @@ def _log_structured_event(
     engine. A local copy of the same field schema used by
     core.structured_logging.log_event (timestamp, component, module,
     operation, status, symbol/execution_time_ms/error_type where
-    applicable) - kept local rather than imported from `core` so that
-    `v2` does not gain a new dependency on `core` (v2 has never imported
-    from core anywhere else; this preserves that existing independence
-    between the two currently-separate engines, per
-    docs/architecture/gap-analysis.md section 1). Never pass free-text
-    narrative through `extra_fields` - structured/numeric values only."""
+    applicable) - kept local rather than imported from `core`.
+
+    Note on the "no core dependency" invariant this comment used to
+    describe: as of the gap-analysis.md section 1 superseded-note,
+    `TradingEngineV2.analyze()` below now defers its headline decision
+    to `decision_engine` (which itself imports `core.structured_logging`
+    for its own logging) - so v2 does have a transitive dependency on
+    `core` now, by design, specifically to stop being an independent
+    decision authority. This particular helper stays local regardless:
+    it is v2's own log shape, not something that needs to move just
+    because the isolation it once helped illustrate no longer holds.
+    Never pass free-text narrative through `extra_fields` - structured/
+    numeric values only."""
     record: Dict[str, Any] = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "component": "v2_engine",
@@ -92,33 +100,82 @@ class RiskManager:
         # Combine
         return (vol_risk * 0.4) + (agreement_risk * 0.6)
 
+def _to_directional_score(decision_output: DecisionOutput) -> Tuple[float, float]:
+    """Encodes the Decision Engine's discrete decision+confidence into
+    this engine's existing signed-magnitude scale: BUY/SELL set the
+    sign, confidence (already 0..1) sets the magnitude, HOLD is exactly
+    0.0. Matches every `IndicatorOutput.score`'s own [-1, 1] bound and
+    the shape `SignalFusion.aggregate()` already produced (a confidence-
+    weighted signed score) - so `EngineResult`'s contract is unchanged,
+    only which computation is authoritative for it."""
+    sign = {Prediction.BUY: 1.0, Prediction.HOLD: 0.0, Prediction.SELL: -1.0}[decision_output.decision]
+    return sign * decision_output.confidence, decision_output.confidence
+
+
 class TradingEngineV2:
-    def __init__(self, indicators: List[BaseIndicator]):
+    def __init__(self, indicators: List[BaseIndicator], decision_engine: Optional[Any] = None):
         self.indicators = indicators
         self.fusion = SignalFusion()
         self.risk_manager = RiskManager()
+        # Only needs `.decide(symbol) -> DecisionOutput` - see
+        # `core.hybrid_engine.HybridTradingEngine`'s own identical note
+        # for why this stays untyped `Any` rather than a new Protocol.
+        # Unlike that class, resolving the shared default here MUST stay
+        # deferred to `analyze()` rather than happening in `__init__`:
+        # `v2/api/router.py` constructs its module-level `TradingEngineV2`
+        # singleton at import time (`main.py` imports that router before
+        # its own `startup_event`/`schema_init_lock` ever run), so eagerly
+        # calling `get_default_decision_engine()` here would try to wire
+        # up the Feature Store/engine registry before the app has
+        # finished its own startup sequence. `None` here just means "use
+        # the default on first analyze() call", not "no engine".
+        self.decision_engine = decision_engine
 
     async def analyze(self, symbol: str, data: pd.DataFrame) -> EngineResult:
         _started_at = time.perf_counter()
         tasks = [ind.calculate(data) for ind in self.indicators]
         indicator_results = await asyncio.gather(*tasks)
 
-        aggregation = self.fusion.aggregate(indicator_results)
         risk_score = self.risk_manager.calculate_risk(data, indicator_results)
+
+        # The Decision Engine is the single decision authority (see
+        # gap-analysis.md section 1's superseded-note) - this engine's
+        # own indicators still compute `signals` below (the detailed
+        # per-indicator breakdown clients render), but the headline
+        # aggregated_score/confidence that actually encode BUY/SELL/HOLD
+        # now come from there, not from this engine's own SignalFusion.
+        # A Decision Engine failure (infra down, zero valid votes) falls
+        # back to this engine's own fusion so a hiccup there never turns
+        # into a hard failure for this endpoint.
+        try:
+            decision_engine = self.decision_engine
+            if decision_engine is None:
+                from decision_engine.service import get_default_decision_engine
+
+                decision_engine = get_default_decision_engine()
+            decision_output = await asyncio.to_thread(decision_engine.decide, symbol)
+            aggregated_score, confidence = _to_directional_score(decision_output)
+        except Exception as exc:
+            _log_structured_event(
+                operation="canonical_decision", status="error", symbol=symbol,
+                error_type=type(exc).__name__, level=logging.ERROR,
+            )
+            aggregation = self.fusion.aggregate(indicator_results)
+            aggregated_score, confidence = aggregation["score"], aggregation["confidence"]
 
         _log_structured_event(
             operation="analyze",
             status="success",
             symbol=symbol,
             execution_time_ms=(time.perf_counter() - _started_at) * 1000,
-            aggregated_score=aggregation["score"],
-            confidence=aggregation["confidence"],
+            aggregated_score=aggregated_score,
+            confidence=confidence,
             risk_score=risk_score,
         )
         return EngineResult(
             symbol=symbol,
-            aggregated_score=aggregation["score"],
-            confidence=aggregation["confidence"],
+            aggregated_score=aggregated_score,
+            confidence=confidence,
             signals=indicator_results,
             risk_score=risk_score,
             timestamp=datetime.now(timezone.utc).isoformat()

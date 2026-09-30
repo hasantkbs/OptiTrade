@@ -22,9 +22,10 @@ uçtan uca bağlayan ana motor. Ayrıca:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Literal, Optional, Union
+import os
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-from core.ai_trader_persona import AITraderPersona, TradeRecommendation
+from core.ai_trader_persona import AITraderPersona, TradeRecommendation, TradeSignal
 from core.cache_manager import TTLCache
 from core.interfaces import (
     AnomalyDetectorProtocol,
@@ -41,8 +42,36 @@ from core.mtf_analyzer import MultiTimeframeAnalyzer
 from core.news_adapter import NewsSentimentAdapter
 from core.regime_scanner import MarketRegimeScanner, ScannedSymbol
 from core.risk_manager import DynamicRiskManager
+from decision_engine.models import DecisionOutput, Prediction
 
 logger = logging.getLogger(__name__)
+
+# Same "strong" confidence bar intelligence/config.py's
+# INTELLIGENCE_STRONG_BUY_CONFIDENCE_THRESHOLD uses (default 0.75),
+# applied symmetrically to SELL too - duplicated as its own env-driven
+# constant rather than importing intelligence.config here, so this
+# legacy orchestrator gains no new dependency on the newer intelligence
+# package for one threshold value.
+_STRONG_SIGNAL_CONFIDENCE_THRESHOLD = float(
+    os.getenv("INTELLIGENCE_STRONG_BUY_CONFIDENCE_THRESHOLD", "0.75")
+)
+
+
+def _to_trade_signal(decision_output: DecisionOutput) -> Tuple[TradeSignal, int]:
+    """Maps the Decision Engine's discrete (decision, confidence) onto
+    AITraderPersona's five-way `TradeSignal` vocabulary. `Prediction` is
+    only BUY/HOLD/SELL - STRONG_BUY/STRONG_SELL are derived here from
+    confidence crossing the same bar `intelligence.opportunity.
+    classify_opportunity` uses for STRONG_BUY_BIAS, applied to both
+    directions since a trade signal (unlike that product-facing
+    "opportunity" label) needs to be symmetric."""
+    confidence_score = round(decision_output.confidence * 100)
+    if decision_output.decision == Prediction.HOLD:
+        return TradeSignal.NEUTRAL, confidence_score
+    is_strong = decision_output.confidence >= _STRONG_SIGNAL_CONFIDENCE_THRESHOLD
+    if decision_output.decision == Prediction.BUY:
+        return (TradeSignal.STRONG_BUY if is_strong else TradeSignal.BUY), confidence_score
+    return (TradeSignal.STRONG_SELL if is_strong else TradeSignal.SELL), confidence_score
 
 DEFAULT_RECOMMENDATION_CACHE_TTL_SECONDS = 15 * 60  # 15 dakika
 DEFAULT_ALERT_CACHE_TTL_SECONDS = 2 * 60  # 2 dakika
@@ -68,6 +97,7 @@ class HybridTradingEngine:
         investor_persona: Optional[InvestorPersonaProtocol] = None,
         news_adapter: Optional[NewsSentimentProtocol] = None,
         anomaly_detector: Optional[AnomalyDetectorProtocol] = None,
+        decision_engine: Optional[Any] = None,
         recommendation_cache_ttl_seconds: float = DEFAULT_RECOMMENDATION_CACHE_TTL_SECONDS,
         alert_cache_ttl_seconds: float = DEFAULT_ALERT_CACHE_TTL_SECONDS,
     ) -> None:
@@ -78,6 +108,22 @@ class HybridTradingEngine:
         self.investor_persona = investor_persona or InvestorPersona()
         self.news_adapter = news_adapter or NewsSentimentAdapter()
         self.anomaly_detector = anomaly_detector or MarketAnomalyDetector()
+        # `Any`, not a `core.interfaces` Protocol like the layers above:
+        # only needs a `.decide(symbol) -> DecisionOutput` method
+        # (decision_engine.service.DecisionEngine's own shape); kept
+        # untyped here rather than adding a new Protocol for one method
+        # used by one call site (`_apply_canonical_decision` below).
+        # `None` here means "resolve the shared default lazily, on first
+        # use in `_apply_canonical_decision`" - deliberately NOT resolved
+        # eagerly here the way the other layers above are: this
+        # constructor runs in test/script contexts (test_engine.py,
+        # terminal_dashboard.py, every characterization test in
+        # tests/test_hybrid_engine.py and tests/unit/test_hybrid_engine.py)
+        # that construct a `HybridTradingEngine()` without ever calling
+        # `.run()` or without injecting a fake, and none of those should
+        # pay for (or depend on) a real Feature Store/engine registry
+        # connection just from construction.
+        self.decision_engine = decision_engine
         self._recommendation_cache: TTLCache[TradeRecommendation] = TTLCache(
             ttl_seconds=recommendation_cache_ttl_seconds
         )
@@ -161,6 +207,7 @@ class HybridTradingEngine:
                         news_sentiment=news_sentiment,
                     )
                 )
+                recommendation = self._apply_canonical_decision(symbol, recommendation)
             else:
                 recommendation = self.investor_persona.generate_recommendation(
                     symbol=symbol,
@@ -174,6 +221,41 @@ class HybridTradingEngine:
         except Exception as exc:
             logger.error(f"{symbol}: hibrit motor hatası ({profile}): {exc}")
             return None
+
+    def _apply_canonical_decision(
+        self, symbol: str, recommendation: TradeRecommendation
+    ) -> TradeRecommendation:
+        """Overrides the LLM's own `signal`/`confidence_score` with the
+        Decision Engine's statistical vote for this symbol - see
+        docs/architecture/gap-analysis.md section 2 ("LLMs are
+        explanation engines only; they do not make investment
+        decisions"). `AITraderPersona`'s prompt/schema are unchanged
+        (it still produces a `signal` of its own), so `trader_analysis`/
+        `investor_analysis`/`trader_commentary` keep reading as a
+        synthesis that arrives at *a* signal - but the signal actually
+        returned to the caller is always the same one `decision_engine`
+        would give any other consumer for this symbol, never the LLM's.
+        `entry_price`/`stop_loss`/`take_profit_*` are untouched (already
+        sourced from `risk_manager`, not the LLM, before this runs).
+
+        A Decision Engine failure (infra down, zero valid votes, etc.)
+        falls back to the LLM's own signal rather than dropping the
+        recommendation entirely - this symbol's caching/error-isolation
+        behavior in `_process_symbol` is otherwise unaffected."""
+        try:
+            decision_engine = self.decision_engine
+            if decision_engine is None:
+                from decision_engine.service import get_default_decision_engine
+
+                decision_engine = get_default_decision_engine()
+            decision_output = decision_engine.decide(symbol)
+        except Exception as exc:
+            logger.error(
+                f"{symbol}: decision engine yetkisi uygulanamadi, LLM sinyali korunuyor: {exc}"
+            )
+            return recommendation
+        signal, confidence_score = _to_trade_signal(decision_output)
+        return recommendation.model_copy(update={"signal": signal, "confidence_score": confidence_score})
 
     def _get_or_check_alert(self, scanned: ScannedSymbol) -> Optional[MarketAlert]:
         symbol = scanned.symbol

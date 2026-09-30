@@ -1,9 +1,15 @@
 """
-Tests for v2/core/engine.py's Sprint 1 Task 8 structured-logging addition.
-Not a full characterization suite for TradingEngineV2 (out of scope for
-this task) - only proves (a) analyze()'s return value is unchanged by the
-new logging code, and (b) it emits exactly one structured, machine-
-readable JSON log event with the documented fields.
+Tests for v2/core/engine.py: the Sprint 1 Task 8 structured-logging
+addition, and the later consolidation making the Decision Engine the
+single decision authority for `aggregated_score`/`confidence` (see
+docs/architecture/gap-analysis.md section 1's superseded-note) - not a
+full characterization suite for TradingEngineV2 beyond that.
+
+A `FakeDecisionEngine` is injected into every test below so none of them
+hit the real Decision Engine (Feature Store/Postgres/live engines) -
+`TradingEngineV2.analyze()` resolves a real one lazily on first use only
+when `decision_engine=None` was passed at construction (see that
+module's own comment on why it can't resolve it eagerly in __init__).
 """
 import json
 import logging
@@ -12,6 +18,7 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
+from decision_engine.models import DecisionOutput, Prediction
 from v2.core.engine import TradingEngineV2
 from v2.models.schemas import IndicatorOutput, SignalSide
 
@@ -30,6 +37,28 @@ class FakeIndicator:
         )
 
 
+class FakeDecisionEngine:
+    def __init__(self, decision_output: DecisionOutput = None, raises: Exception = None) -> None:
+        self._decision_output = decision_output or _make_decision_output()
+        self._raises = raises
+        self.calls = []
+
+    def decide(self, symbol: str) -> DecisionOutput:
+        self.calls.append(symbol)
+        if self._raises is not None:
+            raise self._raises
+        return self._decision_output
+
+
+def _make_decision_output(decision=Prediction.BUY, confidence=0.8) -> DecisionOutput:
+    return DecisionOutput(
+        symbol="BTC-USD", decision=decision, confidence=confidence,
+        expected_return=0.01, expected_volatility=0.02,
+        aggregation_strategy_version="test", data_sufficiency=1.0,
+        evidence=[], engine_results=[],
+    )
+
+
 def _make_ohlcv(rows: int = 5) -> pd.DataFrame:
     return pd.DataFrame({
         "Open": [100.0] * rows, "High": [101.0] * rows,
@@ -39,17 +68,66 @@ def _make_ohlcv(rows: int = 5) -> pd.DataFrame:
 
 
 @pytest.mark.asyncio
-async def test_analyze_return_value_is_unchanged_by_the_logging_addition(caplog):
-    engine = TradingEngineV2([
-        FakeIndicator("fake1", score=0.5, confidence=0.8, side=SignalSide.BUY),
-    ])
-    with caplog.at_level(logging.INFO, logger="v2.core.engine"):
-        result = await engine.analyze("BTC-USD", _make_ohlcv())
+async def test_analyze_headline_score_comes_from_the_decision_engine_not_the_indicators():
+    """`aggregated_score`/`confidence` are the Decision Engine's - BUY at
+    confidence=0.8 encodes to (+0.8, 0.8), deliberately different from
+    the lone indicator's own (0.5, 0.8) so the two sources can't be
+    confused for one another."""
+    decision_engine = FakeDecisionEngine(_make_decision_output(Prediction.BUY, confidence=0.8))
+    engine = TradingEngineV2(
+        [FakeIndicator("fake1", score=0.5, confidence=0.8, side=SignalSide.BUY)],
+        decision_engine=decision_engine,
+    )
 
+    result = await engine.analyze("BTC-USD", _make_ohlcv())
+
+    assert decision_engine.calls == ["BTC-USD"]
     assert result.symbol == "BTC-USD"
+    assert result.aggregated_score == pytest.approx(0.8)
+    assert result.confidence == pytest.approx(0.8)
+    # The indicator's own output is still surfaced in `signals` - only
+    # the headline score/confidence authority changed.
+    assert len(result.signals) == 1
+    assert result.signals[0].score == pytest.approx(0.5)
+
+
+@pytest.mark.asyncio
+async def test_analyze_sell_decision_yields_a_negative_aggregated_score():
+    decision_engine = FakeDecisionEngine(_make_decision_output(Prediction.SELL, confidence=0.6))
+    engine = TradingEngineV2([], decision_engine=decision_engine)
+
+    result = await engine.analyze("BTC-USD", _make_ohlcv())
+
+    assert result.aggregated_score == pytest.approx(-0.6)
+    assert result.confidence == pytest.approx(0.6)
+
+
+@pytest.mark.asyncio
+async def test_analyze_hold_decision_yields_a_zero_aggregated_score():
+    decision_engine = FakeDecisionEngine(_make_decision_output(Prediction.HOLD, confidence=0.4))
+    engine = TradingEngineV2([], decision_engine=decision_engine)
+
+    result = await engine.analyze("BTC-USD", _make_ohlcv())
+
+    assert result.aggregated_score == pytest.approx(0.0)
+    assert result.confidence == pytest.approx(0.4)
+
+
+@pytest.mark.asyncio
+async def test_analyze_falls_back_to_its_own_fusion_when_the_decision_engine_fails():
+    """A Decision Engine failure must not turn into a hard failure for
+    this endpoint - falls back to this engine's own indicator fusion
+    (the pre-consolidation behavior) instead."""
+    decision_engine = FakeDecisionEngine(raises=RuntimeError("feature store unavailable"))
+    engine = TradingEngineV2(
+        [FakeIndicator("fake1", score=0.5, confidence=0.8, side=SignalSide.BUY)],
+        decision_engine=decision_engine,
+    )
+
+    result = await engine.analyze("BTC-USD", _make_ohlcv())
+
     assert result.aggregated_score == pytest.approx(0.5)
     assert result.confidence == pytest.approx(0.8)
-    assert len(result.signals) == 1
 
 
 @pytest.mark.asyncio
@@ -58,9 +136,10 @@ async def test_analyze_result_timestamp_is_utc_aware_not_naive():
     field - see v2/models/schemas.py) must carry an explicit UTC offset
     so a mobile client can parse it unambiguously. Previously built from
     a naive `datetime.now().isoformat()` (server local time, no offset)."""
-    engine = TradingEngineV2([
-        FakeIndicator("fake1", score=0.5, confidence=0.8, side=SignalSide.BUY),
-    ])
+    engine = TradingEngineV2(
+        [FakeIndicator("fake1", score=0.5, confidence=0.8, side=SignalSide.BUY)],
+        decision_engine=FakeDecisionEngine(),
+    )
     result = await engine.analyze("BTC-USD", _make_ohlcv())
 
     parsed = datetime.fromisoformat(result.timestamp)
@@ -70,9 +149,10 @@ async def test_analyze_result_timestamp_is_utc_aware_not_naive():
 
 @pytest.mark.asyncio
 async def test_analyze_emits_one_structured_log_event(caplog):
-    engine = TradingEngineV2([
-        FakeIndicator("fake1", score=0.5, confidence=0.8, side=SignalSide.BUY),
-    ])
+    engine = TradingEngineV2(
+        [FakeIndicator("fake1", score=0.5, confidence=0.8, side=SignalSide.BUY)],
+        decision_engine=FakeDecisionEngine(_make_decision_output(Prediction.BUY, confidence=0.8)),
+    )
     with caplog.at_level(logging.INFO, logger="v2.core.engine"):
         await engine.analyze("BTC-USD", _make_ohlcv())
 
@@ -84,6 +164,6 @@ async def test_analyze_emits_one_structured_log_event(caplog):
     assert record["status"] == "success"
     assert record["symbol"] == "BTC-USD"
     assert "execution_time_ms" in record
-    assert record["aggregated_score"] == pytest.approx(0.5)
+    assert record["aggregated_score"] == pytest.approx(0.8)
     assert record["confidence"] == pytest.approx(0.8)
     assert "risk_score" in record

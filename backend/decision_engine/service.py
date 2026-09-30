@@ -165,3 +165,59 @@ class DecisionEngine:
                 error_type=type(exc).__name__,
                 level=logging.ERROR,
             )
+
+
+_default_decision_engine: Optional["DecisionEngine"] = None
+
+
+def get_default_decision_engine() -> "DecisionEngine":
+    """Process-wide singleton `DecisionEngine`, wired to the same
+    Technical/Fundamental/News engine instances `pipeline.service.
+    PipelineService` resolves via `engine_registry.registry.
+    default_registry` (see that module's own docstring: these are
+    lazily-constructed, self-registering singletons shared by every
+    consumer - not re-instantiated here).
+
+    Added so a single decision authority can be reused by callers other
+    than `pipeline.pipeline.Pipeline` (`core.hybrid_engine.
+    HybridTradingEngine`, `v2.core.engine.TradingEngineV2`) without each
+    standing up its own registry - see docs/architecture/gap-analysis.md
+    section 1's superseded-note for why this matters: those two paths
+    previously ran fully independent decision logic instead of deferring
+    to one authority. Deliberately does NOT fold in Model Serving's
+    per-call ML engines the way `PipelineService.run()` does (that is
+    additive to `/quant/analyze` specifically) - Technical/Fundamental/
+    News is the same minimum viable engine set this Decision Engine was
+    originally designed around.
+
+    Bare `DecisionEngine.decide()` (a serial for-loop) is fine here,
+    unlike `pipeline.pipeline.Pipeline`'s deliberate avoidance of it for
+    parallel execution - these are lower-volume paths than the primary
+    `/quant/analyze` pipeline.
+
+    Constructed lazily on first call, not at import time, so importing
+    this module never has the side effect of self-registering engines
+    or touching the Feature Store."""
+    global _default_decision_engine
+    if _default_decision_engine is None:
+        # Import for self-registration side effects only - matches
+        # pipeline.service's own pattern, guarantees these engines are
+        # present in default_registry regardless of import order.
+        import engines.fundamental  # noqa: F401
+        import engines.news  # noqa: F401
+        import engines.technical  # noqa: F401
+        from engine_registry.registry import default_registry
+
+        registry = VotingEngineRegistry()
+        for engine in default_registry.all_enabled():
+            registry.register(engine)
+        _default_decision_engine = DecisionEngine(registry=registry)
+        log_event(
+            logger,
+            component="decision_engine",
+            module="decision_engine.service",
+            operation="get_default_decision_engine",
+            status=STATUS_SUCCESS,
+            registered_engines=len(registry),
+        )
+    return _default_decision_engine

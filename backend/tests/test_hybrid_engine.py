@@ -27,7 +27,7 @@ same fakes-over-mocks convention as the rest of this file.
 """
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.ai_trader_persona import AITraderPersona, TradeRecommendation
+from core.ai_trader_persona import AITraderPersona, TradeRecommendation, TradeSignal
 from core.hybrid_engine import HybridTradingEngine
 from core.interfaces import (
     AnomalyDetectorProtocol,
@@ -44,6 +44,7 @@ from core.mtf_analyzer import MultiTimeframeAnalyzer
 from core.news_adapter import NewsSentimentAdapter
 from core.regime_scanner import MarketRegime, MarketRegimeScanner, ScannedSymbol
 from core.risk_manager import DynamicRiskManager, RiskLevels
+from decision_engine.models import DecisionOutput, Prediction
 
 
 def _make_recommendation(symbol: str) -> TradeRecommendation:
@@ -157,8 +158,39 @@ class FakeAnomalyDetector:
         return self._alert
 
 
+def _make_decision_output(
+    symbol: str, decision: Prediction = Prediction.BUY, confidence: float = 0.6
+) -> DecisionOutput:
+    return DecisionOutput(
+        symbol=symbol, decision=decision, confidence=confidence,
+        expected_return=0.01, expected_volatility=0.02,
+        aggregation_strategy_version="test", data_sufficiency=1.0,
+        evidence=[], engine_results=[],
+    )
+
+
+class FakeDecisionEngine:
+    """Default decision (BUY, confidence=0.6) deliberately differs from
+    `_make_recommendation`'s hardcoded `confidence_score=80` (which maps
+    to 60 after `_apply_canonical_decision` overrides it) - so any test
+    that happened to assert the LLM's own confidence_score would fail
+    loudly instead of silently passing by coincidence."""
+
+    def __init__(self, decision_output: Optional[DecisionOutput] = None, raises: Optional[Exception] = None) -> None:
+        self._decision_output = decision_output
+        self._raises = raises
+        self.calls: List[str] = []
+
+    def decide(self, symbol: str) -> DecisionOutput:
+        self.calls.append(symbol)
+        if self._raises is not None:
+            raise self._raises
+        return self._decision_output or _make_decision_output(symbol)
+
+
 def _build_engine(
-    scanned: List[ScannedSymbol], analyzer_result: Optional[Dict[str, Any]]
+    scanned: List[ScannedSymbol], analyzer_result: Optional[Dict[str, Any]],
+    decision_engine: Optional[Any] = None,
 ) -> Tuple[HybridTradingEngine, FakeScanner, FakeAnalyzer, FakeAiPersona]:
     scanner = FakeScanner(scanned)
     analyzer = FakeAnalyzer(analyzer_result)
@@ -171,6 +203,7 @@ def _build_engine(
         investor_persona=FakeInvestorPersona(),
         news_adapter=FakeNewsAdapter(),
         anomaly_detector=FakeAnomalyDetector(),
+        decision_engine=decision_engine or FakeDecisionEngine(),
     )
     return engine, scanner, analyzer, ai_persona
 
@@ -230,6 +263,68 @@ def test_run_continues_when_a_symbol_raises():
 
     assert [r.symbol for r in result] == ["BTC-USD"]
     assert ai_persona.calls == ["BTC-USD"]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Decision Engine is the single decision authority (gap-analysis.md
+# section 1/2's superseded-note) - the LLM's own signal/confidence_score
+# must never reach the caller unmodified for profile="trader".
+# ─────────────────────────────────────────────────────────────────────────
+
+def test_trader_recommendation_signal_is_overridden_by_the_decision_engine():
+    decision_engine = FakeDecisionEngine(_make_decision_output("BTC-USD", Prediction.SELL, confidence=0.9))
+    engine, _, _, ai_persona = _build_engine(
+        [_make_scanned("BTC-USD")], {"current_price": 100.0, "atr_daily": 2.0},
+        decision_engine=decision_engine,
+    )
+
+    result = engine.run(["BTC-USD"])
+
+    # The LLM (FakeAiPersona/_make_recommendation) said BUY/80 - the
+    # Decision Engine's SELL/0.9 must win instead.
+    assert ai_persona.calls == ["BTC-USD"]  # LLM was still called (for the narrative fields)
+    assert decision_engine.calls == ["BTC-USD"]
+    assert result[0].signal == TradeSignal.STRONG_SELL  # 0.9 confidence crosses the "strong" bar
+    assert result[0].confidence_score == 90
+    # entry_price/stop_loss/take_profit are risk_manager-sourced, not
+    # the LLM's or the Decision Engine's - unaffected by the override.
+    assert result[0].entry_price == 100.0
+
+
+def test_trader_recommendation_falls_back_to_llm_signal_when_decision_engine_fails():
+    decision_engine = FakeDecisionEngine(raises=RuntimeError("feature store unavailable"))
+    engine, _, _, ai_persona = _build_engine(
+        [_make_scanned("BTC-USD")], {"current_price": 100.0, "atr_daily": 2.0},
+        decision_engine=decision_engine,
+    )
+
+    result = engine.run(["BTC-USD"])
+
+    # Decision Engine blew up - the recommendation is NOT dropped, it
+    # keeps the LLM's own (uncorroborated) signal/confidence_score.
+    assert result[0].signal == TradeSignal.BUY
+    assert result[0].confidence_score == 80
+
+
+def test_investor_recommendation_is_not_touched_by_the_decision_engine():
+    """profile="investor" produces three independent per-horizon
+    signals (see core/investor_persona.py's own docstring on why they
+    may legitimately disagree) - the Decision Engine has no per-horizon
+    concept, so this path is deliberately left untouched by this
+    consolidation step. A FakeDecisionEngine that would raise if ever
+    called proves it never is."""
+    class ExplodingDecisionEngine:
+        def decide(self, symbol: str) -> DecisionOutput:
+            raise AssertionError("Decision Engine must not be consulted for profile='investor'")
+
+    engine, _, _, _ = _build_engine(
+        [_make_scanned("AAPL")], {"current_price": 100.0, "atr_daily": 2.0},
+        decision_engine=ExplodingDecisionEngine(),
+    )
+
+    result = engine.run(["AAPL"], profile="investor")
+
+    assert isinstance(result[0], InvestorRecommendation)
 
 
 # ─────────────────────────────────────────────────────────────────────────
