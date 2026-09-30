@@ -175,7 +175,7 @@ def test_default_scanner_construction_wires_the_real_market_scanner():
     # without executing it.
     source = __import__(
         "pathlib",
-    ).Path("intelligence/background_intelligence.py").read_text(encoding="utf-8")
+    ).Path("src/intelligence/background_intelligence.py").read_text(encoding="utf-8")
     assert "from intelligence.market_scanner import MarketScanner" in source
     assert "scanner = MarketScanner()" in source
 
@@ -420,7 +420,7 @@ def test_scanner_failure_never_exposes_raw_exception_text():
 def test_main_wires_a_background_intelligence_loop_into_the_existing_scheduler():
     import pathlib
 
-    source = pathlib.Path("main.py").read_text(encoding="utf-8")
+    source = pathlib.Path("src/main.py").read_text(encoding="utf-8")
     assert "background_intelligence" in source.lower()
     assert "async def background_intelligence_scan_loop" in source
     # Uses the SAME executor-offload convention as every other loop
@@ -432,7 +432,7 @@ def test_main_wires_a_background_intelligence_loop_into_the_existing_scheduler()
 def test_background_intelligence_loop_only_starts_under_the_leader_lock():
     import pathlib
 
-    source = pathlib.Path("main.py").read_text(encoding="utf-8")
+    source = pathlib.Path("src/main.py").read_text(encoding="utf-8")
     leader_block_start = source.index("if acquire_scheduler_leader_lock():")
     leader_block_else = source.index("\n    else:", leader_block_start)
     leader_block = source[leader_block_start:leader_block_else]
@@ -505,7 +505,7 @@ def test_orchestration_layer_never_calls_anything_beyond_scan_and_get_symbols():
 def test_source_performs_no_database_writes():
     import pathlib
 
-    source = pathlib.Path("intelligence/background_intelligence.py").read_text(encoding="utf-8")
+    source = pathlib.Path("src/intelligence/background_intelligence.py").read_text(encoding="utf-8")
     for marker in ("psycopg2", "CREATE TABLE", "INSERT INTO", "import redis", ".save("):
         assert marker not in source
 
@@ -516,7 +516,7 @@ def test_source_performs_no_database_writes():
 def test_source_never_creates_an_alert_or_mutates_portfolio_or_watchlist():
     import pathlib
 
-    source = pathlib.Path("intelligence/background_intelligence.py").read_text(encoding="utf-8")
+    source = pathlib.Path("src/intelligence/background_intelligence.py").read_text(encoding="utf-8")
     for marker in (
         "Alert(", "AlertTriggerEvent(", "create_alert", "NotificationPayload(",
         ".buy(", ".sell(", ".deposit(", ".withdraw(",
@@ -532,7 +532,7 @@ def test_source_imports_no_llm_provider_or_legacy_decision_path():
     import ast
     import pathlib
 
-    tree = ast.parse(pathlib.Path("intelligence/background_intelligence.py").read_text(encoding="utf-8"))
+    tree = ast.parse(pathlib.Path("src/intelligence/background_intelligence.py").read_text(encoding="utf-8"))
     names = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -555,7 +555,7 @@ def test_source_defines_no_second_scanner_or_scheduler_class():
     import ast
     import pathlib
 
-    tree = ast.parse(pathlib.Path("intelligence/background_intelligence.py").read_text(encoding="utf-8"))
+    tree = ast.parse(pathlib.Path("src/intelligence/background_intelligence.py").read_text(encoding="utf-8"))
     class_names = {node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
     forbidden_fragments = ("DecisionEngine", "VotingEngine", "ScoringEngine", "RiskEngine", "Scheduler")
     offenders = [name for name in class_names if any(f.lower() in name.lower() for f in forbidden_fragments)]
@@ -565,7 +565,7 @@ def test_source_defines_no_second_scanner_or_scheduler_class():
 
 
 def test_source_never_imports_a_worker_framework():
-    source_path = __import__("pathlib").Path("intelligence/background_intelligence.py")
+    source_path = __import__("pathlib").Path("src/intelligence/background_intelligence.py")
     source = source_path.read_text(encoding="utf-8")
     for marker in ("celery", "Celery", "import rq", "APScheduler", "apscheduler"):
         assert marker not in source
@@ -585,7 +585,7 @@ def test_alert_scheduler_already_uses_the_same_in_memory_rotating_cursor_convent
     # uses a plain in-memory offset that resets on restart.
     import pathlib
 
-    source = pathlib.Path("watchlist/scheduler.py").read_text(encoding="utf-8")
+    source = pathlib.Path("src/watchlist/scheduler.py").read_text(encoding="utf-8")
     assert "self._scan_offset = 0" in source
 
 

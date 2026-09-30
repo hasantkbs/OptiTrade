@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 # backend/.env's production configuration (backend/.env is loaded by
 # main.py/users.config with override=False, so once a key is already
 # set here it's left alone). See .env.test's own comments for why.
-load_dotenv(Path(__file__).resolve().parent.parent / ".env.test", override=True)
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env.test", override=True)
 
 import pytest
 from fastapi.testclient import TestClient

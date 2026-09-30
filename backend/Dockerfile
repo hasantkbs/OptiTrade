@@ -59,6 +59,8 @@ RUN chown -R appuser:appgroup model_artifacts
 
 USER appuser
 
+WORKDIR /app/src
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
