@@ -201,8 +201,8 @@ def train():
         bar = "█" * int(imp * 40)
         print(f"  {name:18s}: {bar} ({imp:.3f})")
 
-    os.makedirs("models", exist_ok=True)
-    model_path = os.path.join("models", "xgb_signal_model.joblib")
+    os.makedirs("model_artifacts", exist_ok=True)
+    model_path = os.path.join("model_artifacts", "xgb_signal_model.joblib")
     joblib.dump({
         "model": model,
         "feature_names": FEATURE_NAMES,

@@ -29,7 +29,7 @@ N_CLASSES   = 3        # SELL=0, NEUTRAL=1, BUY=2
 N_FEATURES  = 11        # OHLCV_norm(5) + RSI + MACD + BB_pb + volume_ratio + ATR + ADX
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(__file__))
-MODEL_DIR   = os.path.join(BACKEND_DIR, "models")
+MODEL_DIR   = os.path.join(BACKEND_DIR, "model_artifacts")
 MODEL_PATH  = os.path.join(MODEL_DIR, "btc_chart_model.keras")
 SCALER_PATH = os.path.join(MODEL_DIR, "btc_chart_scaler.joblib")
 

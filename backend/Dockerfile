@@ -55,7 +55,7 @@ COPY . .
 # in-container retrain's own write failed with EACCES). chown (not
 # chmod 777, not USER root) makes ownership deterministic regardless
 # of what the build context's host permissions happen to be.
-RUN chown -R appuser:appgroup models
+RUN chown -R appuser:appgroup model_artifacts
 
 USER appuser
 
