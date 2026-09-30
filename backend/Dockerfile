@@ -61,6 +61,16 @@ USER appuser
 
 WORKDIR /app/src
 
+# alembic.ini lives at /app (the build context root), one level above
+# this WORKDIR, so the bare `alembic` CLI used by the production
+# migration path (`docker compose exec api alembic upgrade head`) - run
+# with no -c flag, CWD=/app/src - can't find it via its own default
+# ("alembic.ini" resolved relative to CWD) and fails with "No
+# 'script_location' key found in configuration." (verified empirically
+# against the built image). ALEMBIC_CONFIG is the CLI's documented
+# fallback for -c/--config, and makes this CWD-independent.
+ENV ALEMBIC_CONFIG=/app/alembic.ini
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \

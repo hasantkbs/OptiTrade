@@ -15,11 +15,11 @@ firebase-credentials.json
 
 # Dev/test-only - never imported by the production app, no reason to
 # ship them in the image (SERVER STEP 6).
-tests/
+src/tests/
 .pytest_cache/
 .coverage
 backtest_results.csv
 backtest_results.json
-test_engine.py
+src/test_engine.py
 requirements-dev.txt
 ml_training_artifacts/
