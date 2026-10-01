@@ -6,30 +6,30 @@ Usage (from backend/src):
 
 Methodology:
 - xgb_signal_model.joblib / v2_xgb_model.joblib: true walk-forward
-  evaluation. For each symbol in SYMBOL_BASKET, fetches ~1y of daily
-  OHLCV, computes the SAME feature vector each model was trained on at
-  every historical bar i (using only data up to and including bar i -
+  evaluation. For each symbol in SYMBOL_BASKET, fetches daily OHLCV,
+  computes the SAME feature vector each model was trained on at every
+  historical bar i (using only data up to and including bar i -
   point-in-time safe), predicts, and compares the prediction's implied
   direction against the REALIZED return from bar i to bar i+FORWARD_DAYS.
   Reports accuracy/precision/recall against a naive "always predict the
   majority class" baseline.
+
+  If the loaded model package has a recorded `train_end_date` (written
+  by `research/ml_trainer.py --train-end-date ...`), evaluation is
+  restricted to bars strictly AFTER that date - genuine out-of-sample,
+  not in-sample. If `train_end_date` is absent (None - the default for
+  any model trained without that flag, including both legacy artifacts
+  shipped before this capability existed), evaluation falls back to the
+  most recent 1 year and the report explicitly labels the result
+  "in-sample / methodology unknown" rather than implying it's held-out.
 - decision_engine: NOT walk-forward (decision_engine.decide(symbol) has
   no point-in-time parameter - it always reads the Feature Store's
   current/live state, a real limitation of this evaluation, not
   something this script can route around without decision_engine
   itself gaining historical replay support, which is out of scope for
-  this plan). Reports today's live decide() output across the same
+  this change). Reports today's live decide() output across the same
   symbol basket as a distribution/sanity check only - NOT an accuracy
   number, and the report says so explicitly.
-
-NOTE on methodology: features are computed point-in-time-safe (only data
-up to and including each bar), but the MODEL's training data is NOT
-excluded from this evaluation window - research/ml_trainer.py trains on
-period="2y" while this script evaluates on the most recent period="1y",
-which sits entirely inside that training window. Treat the reported
-accuracy as an upper bound / in-sample fit statistic, not true held-out
-performance. A genuine out-of-sample evaluation would need to know each
-model's actual training cutoff date and evaluate only after it.
 """
 from __future__ import annotations
 
@@ -37,18 +37,20 @@ import sys
 sys.path.insert(0, ".")
 
 import logging
-from datetime import datetime, timezone
+import os
+from datetime import date, datetime, timedelta, timezone
+from typing import Optional
 
 import joblib
 import numpy as np
 import pandas as pd
+import yfinance as yf
 
 from core.indicators import (
     calculate_bollinger_bands, calculate_ema_crossover, calculate_macd,
     calculate_price_velocity, calculate_rsi, calculate_trend_strength,
     calculate_volume_ratio,
 )
-from data.fetcher import fetch_history
 from decision_engine.service import get_default_decision_engine
 
 logging.basicConfig(level=logging.WARNING)
@@ -92,14 +94,34 @@ def _extract_features(window: pd.DataFrame) -> "list[float] | None":
 def walk_forward_evaluate(model_path: str, model_name: str) -> dict:
     package = joblib.load(model_path)
     model = package["model"]
+    train_end_date_str: Optional[str] = package.get("train_end_date")
+    train_end_date: Optional[date] = (
+        datetime.strptime(train_end_date_str, "%Y-%m-%d").date() if train_end_date_str else None
+    )
+    is_out_of_sample = train_end_date is not None
 
     y_true, y_pred = [], []
     for symbol in SYMBOL_BASKET:
-        hist = fetch_history(symbol, period="1y")
+        try:
+            ticker = yf.Ticker(symbol)
+            if train_end_date is not None:
+                # LOOKBACK days of buffer BEFORE train_end_date so the first
+                # post-cutoff bar still has a full feature window - only bars
+                # whose own date is strictly after train_end_date are ever
+                # used as a prediction target below, so the model is never
+                # evaluated on a bar it could have trained on.
+                hist = ticker.history(start=(train_end_date - timedelta(days=LOOKBACK * 2)).isoformat())
+            else:
+                hist = ticker.history(period="1y")
+        except Exception as exc:
+            logger.warning("%s: fetch failed, skipping: %s", symbol, exc)
+            continue
         if hist is None or len(hist) < LOOKBACK + FORWARD_DAYS + 10:
             logger.warning("%s: insufficient history, skipping", symbol)
             continue
         for i in range(LOOKBACK, len(hist) - FORWARD_DAYS):
+            if train_end_date is not None and hist.index[i].date() <= train_end_date:
+                continue  # this bar (or an earlier one the model could have trained on) - skip
             window = hist.iloc[i - LOOKBACK: i + 1]
             feats = _extract_features(window)
             if feats is None:
@@ -122,6 +144,7 @@ def walk_forward_evaluate(model_path: str, model_name: str) -> dict:
     return {
         "model": model_name, "n_samples": len(y_true_arr), "accuracy": accuracy,
         "majority_baseline": majority_baseline, "precision": precision, "recall": recall,
+        "is_out_of_sample": is_out_of_sample, "train_end_date": train_end_date_str,
     }
 
 
@@ -151,6 +174,9 @@ def main() -> None:
         ("../model_artifacts/xgb_signal_model.joblib", "xgb_signal_model"),
         ("../model_artifacts/v2_xgb_model.joblib", "v2_xgb_model"),
     ]
+    oos_path = "../model_artifacts/xgb_signal_model_oos_test.joblib"
+    if os.path.exists(oos_path):
+        model_specs.append((oos_path, "xgb_signal_model_oos_test"))
     results = []
     for path, name in model_specs:
         try:
@@ -163,16 +189,22 @@ def main() -> None:
     lines = [
         f"# ML Model Accuracy Report — {datetime.now(timezone.utc).date().isoformat()}", "",
         "## Walk-forward evaluation (XGBoost models)", "",
-        "| Model | Samples | Accuracy | Majority baseline | Precision | Recall |",
-        "|---|---|---|---|---|---|",
+        "Rows with a `train_end_date` evaluate ONLY on bars strictly after that "
+        "date - genuine out-of-sample. Rows without one (both legacy artifacts, "
+        "trained before this capability existed) fall back to the most recent "
+        "1 year and may overlap the model's own training window - treat as "
+        "in-sample / methodology unknown, not held-out performance.", "",
+        "| Model | Samples | Accuracy | Majority baseline | Precision | Recall | Out-of-sample? | Train end date |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for r in results:
         if "error" in r:
-            lines.append(f"| {r['model']} | {r['n_samples']} | ERROR | - | - | {r['error']} |")
+            lines.append(f"| {r['model']} | {r['n_samples']} | ERROR | - | - | {r['error']} | - | - |")
         else:
             lines.append(
                 f"| {r['model']} | {r['n_samples']} | {r['accuracy']:.3f} | "
-                f"{r['majority_baseline']:.3f} | {r['precision']:.3f} | {r['recall']:.3f} |"
+                f"{r['majority_baseline']:.3f} | {r['precision']:.3f} | {r['recall']:.3f} | "
+                f"{'yes' if r['is_out_of_sample'] else 'no (in-sample/unknown)'} | {r['train_end_date'] or '-'} |"
             )
     lines += [
         "", "## decision_engine current-state snapshot (NOT a backtest)", "",
