@@ -45,7 +45,7 @@ RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 # request-handling process shouldn't be able to rewrite it.
 COPY . .
 
-# models/ is the one directory the app legitimately writes to at
+# model_artifacts/ is the one directory the app legitimately writes to at
 # runtime (Continuous Learning's model retrain replaces
 # xgb_signal_model.joblib in place - see research/ml_trainer.py). A
 # plain `COPY . .` leaves it root-owned with whatever mode bits the
