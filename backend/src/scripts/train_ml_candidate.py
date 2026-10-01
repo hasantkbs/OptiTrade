@@ -124,9 +124,17 @@ def main() -> None:
     print(f"Hipotez sonucu: {result.hypothesis_outcome.value}")
 
     print("\nGerçek out-of-sample değerlendirme çalıştırılıyor...")
+    # DatasetBuilder.build's own cursor loop (`while cursor <= end`) is
+    # inclusive on BOTH ends, so starting the held-out build at
+    # train_end_date itself would re-include that exact calendar day's
+    # samples (already used as the training window's inclusive upper
+    # bound) in the "held-out" set too - a real train/held-out overlap,
+    # not just a cosmetic off-by-one. +1 day makes the held-out window
+    # genuinely, not just nominally, strictly after the training cutoff.
+    held_out_start = train_end_date + timedelta(days=1)
     held_out_builder = DatasetBuilder(feature_extractor=FeatureExtractor(), config=config, price_fetcher=price_fetcher)
     held_out_samples, held_out_version = held_out_builder.build(
-        SYMBOLS, DatasetType.TRADER, start=train_end_date, end=now, horizons_days=[HORIZON_DAYS],
+        SYMBOLS, DatasetType.TRADER, start=held_out_start, end=now, horizons_days=[HORIZON_DAYS],
     )
 
     trainer = create_trainer(ModelAlgorithm.XGBOOST, result.training_run.task_type, result.registry_entry.feature_list, config=config)
@@ -136,7 +144,7 @@ def main() -> None:
     evaluator = ModelEvaluator(config=config)
     oos_metrics = evaluator.evaluate(trainer, X_oos, y_oos, actual_returns=returns_oos)
 
-    unique, counts = pd.Series(y_oos).value_counts().index.tolist(), pd.Series(y_oos).value_counts().tolist()
+    counts = pd.Series(y_oos).value_counts().tolist()
     majority_baseline = max(counts) / len(y_oos) if len(y_oos) else 0.0
 
     lines = [
@@ -145,7 +153,7 @@ def main() -> None:
         f"Promotion state: `{result.registry_entry.promotion_state.value}` (CANDIDATE only - no SHADOW/ACTIVE in this run)",
         "", "## Held-out out-of-sample evaluation", "",
         f"Train window: [{train_start.date().isoformat()}, {train_end_date.date().isoformat()}]",
-        f"Held-out window (strictly after train_end_date): ({train_end_date.date().isoformat()}, {now.date().isoformat()}]",
+        f"Held-out window (strictly after train_end_date): [{held_out_start.date().isoformat()}, {now.date().isoformat()}]",
         f"Held-out samples: {len(held_out_samples)}", "",
         f"| Metric | Value |", f"|---|---|",
         f"| Accuracy | {oos_metrics.accuracy:.3f} |",
