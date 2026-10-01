@@ -132,6 +132,10 @@ services:
       - ./backend/.env
     environment:
       - PYTHONUNBUFFERED=1
+      # Absolute container path, overriding whatever CWD-relative value
+      # .env carries - WORKDIR is /app/src, not /app, so a relative
+      # default would resolve to the wrong place (see backend/.env.example).
+      - FIREBASE_CREDENTIALS_PATH=/app/firebase-credentials.json
       - FEATURE_STORE_POSTGRES_HOST=postgres
       - FEATURE_STORE_POSTGRES_PORT=5432
       - FEATURE_STORE_POSTGRES_DB=${FEATURE_STORE_POSTGRES_DB:-optitrade}

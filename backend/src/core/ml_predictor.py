@@ -12,7 +12,7 @@ from typing import Optional, List
 logger = logging.getLogger(__name__)
 
 _MODEL_CACHE = None
-_MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "xgb_signal_model.joblib")
+_MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "model_artifacts", "xgb_signal_model.joblib")
 
 EMA_SIGNAL_ENC = {
     "GOLDEN_CROSS": 2,

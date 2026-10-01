@@ -45,7 +45,7 @@ RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 # request-handling process shouldn't be able to rewrite it.
 COPY . .
 
-# models/ is the one directory the app legitimately writes to at
+# model_artifacts/ is the one directory the app legitimately writes to at
 # runtime (Continuous Learning's model retrain replaces
 # xgb_signal_model.joblib in place - see research/ml_trainer.py). A
 # plain `COPY . .` leaves it root-owned with whatever mode bits the
@@ -55,9 +55,21 @@ COPY . .
 # in-container retrain's own write failed with EACCES). chown (not
 # chmod 777, not USER root) makes ownership deterministic regardless
 # of what the build context's host permissions happen to be.
-RUN chown -R appuser:appgroup models
+RUN chown -R appuser:appgroup model_artifacts
 
 USER appuser
+
+WORKDIR /app/src
+
+# alembic.ini lives at /app (the build context root), one level above
+# this WORKDIR, so the bare `alembic` CLI used by the production
+# migration path (`docker compose exec api alembic upgrade head`) - run
+# with no -c flag, CWD=/app/src - can't find it via its own default
+# ("alembic.ini" resolved relative to CWD) and fails with "No
+# 'script_location' key found in configuration." (verified empirically
+# against the built image). ALEMBIC_CONFIG is the CLI's documented
+# fallback for -c/--config, and makes this CWD-independent.
+ENV ALEMBIC_CONFIG=/app/alembic.ini
 
 EXPOSE 8000
 
