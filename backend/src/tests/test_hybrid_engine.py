@@ -306,25 +306,50 @@ def test_trader_recommendation_falls_back_to_llm_signal_when_decision_engine_fai
     assert result[0].confidence_score == 80
 
 
-def test_investor_recommendation_is_not_touched_by_the_decision_engine():
-    """profile="investor" produces three independent per-horizon
-    signals (see core/investor_persona.py's own docstring on why they
-    may legitimately disagree) - the Decision Engine has no per-horizon
-    concept, so this path is deliberately left untouched by this
-    consolidation step. A FakeDecisionEngine that would raise if ever
-    called proves it never is."""
-    class ExplodingDecisionEngine:
-        def decide(self, symbol: str) -> DecisionOutput:
-            raise AssertionError("Decision Engine must not be consulted for profile='investor'")
-
+def test_investor_profile_1_week_horizon_is_overridden_by_the_decision_engine():
+    """profile="investor" produces three independent per-horizon signals
+    (see core/investor_persona.py's own docstring on why they may
+    legitimately disagree) - the Decision Engine has no per-horizon
+    concept, so only horizon_1_week (closest match to a current-
+    conditions vote) is overridden; horizon_1_month/horizon_1_year/
+    investor_commentary stay exactly as the LLM produced them."""
+    decision_engine = FakeDecisionEngine(_make_decision_output("AAPL", Prediction.SELL, confidence=0.9))
     engine, _, _, _ = _build_engine(
         [_make_scanned("AAPL")], {"current_price": 100.0, "atr_daily": 2.0},
-        decision_engine=ExplodingDecisionEngine(),
+        decision_engine=decision_engine,
     )
 
     result = engine.run(["AAPL"], profile="investor")
 
-    assert isinstance(result[0], InvestorRecommendation)
+    assert decision_engine.calls == ["AAPL"]
+    rec = result[0]
+    # FakeInvestorPersona/_make_investor_recommendation said BUY/60 for
+    # every horizon - the Decision Engine's SELL/0.9 must win, but only
+    # for horizon_1_week.
+    assert rec.horizon_1_week.signal == TradeSignal.STRONG_SELL
+    assert rec.horizon_1_week.confidence_score == 90
+    # horizon_1_month/horizon_1_year are untouched - still the LLM's
+    # original BUY/60.
+    assert rec.horizon_1_month.signal == TradeSignal.BUY
+    assert rec.horizon_1_month.confidence_score == 60
+    assert rec.horizon_1_year.signal == TradeSignal.BUY
+    assert rec.horizon_1_year.confidence_score == 60
+
+
+def test_investor_profile_falls_back_to_llm_horizon_1_week_when_decision_engine_fails():
+    decision_engine = FakeDecisionEngine(raises=RuntimeError("feature store unavailable"))
+    engine, _, _, _ = _build_engine(
+        [_make_scanned("AAPL")], {"current_price": 100.0, "atr_daily": 2.0},
+        decision_engine=decision_engine,
+    )
+
+    result = engine.run(["AAPL"], profile="investor")
+
+    # Decision Engine blew up - horizon_1_week keeps the LLM's own
+    # (uncorroborated) signal/confidence_score, same as the trader
+    # profile's fallback behavior.
+    assert result[0].horizon_1_week.signal == TradeSignal.BUY
+    assert result[0].horizon_1_week.confidence_score == 60
 
 
 # ─────────────────────────────────────────────────────────────────────────

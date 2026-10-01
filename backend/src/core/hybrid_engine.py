@@ -188,6 +188,7 @@ class HybridTradingEngine:
                     analysis=analysis,
                     news_sentiment=news_sentiment,
                 )
+                recommendation = self._apply_canonical_decision_to_investor_horizon(symbol, recommendation)
 
             cache.set(symbol, recommendation)
             return recommendation
@@ -229,6 +230,41 @@ class HybridTradingEngine:
             return recommendation
         signal, confidence_score = to_trade_signal(decision_output)
         return recommendation.model_copy(update={"signal": signal, "confidence_score": confidence_score})
+
+    def _apply_canonical_decision_to_investor_horizon(
+        self, symbol: str, recommendation: InvestorRecommendation
+    ) -> InvestorRecommendation:
+        """Overrides ONLY `horizon_1_week`'s signal/confidence_score with
+        the Decision Engine's statistical vote - `decision_engine.decide()`
+        produces one undifferentiated-by-horizon decision, closest in
+        meaning to a current-conditions (short-horizon) vote, so only the
+        1-week horizon is overridden (see docs/superpowers/specs/2026-10-01-
+        decision-path-consolidation-design.md's Global Constraints).
+        `horizon_1_month`/`horizon_1_year`/`investor_commentary` stay
+        fully LLM-driven - decision_engine has no medium/long-horizon
+        concept to supersede them with (see claude_build_spec.md Phase 1's
+        not-yet-built models/medium_horizon, models/long_horizon).
+
+        A Decision Engine failure falls back to the LLM's own
+        horizon_1_week signal rather than dropping the recommendation -
+        same resilience shape as `_apply_canonical_decision` above."""
+        try:
+            decision_engine = self.decision_engine
+            if decision_engine is None:
+                from decision_engine.service import get_default_decision_engine
+
+                decision_engine = get_default_decision_engine()
+            decision_output = decision_engine.decide(symbol)
+        except Exception as exc:
+            logger.error(
+                f"{symbol}: decision engine yetkisi (investor 1-hafta) uygulanamadi, LLM sinyali korunuyor: {exc}"
+            )
+            return recommendation
+        signal, confidence_score = to_trade_signal(decision_output)
+        updated_horizon = recommendation.horizon_1_week.model_copy(
+            update={"signal": signal, "confidence_score": confidence_score}
+        )
+        return recommendation.model_copy(update={"horizon_1_week": updated_horizon})
 
     def _get_or_check_alert(self, scanned: ScannedSymbol) -> Optional[MarketAlert]:
         symbol = scanned.symbol
