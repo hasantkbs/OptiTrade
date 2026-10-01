@@ -150,7 +150,7 @@ class RegistryEntrySnapshot(_DashboardModel):
     label_name: str
     horizon_days: int
     engine_name: Optional[str] = None
-    metrics: Dict[str, float] = Field(default_factory=dict)
+    metrics: Dict[str, Optional[float]] = Field(default_factory=dict)
     training_date: Optional[datetime] = None
     promoted_at: Optional[datetime] = None
 
@@ -160,7 +160,7 @@ class TrainingRunSnapshot(_DashboardModel):
     algorithm: str
     task_type: str
     status: str
-    metrics: Dict[str, float] = Field(default_factory=dict)
+    metrics: Dict[str, Optional[float]] = Field(default_factory=dict)
     training_date: Optional[datetime] = None
 
 
