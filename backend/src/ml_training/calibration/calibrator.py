@@ -25,7 +25,8 @@ exact same label values the underlying trainer's `predict()` would.
 """
 from __future__ import annotations
 
-from typing import Optional
+import logging
+from typing import Optional, Union
 
 import numpy as np
 from sklearn.calibration import CalibratedClassifierCV
@@ -34,6 +35,8 @@ from sklearn.frozen import FrozenEstimator
 from ml_training.config import MLTrainingConfig
 from ml_training.models import CalibrationMethod, TaskType
 from ml_training.training.base import BaseTrainer
+
+logger = logging.getLogger(__name__)
 
 _SKLEARN_METHOD = {
     CalibrationMethod.ISOTONIC: "isotonic",
@@ -75,7 +78,13 @@ class ModelCalibrator:
 
     def calibrate(
         self, trainer: BaseTrainer, X_cal: np.ndarray, y_cal: np.ndarray, method: CalibrationMethod,
-    ) -> _CalibratedTrainerAdapter:
+    ) -> Union[_CalibratedTrainerAdapter, BaseTrainer]:
+        """Returns a calibrated adapter normally, or - when the
+        calibration split doesn't cover every class the trainer knows
+        about - the `trainer` itself, uncalibrated (see the in-function
+        comment). Both share the same `predict()`/`predict_proba()`/
+        `classes_` contract, so callers (`CalibrationService.
+        calibrate_and_save`) don't need to special-case either case."""
         if trainer.task_type != TaskType.CLASSIFICATION:
             raise ValueError(
                 f"{trainer.algorithm.value}: calibration only applies to classification models, "
@@ -86,29 +95,40 @@ class ModelCalibrator:
 
         y_cal_encoded = trainer._encode_y(y_cal, fit_encoder=False)
 
-        # A small, class-imbalanced training split can leave the frozen
-        # estimator never having seen one of the full label space's
-        # rarer classes (e.g. a 3-way DIRECTION label's rare middle
-        # band). If the held-out *calibration* split then happens to
-        # contain that class, CalibratedClassifierCV's internal cross-
-        # validation produces a fold whose predict_proba output has
-        # more columns than the frozen estimator's known classes_,
-        # crashing in sklearn's fold-stitching logic. Calibrating
-        # confidence for a class the model can never predict is
-        # meaningless anyway, so those rows are dropped before fitting,
-        # not worked around after.
+        # `y_cal_encoded` goes through the SAME label encoder `trainer`
+        # itself was fit with (`_encode_y(..., fit_encoder=False)` calls
+        # `self._label_encoder.transform(...)`), so it can never contain
+        # a class value the model's own `classes_` doesn't know about -
+        # `transform()` raises "y contains previously unseen labels"
+        # long before this point if it tried. The real failure mode
+        # runs the other way: a small/imbalanced *calibration* split
+        # can easily be missing one of the classes the frozen estimator
+        # WAS trained on (e.g. a 3-way DIRECTION label's rare middle
+        # band having zero calibration-split rows by chance). When that
+        # happens, `CalibratedClassifierCV`'s internal cross-validation
+        # (even with a frozen, never-refit estimator) builds its
+        # prediction array sized to the narrower class count actually
+        # PRESENT in y, then tries to index it with the frozen
+        # estimator's full (wider) `classes_` - crashing with an
+        # `IndexError` deep in sklearn's fold-stitching logic
+        # (`_enforce_prediction_order`). Meaningful calibration is
+        # impossible without calibration examples of every class the
+        # model can predict anyway, so this is detected and reported
+        # clearly, returning the trainer UNCALIBRATED (its own
+        # predict()/predict_proba() unchanged) rather than letting
+        # sklearn fail with a cryptic internal error or aborting the
+        # whole training run.
         known_classes = set(np.asarray(trainer._model.classes_).tolist())
-        mask = np.isin(y_cal_encoded, list(known_classes))
-        if not mask.all():
-            dropped = int((~mask).sum())
-            import logging
-
-            logging.getLogger(__name__).warning(
-                "%s: calibration set contained %d sample(s) of a class the "
-                "trained model never saw - dropped before calibration",
-                trainer.algorithm.value, dropped,
+        present_classes = set(np.unique(y_cal_encoded).tolist())
+        if present_classes != known_classes:
+            missing = sorted(known_classes - present_classes)
+            logger.warning(
+                "%s: calibration set has no samples of class(es) %s that the "
+                "trained model knows about - skipping calibration, returning "
+                "the trainer uncalibrated",
+                trainer.algorithm.value, missing,
             )
-            X_cal, y_cal_encoded = X_cal[mask], y_cal_encoded[mask]
+            return trainer
 
         # CalibratedClassifierCV still internally cross-validates even
         # with a frozen (never-refit) estimator - it only skips
