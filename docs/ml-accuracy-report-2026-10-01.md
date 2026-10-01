@@ -6,7 +6,7 @@ Rows with a `train_end_date` evaluate ONLY on bars strictly after that date - ge
 
 | Model | Samples | Accuracy | Majority baseline | Precision | Recall | Out-of-sample? | Train end date |
 |---|---|---|---|---|---|---|---|
-| xgb_signal_model | 1853 | 0.605 | 0.569 | 0.541 | 0.557 | no (in-sample/unknown) | - |
+| xgb_signal_model | 1850 | 0.608 | 0.568 | 0.546 | 0.559 | no (in-sample/unknown) | - |
 | v2_xgb_model | 0 | ERROR | - | - | Feature shape mismatch, expected: 5, got 7 | - | - |
 | xgb_signal_model_oos_test | 1144 | 0.568 | 0.580 | 0.467 | 0.208 | yes | 2026-04-01 |
 

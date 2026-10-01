@@ -51,6 +51,7 @@ from core.indicators import (
     calculate_price_velocity, calculate_rsi, calculate_trend_strength,
     calculate_volume_ratio,
 )
+from data.fetcher import fetch_history
 from decision_engine.service import get_default_decision_engine
 
 logging.basicConfig(level=logging.WARNING)
@@ -103,16 +104,26 @@ def walk_forward_evaluate(model_path: str, model_name: str) -> dict:
     y_true, y_pred = [], []
     for symbol in SYMBOL_BASKET:
         try:
-            ticker = yf.Ticker(symbol)
             if train_end_date is not None:
-                # LOOKBACK days of buffer BEFORE train_end_date so the first
-                # post-cutoff bar still has a full feature window - only bars
-                # whose own date is strictly after train_end_date are ever
-                # used as a prediction target below, so the model is never
-                # evaluated on a bar it could have trained on.
-                hist = ticker.history(start=(train_end_date - timedelta(days=LOOKBACK * 2)).isoformat())
+                # fetch_history's period-only interface can't express a
+                # historical cutoff, so this branch (and only this one)
+                # bypasses it for a direct, date-bounded yfinance call.
+                # LOOKBACK days of buffer BEFORE train_end_date so the
+                # first post-cutoff bar still has a full feature window -
+                # only bars whose own date is strictly after
+                # train_end_date are ever used as a prediction target
+                # below, so the model is never evaluated on a bar it
+                # could have trained on.
+                hist = yf.Ticker(symbol).history(
+                    start=(train_end_date - timedelta(days=LOOKBACK * 2)).isoformat()
+                )
             else:
-                hist = ticker.history(period="1y")
+                # No cutoff to express - keep using fetch_history (and
+                # therefore HybridProvider's per-asset-class routing,
+                # e.g. crypto symbols via Binance) exactly as before this
+                # capability was added, rather than silently switching
+                # every symbol to a direct yfinance call.
+                hist = fetch_history(symbol, period="1y")
         except Exception as exc:
             logger.warning("%s: fetch failed, skipping: %s", symbol, exc)
             continue
