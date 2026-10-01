@@ -63,6 +63,32 @@ def test_calibrate_raises_when_trainer_not_fitted(split_data):
         calibrator.calibrate(trainer, split_data["X_cal"], split_data["y_cal"], CalibrationMethod.ISOTONIC)
 
 
+def test_calibrate_returns_trainer_uncalibrated_when_calibration_split_misses_a_known_class(caplog):
+    """A small/imbalanced calibration split can legitimately miss one of
+    the classes the trainer was fit on (e.g. a 3-way DIRECTION label's
+    rare middle band) - CalibratedClassifierCV's internal cross-
+    validation cannot handle that (it crashes deep in sklearn's fold-
+    stitching logic), so calibrate() detects this up front and returns
+    the trainer unmodified rather than attempting it. Trains on all 3
+    classes (0, 1, 2); calibration data covers only 2 of them."""
+    rng = np.random.RandomState(7)
+    X_train = rng.rand(90, 5)
+    y_train = np.array([0, 1, 2] * 30)  # all 3 classes present
+    trainer = create_trainer(ModelAlgorithm.RANDOM_FOREST, TaskType.CLASSIFICATION, _FEATURE_NAMES, {"n_estimators": 10})
+    trainer.fit(X_train, y_train)
+    assert set(trainer._model.classes_.tolist()) == {0, 1, 2}
+
+    X_cal = rng.rand(20, 5)
+    y_cal = np.array([0, 1] * 10)  # class 2 entirely missing
+
+    calibrator = ModelCalibrator()
+    with caplog.at_level("WARNING"):
+        result = calibrator.calibrate(trainer, X_cal, y_cal, CalibrationMethod.ISOTONIC)
+
+    assert result is trainer  # uncalibrated passthrough, not a _CalibratedTrainerAdapter
+    assert any("skipping calibration" in record.message for record in caplog.records)
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # service.py (real Postgres)
 # ─────────────────────────────────────────────────────────────────────────
