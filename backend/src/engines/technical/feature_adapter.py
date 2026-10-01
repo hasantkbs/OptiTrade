@@ -193,6 +193,9 @@ class TechnicalFeatureAdapter:
         hist = fetch_history(symbol, period=self.config.price_period)
         values = compute_technical_features(hist, self.config)
 
+        if not values:
+            return {}
+
         for name, value in values.items():
             self.feature_store.write_feature(FeatureValue(symbol=symbol, feature_name=name, value=value))
 
