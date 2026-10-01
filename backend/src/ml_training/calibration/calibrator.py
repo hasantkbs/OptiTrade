@@ -98,7 +98,7 @@ class ModelCalibrator:
         # meaningless anyway, so those rows are dropped before fitting,
         # not worked around after.
         known_classes = set(np.asarray(trainer._model.classes_).tolist())
-        mask = np.array([y in known_classes for y in y_cal_encoded])
+        mask = np.isin(y_cal_encoded, list(known_classes))
         if not mask.all():
             dropped = int((~mask).sum())
             import logging
