@@ -86,6 +86,30 @@ class ModelCalibrator:
 
         y_cal_encoded = trainer._encode_y(y_cal, fit_encoder=False)
 
+        # A small, class-imbalanced training split can leave the frozen
+        # estimator never having seen one of the full label space's
+        # rarer classes (e.g. a 3-way DIRECTION label's rare middle
+        # band). If the held-out *calibration* split then happens to
+        # contain that class, CalibratedClassifierCV's internal cross-
+        # validation produces a fold whose predict_proba output has
+        # more columns than the frozen estimator's known classes_,
+        # crashing in sklearn's fold-stitching logic. Calibrating
+        # confidence for a class the model can never predict is
+        # meaningless anyway, so those rows are dropped before fitting,
+        # not worked around after.
+        known_classes = set(np.asarray(trainer._model.classes_).tolist())
+        mask = np.array([y in known_classes for y in y_cal_encoded])
+        if not mask.all():
+            dropped = int((~mask).sum())
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "%s: calibration set contained %d sample(s) of a class the "
+                "trained model never saw - dropped before calibration",
+                trainer.algorithm.value, dropped,
+            )
+            X_cal, y_cal_encoded = X_cal[mask], y_cal_encoded[mask]
+
         # CalibratedClassifierCV still internally cross-validates even
         # with a frozen (never-refit) estimator - it only skips
         # re-fitting the estimator itself, not the fold splitting used

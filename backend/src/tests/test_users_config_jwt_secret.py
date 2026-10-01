@@ -24,10 +24,18 @@ def _reset_ephemeral_secret_cache(monkeypatch):
     encode/decode stay consistent within one process (see the module's
     own docstring) - reset that cache before/after each test here so
     tests don't leak their generated secret into each other or into the
-    rest of the suite."""
+    rest of the suite.
+
+    Also no-ops users.config.load_dotenv for the duration of each test:
+    UsersConfig.from_env() calls bare load_dotenv() (no override), which
+    re-reads backend/.env from disk and would repopulate
+    USERS_JWT_SECRET with this host's REAL configured secret right after
+    a test's own monkeypatch.delenv("USERS_JWT_SECRET") removed it -
+    defeating every "unset" test in this file without this guard."""
     import users.config as users_config
 
     monkeypatch.setattr(users_config, "_ephemeral_jwt_secret", None)
+    monkeypatch.setattr(users_config, "load_dotenv", lambda *args, **kwargs: None)
     yield
     monkeypatch.setattr(users_config, "_ephemeral_jwt_secret", None)
 
