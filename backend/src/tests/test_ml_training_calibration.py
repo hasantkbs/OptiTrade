@@ -122,6 +122,33 @@ def test_calibrate_and_save_persists_result_and_artifact(split_data, fitted_trai
     assert len(svc.list_for_model("calib-svc-test")) == 1
 
 
+def test_calibrate_and_save_warns_when_calibration_is_skipped(split_data, fitted_trainer, repository, caplog, monkeypatch):
+    """When ModelCalibrator.calibrate returns the trainer unmodified (the
+    uncalibrated-passthrough case - calibration split missed a known
+    class), calibrate_and_save must still log a warning, so the skip is
+    visible to anyone investigating why calibration_error_before ==
+    calibration_error_after. It must not silently persist a
+    CalibrationResult that looks like an ordinary successful run."""
+    svc = CalibrationService(repository=repository)
+    monkeypatch.setattr(svc.calibrator, "calibrate", lambda trainer, X_cal, y_cal, method: trainer)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        path = os.path.join(tmp_dir, "calibrated.joblib")
+        with caplog.at_level("WARNING"):
+            result = svc.calibrate_and_save(
+                "calib-svc-test-skip", fitted_trainer, split_data["X_cal"], split_data["y_cal"],
+                split_data["X_test"], split_data["y_test"], CalibrationMethod.ISOTONIC, path,
+            )
+
+    assert any(
+        "calib-svc-test-skip" in record.message and "skip" in record.message.lower()
+        for record in caplog.records
+    )
+    # The result is still persisted as today - this fix is log-visibility
+    # only, not a schema/behavior change.
+    assert result.calibration_error_before == result.calibration_error_after
+
+
 def test_get_latest_returns_none_when_no_history(repository):
     svc = CalibrationService(repository=repository)
     assert svc.get_latest("calib-svc-test-nonexistent") is None

@@ -287,7 +287,7 @@ class TestCanonicalDecisionOverride:
 
         result = engine.run(["AAPL"])
 
-        engine.decision_engine.decide.assert_called_once_with("AAPL")
+        engine.decision_engine.decide.assert_called_once_with("AAPL", strict=True)
         assert result[0].signal == TradeSignal.STRONG_SELL  # 0.9 crosses the "strong" bar
         assert result[0].confidence_score == 90
         assert result[0].entry_price == 180.0  # risk_manager-sourced, unaffected
@@ -320,7 +320,7 @@ class TestCanonicalDecisionOverride:
 
         result = engine.run(["AAPL"], profile="investor")
 
-        engine.decision_engine.decide.assert_called_once_with("AAPL")
+        engine.decision_engine.decide.assert_called_once_with("AAPL", strict=True)
         rec = result[0]
         assert rec.horizon_1_week.signal == TradeSignal.STRONG_SELL  # 0.9 crosses the "strong" bar
         assert rec.horizon_1_week.confidence_score == 90

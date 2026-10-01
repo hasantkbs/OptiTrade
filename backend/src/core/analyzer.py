@@ -262,7 +262,7 @@ def analyze(
     try:
         from decision_engine.service import get_default_decision_engine
 
-        canonical_output = get_default_decision_engine().decide(symbol)
+        canonical_output = get_default_decision_engine().decide(symbol.upper(), strict=True)
         decision, decision_code, score = to_analysis_decision(canonical_output)
     except Exception as exc:
         logger.error(f"{symbol}: decision engine yetkisi uygulanamadi, yerel skor korunuyor: {exc}")

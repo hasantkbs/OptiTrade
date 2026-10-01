@@ -43,7 +43,7 @@ class FakeDecisionEngine:
         self._raises = raises
         self.calls = []
 
-    def decide(self, symbol: str) -> DecisionOutput:
+    def decide(self, symbol: str, strict: bool = False) -> DecisionOutput:
         self.calls.append(symbol)
         if self._raises is not None:
             raise self._raises

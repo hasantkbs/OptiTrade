@@ -28,7 +28,7 @@ class _FakeDecisionEngine:
     def __init__(self, decision_output):
         self._decision_output = decision_output
 
-    def decide(self, symbol):
+    def decide(self, symbol, strict=False):
         return self._decision_output
 
 
@@ -49,7 +49,9 @@ def test_analyze_uses_decision_engine_decision_code(mock_get_engine, _mock_histo
     result = analyze(symbol="AAPL", asset_type="stock", include_news=False)
     assert result is not None
     assert result.decision_code == "STRONG_BUY"
-    assert result.score == 90
+    # score is scaled WITHIN the STRONG_BUY band (78-100), not a raw
+    # confidence magnitude: 78 + round(0.9 * 22) == 98 (Fix 1).
+    assert result.score == 98
 
 
 @patch("core.analyzer.fetch_history", return_value=_fake_history())

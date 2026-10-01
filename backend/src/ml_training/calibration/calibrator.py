@@ -122,11 +122,18 @@ class ModelCalibrator:
         present_classes = set(np.unique(y_cal_encoded).tolist())
         if present_classes != known_classes:
             missing = sorted(known_classes - present_classes)
+            unexpected = sorted(present_classes - known_classes)
+            mismatch_parts = [f"missing from calibration: {missing}"]
+            if unexpected:
+                # Not supposed to be reachable - y_cal_encoded goes through
+                # trainer's own label encoder, which would raise on a
+                # class the model never saw - but reported defensively so
+                # the log is never misleading if this assumption breaks.
+                mismatch_parts.append(f"unexpected in calibration: {unexpected}")
             logger.warning(
-                "%s: calibration set has no samples of class(es) %s that the "
-                "trained model knows about - skipping calibration, returning "
-                "the trainer uncalibrated",
-                trainer.algorithm.value, missing,
+                "%s: calibration set's classes don't match the trained model's (%s) - "
+                "skipping calibration, returning the trainer uncalibrated",
+                trainer.algorithm.value, "; ".join(mismatch_parts),
             )
             return trainer
 

@@ -77,16 +77,39 @@ def to_trade_signal(decision_output: DecisionOutput) -> Tuple[TradeSignal, int]:
     return (TradeSignal.STRONG_SELL if is_strong else TradeSignal.SELL), confidence_score
 
 
+# core.scoring.get_decision()'s exact score bands - duplicated here (not
+# imported) because this module has no other dependency on core.scoring
+# and the bands are a stable, long-established public contract
+# (AnalysisResult.decision_code's documented 5-way vocabulary), not
+# scoring internals likely to change independently of this mapping.
+_DECISION_CODE_SCORE_BAND = {
+    "STRONG_BUY": (78, 100),
+    "BUY": (63, 77),
+    "NEUTRAL": (38, 62),
+    "SELL": (23, 37),
+    "STRONG_SELL": (0, 22),
+}
+
+
 def to_analysis_decision(decision_output: DecisionOutput) -> Tuple[str, str, int]:
     """Maps the Decision Engine's output onto `models.schemas.
     AnalysisResult`'s three headline fields: `(decision, decision_code,
-    score)`. Reuses `to_trade_signal`'s exact BUY/SELL/HOLD→five-way
-    mapping (the `TradeSignal` enum's values are byte-identical to
-    `AnalysisResult.decision_code`'s documented vocabulary: STRONG_BUY|
-    BUY|NEUTRAL|SELL|STRONG_SELL - see core.scoring.get_decision, which
-    this supersedes as the authoritative source for `core.analyzer.
-    analyze()`'s decision fields, keeping that function's own
-    `get_decision(score)` call only as its error-fallback)."""
+    score)`. `score` MUST stay a directional 0-100 bullishness scale
+    (core.scoring.get_decision()'s exact bands) because three live
+    consumers still read it that way: core.advanced_analysis.
+    compute_recommendation (score/100.0, feeds action_code/
+    suggested_position_pct), core.session_analysis.compute_session_score,
+    and main.py's categorize() (sorts scan results by score, high=
+    bullish). A plain confidence magnitude (always 0-100 regardless of
+    direction) would make those three produce a BUY recommendation for
+    a STRONG_SELL decision - this maps `decision_code` to its matching
+    band and scales `confidence_score` (already 0-100, from
+    `to_trade_signal`) WITHIN that band, so `get_decision(score)[1] ==
+    decision_code` holds unconditionally, by construction - see
+    test_to_analysis_decision_score_is_consistent_with_get_decision in
+    test_analysis_presentation.py."""
     signal, confidence_score = to_trade_signal(decision_output)
     decision_code = signal.value
-    return _DECISION_CODE_TEXT[decision_code], decision_code, confidence_score
+    low, high = _DECISION_CODE_SCORE_BAND[decision_code]
+    score = low + round((confidence_score / 100) * (high - low))
+    return _DECISION_CODE_TEXT[decision_code], decision_code, score

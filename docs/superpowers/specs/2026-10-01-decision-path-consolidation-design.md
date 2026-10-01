@@ -74,6 +74,20 @@ exchange for removing this last and largest duplicate decision path.
 The field-presence test itself is unaffected (fields stay the same) and
 needs no change.
 
+**Addendum (post-implementation, final-review fix wave):** the route
+table above lists `/analyze`/`/analyze/enhanced`/`/session/analyze` as
+`core/analyzer.py::analyze()`'s only callers, but that function also
+backs `/scan`, `/scan/bist`, and `/scan/crypto` (via `main.py`'s
+`_analyze_safe`/`_parallel_scan`) and `core/sector_intelligence.py`'s
+fast-analysis path. Now that `analyze()` is wired to `decision_engine`,
+every scan request triggers one full `decide()` call (3 voting engines +
+Feature Store lookups + a `decision_engine_executions` DB insert) **per
+symbol scanned** — 15 symbols for `/scan/bist`, 10 for `/scan/crypto`.
+This is functionally correct (both scan routes were verified working),
+but it is a real, previously-undocumented increase in per-scan latency
+and DB write volume that anyone changing scan-route performance or
+`decision_engine` load characteristics should be aware of.
+
 ## Architecture
 
 **The established pattern, generalized.** Two of the three already-wired

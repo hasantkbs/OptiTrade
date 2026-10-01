@@ -6,7 +6,6 @@ import pandas as pd
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 from core.analysis_presentation import to_directional_score
-from decision_engine.models import DecisionOutput, Prediction
 from v2.indicators.base import BaseIndicator
 from v2.models.schemas import EngineResult, IndicatorOutput, SignalSide
 from v2.ml.predictor import MLPredictorV2
@@ -142,7 +141,7 @@ class TradingEngineV2:
                 from decision_engine.service import get_default_decision_engine
 
                 decision_engine = get_default_decision_engine()
-            decision_output = await asyncio.to_thread(decision_engine.decide, symbol)
+            decision_output = await asyncio.to_thread(decision_engine.decide, symbol, strict=True)
             aggregated_score, confidence = to_directional_score(decision_output)
         except Exception as exc:
             _log_structured_event(

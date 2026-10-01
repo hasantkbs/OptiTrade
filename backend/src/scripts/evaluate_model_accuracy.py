@@ -21,6 +21,15 @@ Methodology:
   this plan). Reports today's live decide() output across the same
   symbol basket as a distribution/sanity check only - NOT an accuracy
   number, and the report says so explicitly.
+
+NOTE on methodology: features are computed point-in-time-safe (only data
+up to and including each bar), but the MODEL's training data is NOT
+excluded from this evaluation window - research/ml_trainer.py trains on
+period="2y" while this script evaluates on the most recent period="1y",
+which sits entirely inside that training window. Treat the reported
+accuracy as an upper bound / in-sample fit statistic, not true held-out
+performance. A genuine out-of-sample evaluation would need to know each
+model's actual training cutoff date and evaluate only after it.
 """
 from __future__ import annotations
 

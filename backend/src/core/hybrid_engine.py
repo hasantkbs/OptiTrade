@@ -22,7 +22,6 @@ uçtan uca bağlayan ana motor. Ayrıca:
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from core.ai_trader_persona import AITraderPersona, TradeRecommendation
@@ -222,7 +221,7 @@ class HybridTradingEngine:
                 from decision_engine.service import get_default_decision_engine
 
                 decision_engine = get_default_decision_engine()
-            decision_output = decision_engine.decide(symbol)
+            decision_output = decision_engine.decide(symbol, strict=True)
         except Exception as exc:
             logger.error(
                 f"{symbol}: decision engine yetkisi uygulanamadi, LLM sinyali korunuyor: {exc}"
@@ -254,7 +253,7 @@ class HybridTradingEngine:
                 from decision_engine.service import get_default_decision_engine
 
                 decision_engine = get_default_decision_engine()
-            decision_output = decision_engine.decide(symbol)
+            decision_output = decision_engine.decide(symbol, strict=True)
         except Exception as exc:
             logger.error(
                 f"{symbol}: decision engine yetkisi (investor 1-hafta) uygulanamadi, LLM sinyali korunuyor: {exc}"

@@ -48,6 +48,15 @@ class CalibrationService:
         )
 
         calibrated_model = self.calibrator.calibrate(trainer, X_cal, y_cal, method)
+        if calibrated_model is trainer:
+            logger.warning(
+                "calibrate_and_save: calibration was skipped for model_id=%s (method=%s) - "
+                "the calibration split was missing a known class, so ModelCalibrator.calibrate "
+                "returned the trainer unmodified. The CalibrationResult saved below will still "
+                "record this as a run, but calibration_error_before == calibration_error_after "
+                "is expected and does NOT mean calibration had no effect.",
+                model_id, method.value,
+            )
         error_after = calibration_error_from_predictions(
             y_test, calibrated_model.predict(X_test), calibrated_model.predict_proba(X_test),
             self.config.calibration_bins,

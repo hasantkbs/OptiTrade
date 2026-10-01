@@ -1,9 +1,8 @@
-from datetime import datetime, timezone
-
 import pytest
 
 from core.analysis_presentation import to_analysis_decision, to_directional_score, to_trade_signal
 from core.ai_trader_persona import TradeSignal
+from core.scoring import get_decision
 from decision_engine.models import DecisionOutput, Prediction
 
 
@@ -61,18 +60,34 @@ def test_to_analysis_decision_maps_strong_buy():
     decision_text, decision_code, score = to_analysis_decision(_decision_output(Prediction.BUY, 0.9))
     assert decision_code == "STRONG_BUY"
     assert decision_text == "GUCLU AL (LONG)"
-    assert score == 90
+    # score is now scaled WITHIN the STRONG_BUY band (78-100), not a raw
+    # confidence magnitude - 78 + round(0.9 * 22) == 98 (see Fix 1: score
+    # must always fall in get_decision()'s band for decision_code).
+    assert score == 98
 
 
 def test_to_analysis_decision_maps_plain_sell():
     decision_text, decision_code, score = to_analysis_decision(_decision_output(Prediction.SELL, 0.5))
     assert decision_code == "SELL"
     assert decision_text == "SAT"
-    assert score == 50
+    # score is now scaled WITHIN the SELL band (23-37): 23 + round(0.5 * 14) == 30.
+    assert score == 30
 
 
 def test_to_analysis_decision_maps_hold_to_neutral():
     decision_text, decision_code, score = to_analysis_decision(_decision_output(Prediction.HOLD, 0.2))
     assert decision_code == "NEUTRAL"
     assert decision_text == "NOTR / IZLE"
-    assert score == 20
+    # score is now scaled WITHIN the NEUTRAL band (38-62): 38 + round(0.2 * 24) == 43.
+    assert score == 43
+
+
+@pytest.mark.parametrize("confidence", [0.0, 0.1, 0.5, 0.74, 0.75, 0.76, 0.9, 1.0])
+@pytest.mark.parametrize("decision", [Prediction.BUY, Prediction.HOLD, Prediction.SELL])
+def test_to_analysis_decision_score_is_consistent_with_get_decision(decision, confidence):
+    """score must always fall in get_decision()'s band for decision_code -
+    this is the actual bug the Critical finding was about (score became a
+    direction-free confidence magnitude, producing e.g. decision_code=
+    STRONG_SELL with recommendation.action_code=BUY downstream)."""
+    _, decision_code, score = to_analysis_decision(_decision_output(decision, confidence))
+    assert get_decision(score)[1] == decision_code
