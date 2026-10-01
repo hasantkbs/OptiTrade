@@ -29,6 +29,7 @@ work rather than duplicating it.
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 sys.path.insert(0, ".")
 
@@ -133,7 +134,20 @@ def backfill_symbol(store: PostgresOfflineStore, config: TechnicalEngineConfig, 
 
     written = 0
     for day in trading_days_in_range(start, end):
-        if already_backfilled(store, symbol, day):
+        # Computed ONCE, before the skip check, and reused for both the
+        # check and the write below - they must query/write the SAME
+        # instant. `day` itself carries whatever wall-clock time-of-day
+        # `start` had (midnight for a `--start YYYY-MM-DD` arg, "now"'s
+        # time-of-day with no --start), which is NOT when a backfilled
+        # row is actually written (23:59:59 UTC, below). get_as_of's
+        # `event_timestamp <= as_of` means a row written at `D 23:59:59`
+        # is invisible to a check querying `D 00:00:00` - it resolves the
+        # PREVIOUS day's row instead and fails the date-match test,
+        # making already_backfilled always return False and silently
+        # double-write on every re-run (PostgresOfflineStore.insert() has
+        # no unique constraint / ON CONFLICT to fall back on).
+        day_end_utc = datetime(day.year, day.month, day.day, 23, 59, 59, tzinfo=timezone.utc)
+        if already_backfilled(store, symbol, day_end_utc):
             continue
 
         try:
@@ -159,8 +173,26 @@ def backfill_symbol(store: PostgresOfflineStore, config: TechnicalEngineConfig, 
             if not values:
                 continue
 
-            day_end_utc = datetime(day.year, day.month, day.day, 23, 59, 59, tzinfo=timezone.utc)
             for feature_name, value in values.items():
+                # Writing DIRECTLY via PostgresOfflineStore.insert() (see
+                # module docstring) bypasses FeatureStoreService
+                # .write_feature()'s FeatureValidator.validate() NaN/Inf
+                # rejection entirely. This table feeds the same
+                # live-serving Feature Store the online Technical Engine
+                # reads, so a non-finite value must never slip in just
+                # because this writer took the direct-insert path -
+                # skipped and logged loudly (never silently inserted). A
+                # day that skips a feature this way ends up with no row
+                # for it, so already_backfilled's all-17-required check
+                # correctly treats the day as incomplete and retries it
+                # on a future resume, rather than permanently leaving the
+                # bad feature missing.
+                if not math.isfinite(value):
+                    logger.warning(
+                        "%s: %s on %s is non-finite (%r), skipping this feature",
+                        symbol, feature_name, day.date(), value,
+                    )
+                    continue
                 store.insert(FeatureRecord(
                     symbol=symbol, feature_name=feature_name, value=value, version="v1",
                     event_timestamp=day_end_utc, ingestion_timestamp=day_end_utc,

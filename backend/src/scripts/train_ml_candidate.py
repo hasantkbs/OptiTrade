@@ -38,6 +38,8 @@ from typing import Dict, List, Optional
 import pandas as pd
 import yfinance as yf
 
+from engines.technical.config import FEATURE_TREND_STRENGTH
+from feature_store.service import get_default_feature_store_service
 from ml_training.config import MLTrainingConfig
 from ml_training.datasets.builder import DatasetBuilder
 from ml_training.datasets.service import DatasetService
@@ -92,6 +94,37 @@ class CachingPriceFetcher:
         return sliced if not sliced.empty else None
 
 
+def _earliest_feature_date(symbols: List[str]) -> Optional[datetime]:
+    """Earliest `event_timestamp` found across the WHOLE basket, probed
+    via FEATURE_TREND_STRENGTH (present for every symbol this plan's
+    backfill covers) - used only to warn if real Feature Store coverage
+    starts LATER than this script's own computed `train_start`.
+    Deliberately queries the real data rather than hardcoding an assumed
+    backfill start date, which could silently drift out of sync with
+    whatever range `scripts/backfill_feature_store.py` was actually last
+    run with. `DatasetBuilder.build` silently `continue`s past days with
+    no feature data (see its per-day loop) - it never errors or warns -
+    so a training window that nominally starts before real coverage
+    begins would otherwise go completely unnoticed, exactly as it did
+    for this plan's own first run (see docs/ml-candidate-report-2026-10
+    -01.md's fix note)."""
+    store = get_default_feature_store_service().offline_store
+    very_early = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    earliest: Optional[datetime] = None
+    for symbol in symbols:
+        try:
+            history = store.get_history(symbol, FEATURE_TREND_STRENGTH, very_early, now)
+        except Exception as exc:
+            logger.warning("%s: could not determine earliest feature coverage: %s", symbol, exc)
+            continue
+        if history:  # get_history returns oldest-first
+            symbol_earliest = history[0].event_timestamp
+            if earliest is None or symbol_earliest < earliest:
+                earliest = symbol_earliest
+    return earliest
+
+
 def main() -> None:
     config = MLTrainingConfig.from_env()
     now = datetime.now(timezone.utc)
@@ -104,6 +137,25 @@ def main() -> None:
           f"Held-out eval: ({train_end_date.date().isoformat()}, {now.date().isoformat()}]")
     print(f"Symbols: {len(SYMBOLS)} | horizon_days={HORIZON_DAYS} | algorithm=xgboost")
     print("=" * 65)
+
+    earliest_available = _earliest_feature_date(SYMBOLS)
+    if earliest_available is not None and earliest_available.date() > train_start.date():
+        logger.warning(
+            "Feature Store coverage for this basket starts at %s, AFTER "
+            "this script's own computed train_start %s - the EFFECTIVE "
+            "training window is narrower than [%s, %s] states. "
+            "DatasetBuilder silently skips days with no feature data "
+            "rather than erroring, so this would otherwise go unnoticed. "
+            "Correct the reported train window accordingly, or re-run "
+            "scripts/backfill_feature_store.py with an earlier --start.",
+            earliest_available.date().isoformat(), train_start.date().isoformat(),
+            train_start.date().isoformat(), train_end_date.date().isoformat(),
+        )
+        print(
+            f"UYARI: Feature Store coverage starts {earliest_available.date().isoformat()}, "
+            f"after the computed train_start {train_start.date().isoformat()} - "
+            f"see the warning log; the real training window is narrower than nominally computed."
+        )
 
     price_fetcher = CachingPriceFetcher(SYMBOLS, train_start, now)
 

@@ -94,6 +94,157 @@ def test_already_backfilled_false_when_only_some_features_present():
     assert already_backfilled(_FakeStore(), "AAPL", target_day) is False
 
 
+def test_already_backfilled_requires_as_of_at_or_after_event_timestamp():
+    """Regression test for the Critical idempotency bug: a store with
+    REALISTIC point-in-time semantics (event_timestamp <= as_of, mirroring
+    PostgresOfflineStore.get_as_of's real SQL) recognizes a row written at
+    a day's 23:59:59 when queried with that same day-end instant, but NOT
+    when queried with that day's midnight - even though it's the exact
+    same row, for the exact same day. The OTHER already_backfilled tests
+    above use a FakeStore that always returns a record regardless of
+    `as_of`, so none of them could see this: `backfill_symbol` was calling
+    `already_backfilled(store, symbol, day)` (day = midnight-or-start's-
+    time-of-day) while writing at `day`'s 23:59:59, so the check could
+    never see its own writes and always returned False - silently
+    double-writing on every re-run."""
+    day = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    day_end_utc = datetime(2026, 1, 1, 23, 59, 59, tzinfo=timezone.utc)
+
+    class _FakeRecord:
+        def __init__(self, event_timestamp):
+            self.event_timestamp = event_timestamp
+
+    class _FakeRealisticStore:
+        """Only returns the row when `as_of` is at or after when it was
+        actually written - the real `get_as_of`'s `event_timestamp <=
+        as_of` contract, unlike the other tests' unconditional fakes."""
+
+        def get_as_of(self, symbol, feature_name, as_of, respect_ingestion_time=False):
+            record = _FakeRecord(day_end_utc)
+            return record if record.event_timestamp <= as_of else None
+
+    store = _FakeRealisticStore()
+    # Queried with the SAME instant the row was actually written at (what
+    # the fixed backfill_symbol now does) -> correctly recognized.
+    assert already_backfilled(store, "AAPL", day_end_utc) is True
+    # Queried with that day's midnight (what the pre-fix backfill_symbol
+    # was doing) -> the 23:59:59 row isn't "visible" yet as of midnight,
+    # so it's wrongly NOT recognized as backfilled. This is the exact bug.
+    assert already_backfilled(store, "AAPL", day) is False
+
+
+def test_backfill_symbol_is_idempotent_across_runs(monkeypatch):
+    """End-to-end regression test for Critical 1: running backfill_symbol
+    twice over the SAME (symbol, day) range must write once and skip the
+    second time - not silently double every row, which is what the
+    pre-fix day/day_end_utc mismatch between the skip-check and the write
+    caused (PostgresOfflineStore.insert() has no unique constraint / no
+    ON CONFLICT to fall back on)."""
+    import pandas as pd
+
+    from engines.technical.config import ALL_FEATURE_NAMES, TechnicalEngineConfig
+    import scripts.backfill_feature_store as mod
+
+    day = datetime(2026, 1, 5, tzinfo=timezone.utc)  # a Monday
+
+    class _FakeTicker:
+        def __init__(self, symbol):
+            pass
+
+        def history(self, start, end):
+            idx = pd.date_range("2025-06-01", periods=400, freq="D", tz="UTC")
+            return pd.DataFrame(
+                {"Open": range(len(idx)), "Close": range(len(idx)), "Volume": [1000] * len(idx)}, index=idx,
+            )
+
+    class _FakeRealisticStore:
+        """Mirrors PostgresOfflineStore's real point-in-time semantics
+        (event_timestamp <= as_of, most recent wins) - see the test
+        above for why this matters and the other fakes in this file
+        don't."""
+
+        def __init__(self):
+            self.records = []
+
+        def get_as_of(self, symbol, feature_name, as_of, respect_ingestion_time=False):
+            candidates = [
+                r for r in self.records
+                if r.symbol == symbol and r.feature_name == feature_name and r.event_timestamp <= as_of
+            ]
+            return max(candidates, key=lambda r: r.event_timestamp) if candidates else None
+
+        def insert(self, record):
+            self.records.append(record)
+
+    monkeypatch.setattr(mod.yf, "Ticker", _FakeTicker)
+    monkeypatch.setattr(mod, "compute_technical_features", lambda window, config: {name: 1.0 for name in ALL_FEATURE_NAMES})
+
+    store = _FakeRealisticStore()
+    config = TechnicalEngineConfig()
+
+    written_first = mod.backfill_symbol(store, config, "AAPL", day, day)
+    assert written_first == 1
+    assert len(store.records) == len(ALL_FEATURE_NAMES)
+
+    written_second = mod.backfill_symbol(store, config, "AAPL", day, day)
+    assert written_second == 0  # must be skipped, NOT double-written
+    assert len(store.records) == len(ALL_FEATURE_NAMES)  # unchanged - no duplicate rows
+
+
+def test_backfill_symbol_skips_non_finite_feature_values(monkeypatch):
+    """Regression test for Important 4: a non-finite (NaN/Inf) feature
+    value must be skipped and logged, never inserted - direct-insert
+    writes bypass FeatureValidator.validate()'s NaN/Inf rejection, so
+    backfill_symbol must apply its own guard."""
+    import math
+
+    import pandas as pd
+
+    from engines.technical.config import ALL_FEATURE_NAMES, TechnicalEngineConfig
+    import scripts.backfill_feature_store as mod
+
+    day = datetime(2026, 1, 5, tzinfo=timezone.utc)  # a Monday
+    bad_feature = ALL_FEATURE_NAMES[0]
+
+    class _FakeTicker:
+        def __init__(self, symbol):
+            pass
+
+        def history(self, start, end):
+            idx = pd.date_range("2025-06-01", periods=400, freq="D", tz="UTC")
+            return pd.DataFrame(
+                {"Open": range(len(idx)), "Close": range(len(idx)), "Volume": [1000] * len(idx)}, index=idx,
+            )
+
+    class _FakeStore:
+        def __init__(self):
+            self.records = []
+
+        def get_as_of(self, symbol, feature_name, as_of, respect_ingestion_time=False):
+            return None  # never already backfilled
+
+        def insert(self, record):
+            self.records.append(record)
+
+    def _fake_compute(window, config):
+        values = {name: 1.0 for name in ALL_FEATURE_NAMES}
+        values[bad_feature] = float("nan")
+        return values
+
+    monkeypatch.setattr(mod.yf, "Ticker", _FakeTicker)
+    monkeypatch.setattr(mod, "compute_technical_features", _fake_compute)
+
+    store = _FakeStore()
+    config = TechnicalEngineConfig()
+
+    mod.backfill_symbol(store, config, "AAPL", day, day)
+
+    written_names = {r.feature_name for r in store.records}
+    assert bad_feature not in written_names  # the NaN value must never be inserted
+    assert all(math.isfinite(r.value) for r in store.records)
+    assert len(written_names) == len(ALL_FEATURE_NAMES) - 1  # every OTHER feature still written
+
+
 def test_price_period_to_days_parses_months_years_and_days():
     assert _price_period_to_days("6mo") == 180
     assert _price_period_to_days("1y") == 365
