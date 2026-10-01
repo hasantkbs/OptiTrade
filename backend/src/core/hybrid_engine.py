@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from core.ai_trader_persona import AITraderPersona, TradeRecommendation, TradeSignal
+from core.ai_trader_persona import AITraderPersona, TradeRecommendation
+from core.analysis_presentation import to_trade_signal
 from core.cache_manager import TTLCache
 from core.interfaces import (
     AnomalyDetectorProtocol,
@@ -42,36 +43,8 @@ from core.mtf_analyzer import MultiTimeframeAnalyzer
 from core.news_adapter import NewsSentimentAdapter
 from core.regime_scanner import MarketRegimeScanner, ScannedSymbol
 from core.risk_manager import DynamicRiskManager
-from decision_engine.models import DecisionOutput, Prediction
 
 logger = logging.getLogger(__name__)
-
-# Same "strong" confidence bar intelligence/config.py's
-# INTELLIGENCE_STRONG_BUY_CONFIDENCE_THRESHOLD uses (default 0.75),
-# applied symmetrically to SELL too - duplicated as its own env-driven
-# constant rather than importing intelligence.config here, so this
-# legacy orchestrator gains no new dependency on the newer intelligence
-# package for one threshold value.
-_STRONG_SIGNAL_CONFIDENCE_THRESHOLD = float(
-    os.getenv("INTELLIGENCE_STRONG_BUY_CONFIDENCE_THRESHOLD", "0.75")
-)
-
-
-def _to_trade_signal(decision_output: DecisionOutput) -> Tuple[TradeSignal, int]:
-    """Maps the Decision Engine's discrete (decision, confidence) onto
-    AITraderPersona's five-way `TradeSignal` vocabulary. `Prediction` is
-    only BUY/HOLD/SELL - STRONG_BUY/STRONG_SELL are derived here from
-    confidence crossing the same bar `intelligence.opportunity.
-    classify_opportunity` uses for STRONG_BUY_BIAS, applied to both
-    directions since a trade signal (unlike that product-facing
-    "opportunity" label) needs to be symmetric."""
-    confidence_score = round(decision_output.confidence * 100)
-    if decision_output.decision == Prediction.HOLD:
-        return TradeSignal.NEUTRAL, confidence_score
-    is_strong = decision_output.confidence >= _STRONG_SIGNAL_CONFIDENCE_THRESHOLD
-    if decision_output.decision == Prediction.BUY:
-        return (TradeSignal.STRONG_BUY if is_strong else TradeSignal.BUY), confidence_score
-    return (TradeSignal.STRONG_SELL if is_strong else TradeSignal.SELL), confidence_score
 
 DEFAULT_RECOMMENDATION_CACHE_TTL_SECONDS = 15 * 60  # 15 dakika
 DEFAULT_ALERT_CACHE_TTL_SECONDS = 2 * 60  # 2 dakika
@@ -254,7 +227,7 @@ class HybridTradingEngine:
                 f"{symbol}: decision engine yetkisi uygulanamadi, LLM sinyali korunuyor: {exc}"
             )
             return recommendation
-        signal, confidence_score = _to_trade_signal(decision_output)
+        signal, confidence_score = to_trade_signal(decision_output)
         return recommendation.model_copy(update={"signal": signal, "confidence_score": confidence_score})
 
     def _get_or_check_alert(self, scanned: ScannedSymbol) -> Optional[MarketAlert]:
