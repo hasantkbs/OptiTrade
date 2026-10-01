@@ -130,7 +130,16 @@ class TestRunTraderProfile:
 
 class TestRunInvestorProfile:
     def test_investor_profile_uses_investor_persona_and_skips_risk_manager(self):
-        engine = _make_engine()
+        # confidence=0.60 (not the shared _decision_output default of
+        # 0.70) is deliberately chosen to map onto the exact same
+        # (TradeSignal.BUY, confidence_score=60) _investor_rec()'s
+        # horizon_1_week already hardcodes - so
+        # _apply_canonical_decision_to_investor_horizon's override is a
+        # no-op here, and this test can keep asserting plain equality
+        # against the LLM's own untouched recommendation. The dedicated
+        # TestCanonicalDecisionOverride tests below prove the override
+        # itself.
+        engine = _make_engine(decision_engine=_make_decision_engine(confidence=0.60))
         engine.scanner.scan_and_filter.return_value = [_scanned()]
         engine.analyzer.analyze.return_value = _analysis()
         engine.news_adapter.get_sentiment.return_value = None
@@ -297,18 +306,45 @@ class TestCanonicalDecisionOverride:
 
         assert result == [_trade_rec()]  # unchanged - LLM's own signal survives
 
-    def test_investor_profile_never_consults_the_decision_engine(self):
+    def test_investor_profile_1_week_horizon_is_overridden_by_the_decision_engine(self):
+        """decision_engine has no per-horizon concept, so only
+        horizon_1_week (closest match to a current-conditions vote) is
+        overridden; horizon_1_month/horizon_1_year stay exactly as the
+        LLM (investor_persona) produced them."""
+        engine = _make_engine(decision_engine=_make_decision_engine(decision=Prediction.SELL, confidence=0.9))
+        engine.scanner.scan_and_filter.return_value = [_scanned()]
+        engine.analyzer.analyze.return_value = _analysis()
+        engine.news_adapter.get_sentiment.return_value = None
+        engine.investor_persona.generate_recommendation.return_value = _investor_rec()  # all horizons say BUY/60
+        engine.anomaly_detector.detect.return_value = None
+
+        result = engine.run(["AAPL"], profile="investor")
+
+        engine.decision_engine.decide.assert_called_once_with("AAPL")
+        rec = result[0]
+        assert rec.horizon_1_week.signal == TradeSignal.STRONG_SELL  # 0.9 crosses the "strong" bar
+        assert rec.horizon_1_week.confidence_score == 90
+        assert rec.horizon_1_month.signal == TradeSignal.BUY
+        assert rec.horizon_1_month.confidence_score == 60
+        assert rec.horizon_1_year.signal == TradeSignal.BUY
+        assert rec.horizon_1_year.confidence_score == 60
+        assert engine.analyzer.analyze.call_count == 1  # run() sırasında çekilen veri yeniden kullanıldı
+
+    def test_investor_profile_falls_back_to_llm_horizon_1_week_when_decision_engine_fails(self):
         engine = _make_engine()
+        engine.decision_engine.decide.side_effect = RuntimeError("boom")
         engine.scanner.scan_and_filter.return_value = [_scanned()]
         engine.analyzer.analyze.return_value = _analysis()
         engine.news_adapter.get_sentiment.return_value = None
         engine.investor_persona.generate_recommendation.return_value = _investor_rec()
         engine.anomaly_detector.detect.return_value = None
 
-        engine.run(["AAPL"], profile="investor")
+        result = engine.run(["AAPL"], profile="investor")
 
-        engine.decision_engine.decide.assert_not_called()
-        assert engine.analyzer.analyze.call_count == 1  # run() sırasında çekilen veri yeniden kullanıldı
+        # Decision Engine blew up - horizon_1_week keeps the LLM's own
+        # (uncorroborated) signal/confidence_score.
+        assert result[0].horizon_1_week.signal == TradeSignal.BUY
+        assert result[0].horizon_1_week.confidence_score == 60
 
     def test_check_alerts_handles_missing_analysis(self):
         engine = _make_engine()
