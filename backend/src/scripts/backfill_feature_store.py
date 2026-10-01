@@ -64,15 +64,27 @@ def trading_days_in_range(start: datetime, end: datetime) -> List[datetime]:
 
 
 def already_backfilled(store: PostgresOfflineStore, symbol: str, day: datetime) -> bool:
-    """True if ANY feature is already recorded for (symbol, day) - used
-    as the per-day skip check. Checks a single representative feature
-    (trend_strength_pct) rather than all 17, since this script always
-    writes all 17 together for a given day - if one is present, the
-    whole day's backfill already ran for this symbol."""
-    from engines.technical.config import FEATURE_TREND_STRENGTH
+    """True only if EVERY one of ALL_FEATURE_NAMES already has a
+    recorded value for (symbol, day) - used as the per-day skip check.
 
-    record = store.get_as_of(symbol, FEATURE_TREND_STRENGTH, day, respect_ingestion_time=False)
-    return record is not None and record.event_timestamp.date() == day.date()
+    Deliberately checks all 17, not a single representative feature:
+    the per-day write loop below does 17 sequential, un-transactioned
+    `store.insert()` calls (one per feature). If the process dies
+    partway through (e.g. on the 5th of 17), a single-feature proxy
+    check - especially one keyed on whichever feature happens to be
+    written first - would wrongly report the day as fully backfilled
+    on resume, permanently losing the remaining ~16 features for it
+    with no way to detect or repair that later. Requiring all 17 is
+    the simplest, safest way to close that hole: a day is only
+    skipped once everything the live engine computes for it has
+    actually been persisted."""
+    from engines.technical.config import ALL_FEATURE_NAMES
+
+    for feature_name in ALL_FEATURE_NAMES:
+        record = store.get_as_of(symbol, feature_name, day, respect_ingestion_time=False)
+        if record is None or record.event_timestamp.date() != day.date():
+            return False
+    return True
 
 
 def _price_period_to_days(price_period: str) -> int:
@@ -105,7 +117,16 @@ def backfill_symbol(store: PostgresOfflineStore, config: TechnicalEngineConfig, 
     window_days = _price_period_to_days(config.price_period)
     fetch_start = (start - timedelta(days=window_days + 10)).strftime("%Y-%m-%d")
     fetch_end = (end + timedelta(days=1)).strftime("%Y-%m-%d")
-    hist = yf.Ticker(symbol).history(start=fetch_start, end=fetch_end)
+    try:
+        hist = yf.Ticker(symbol).history(start=fetch_start, end=fetch_end)
+    except Exception as exc:
+        # A single symbol's fetch raising (network timeout, yfinance
+        # rate-limit, a delisted/renamed ticker) must not abort the
+        # whole basket - log and move on to the next symbol, matching
+        # research/ml_trainer.py::build_dataset's precedent of never
+        # letting one symbol's failure propagate out of its fetch.
+        logger.warning("%s: fetch raised %s: %s, skipping entirely", symbol, type(exc).__name__, exc)
+        return 0
     if hist is None or hist.empty:
         logger.warning("%s: no history returned, skipping entirely", symbol)
         return 0
@@ -115,27 +136,49 @@ def backfill_symbol(store: PostgresOfflineStore, config: TechnicalEngineConfig, 
         if already_backfilled(store, symbol, day):
             continue
 
-        # Trailing window of the SAME length the live engine's
-        # fetch_history(symbol, period=config.price_period) call would
-        # return if it ran live on `day` - not "all history up to day",
-        # which would make indicators like trend_strength compute
-        # differently than the live engine does for the same date.
-        window_start_date = (day - timedelta(days=window_days)).date()
-        window = hist[(hist.index.date > window_start_date) & (hist.index.date <= day.date())]
-        if len(window) < window_days // 4:  # not enough prior history yet for this early a day
-            continue
+        try:
+            # Trailing window of the SAME length the live engine's
+            # fetch_history(symbol, period=config.price_period) call would
+            # return if it ran live on `day` - not "all history up to day",
+            # which would make indicators like trend_strength compute
+            # differently than the live engine does for the same date.
+            window_start_date = (day - timedelta(days=window_days)).date()
+            window = hist[(hist.index.date > window_start_date) & (hist.index.date <= day.date())]
+            # Require at least a quarter of the trailing window's worth
+            # of rows before computing anything for this day - early
+            # days in the requested range won't yet have window_days of
+            # prior history, and indicators like MACD (needs slow+signal
+            # periods) or trend_strength (needs `period` points) would
+            # otherwise be computed from too few points to be meaningful
+            # (or simply return None). A quarter is a lenient floor, not
+            # a precise minimum per-indicator requirement.
+            if len(window) < window_days // 4:
+                continue
 
-        values = compute_technical_features(window, config)
-        if not values:
-            continue
+            values = compute_technical_features(window, config)
+            if not values:
+                continue
 
-        day_end_utc = datetime(day.year, day.month, day.day, 23, 59, 59, tzinfo=timezone.utc)
-        for feature_name, value in values.items():
-            store.insert(FeatureRecord(
-                symbol=symbol, feature_name=feature_name, value=value, version="v1",
-                event_timestamp=day_end_utc, ingestion_timestamp=day_end_utc,
-            ))
-        written += 1
+            day_end_utc = datetime(day.year, day.month, day.day, 23, 59, 59, tzinfo=timezone.utc)
+            for feature_name, value in values.items():
+                store.insert(FeatureRecord(
+                    symbol=symbol, feature_name=feature_name, value=value, version="v1",
+                    event_timestamp=day_end_utc, ingestion_timestamp=day_end_utc,
+                ))
+            written += 1
+        except Exception as exc:
+            # A single day's compute/write raising (e.g. a transient
+            # Postgres connection error, or a malformed row for one
+            # date) must not abort the rest of this symbol's backfill -
+            # log and continue to the next day. already_backfilled's
+            # all-17-features check (above) ensures a day that fails
+            # partway through this block is correctly retried, not
+            # silently treated as done, on the next run.
+            logger.warning(
+                "%s: failed to backfill %s (%s: %s), skipping this day",
+                symbol, day.date(), type(exc).__name__, exc,
+            )
+            continue
     return written
 
 
@@ -159,7 +202,16 @@ def main() -> None:
     total_written = 0
     for symbol in SYMBOLS:
         print(f"  Backfilling: {symbol}...", end=" ", flush=True)
-        written = backfill_symbol(store, config, symbol, start, end)
+        try:
+            written = backfill_symbol(store, config, symbol, start, end)
+        except Exception as exc:
+            # Belt-and-suspenders: backfill_symbol already catches fetch
+            # and per-day failures internally, but an error from outside
+            # those two try blocks (e.g. already_backfilled's own
+            # get_as_of call raising FeatureStoreError on a transient
+            # Postgres issue) must still not abort the remaining symbols.
+            logger.warning("%s: backfill_symbol raised %s: %s, skipping entirely", symbol, type(exc).__name__, exc)
+            written = 0
         total_written += written
         print(f"{written} days written")
 
