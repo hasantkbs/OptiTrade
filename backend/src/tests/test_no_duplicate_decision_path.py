@@ -81,15 +81,29 @@ def test_decision_engine_service_still_exists_and_is_importable():
     import decision_engine.service  # noqa: F401
 
 
-def test_legacy_analyzer_does_not_import_the_pipeline_or_decision_engine():
+def test_legacy_analyzer_does_not_import_the_pipeline():
     """core/analyzer.py (POST /analyze - see its own module docstring)
     and pipeline.service.PipelineService (POST /quant/analyze) are two
     deliberately separate, separately-tested decision paths - this
     guards against a future change accidentally coupling the pinned
-    legacy contract to the new pipeline's behavior, or vice versa."""
+    legacy contract to the new pipeline's parallel-execution/voting
+    behavior, or vice versa.
+
+    `decision_engine` itself is deliberately EXEMPT from this guard as
+    of docs/superpowers/specs/2026-10-01-decision-path-consolidation-
+    design.md: `core/analyzer.py::analyze()` now imports
+    `decision_engine.service.get_default_decision_engine` to source its
+    headline decision/decision_code/score fields (see
+    core.analysis_presentation.to_analysis_decision and the override
+    block immediately before `analyze()`'s `return AnalysisResult(`) -
+    that is the approved, single canonical decision authority this
+    audit's own docstring names, not the duplicate/legacy path this
+    file guards against. Only `pipeline` (the parallel voting
+    orchestrator built on top of decision_engine's primitives) remains
+    forbidden here."""
     analyzer_py = BACKEND_ROOT / "core" / "analyzer.py"
     tree = ast.parse(analyzer_py.read_text(encoding="utf-8"), filename=str(analyzer_py))
-    forbidden = ("pipeline", "decision_engine")
+    forbidden = ("pipeline",)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
