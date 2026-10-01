@@ -7,6 +7,13 @@ from typing import List
 
 from dotenv import load_dotenv
 
+# backend/ml_training_artifacts, resolved relative to this file (not CWD) so
+# it's correct whether the process's working directory is `backend/`
+# (pytest convention) or `backend/src/` (Docker/uvicorn convention).
+_DEFAULT_MODEL_ARTIFACT_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "..", "ml_training_artifacts"
+)
+
 
 def _parse_int_list(value: str) -> List[int]:
     return [int(item.strip()) for item in value.split(",") if item.strip()]
@@ -49,7 +56,7 @@ class MLTrainingConfig:
     hold_band_pct: float = 1.0
 
     # Model registry / artifacts
-    model_artifact_dir: str = "../ml_training_artifacts"
+    model_artifact_dir: str = _DEFAULT_MODEL_ARTIFACT_DIR
     min_samples_for_shadow_promotion: int = 20
     min_training_samples: int = 50
 
@@ -97,7 +104,7 @@ class MLTrainingConfig:
             calibration_bins=int(os.getenv("ML_TRAINING_CALIBRATION_BINS", "10")),
             risk_free_rate=float(os.getenv("ML_TRAINING_RISK_FREE_RATE", "0.0")),
             hold_band_pct=float(os.getenv("ML_TRAINING_HOLD_BAND_PCT", "1.0")),
-            model_artifact_dir=os.getenv("ML_TRAINING_MODEL_ARTIFACT_DIR", "../ml_training_artifacts"),
+            model_artifact_dir=os.getenv("ML_TRAINING_MODEL_ARTIFACT_DIR", _DEFAULT_MODEL_ARTIFACT_DIR),
             min_samples_for_shadow_promotion=int(
                 os.getenv("ML_TRAINING_MIN_SAMPLES_FOR_SHADOW_PROMOTION", "20")
             ),

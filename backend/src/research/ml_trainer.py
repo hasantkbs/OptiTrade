@@ -2,7 +2,7 @@
 OptiTrade XGBoost Sinyal Sınıflandırıcı Eğitim Scripti
 ------------------------------------------------------
 Çalıştırmak için:
-  cd backend
+  cd backend/src
   python research/ml_trainer.py
 
 Gereksinimler:
