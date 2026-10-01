@@ -9,7 +9,6 @@ test - not re-asserted here."""
 from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 from decision_engine.models import DecisionOutput, Prediction
 

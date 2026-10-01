@@ -4,30 +4,40 @@ decision path silently coming back into existence.
 
 `decision_engine.service.DecisionEngine` is a fully-functional,
 independently-invokable orchestrator (registry -> serial vote
-collection -> `aggregate_votes` -> persistence) that exists purely as
-tested standalone infrastructure - exercised only by
-tests/test_decision_engine_service.py and the individual engine test
-files, never constructed anywhere reachable from a live request today
-(verified: `main.py` never imports `decision_engine.service`).
-`pipeline/pipeline.py`'s own docstring explains why it exists without
-being the canonical path: it reuses `DecisionEngine`'s pure building
-blocks (`decision_engine.aggregation.aggregate_votes`,
-`decision_engine.weighting.AccuracyWeightProvider`,
-`decision_engine.validation.validate_vote`,
+collection -> `aggregate_votes` -> persistence). As of
+docs/superpowers/specs/2026-10-01-decision-path-consolidation-design.md,
+it IS legitimately constructed from a live, reachable request path:
+`core/analyzer.py::analyze()` calls `get_default_decision_engine().
+decide(symbol)` to source `/analyze`, `/analyze/enhanced`, and
+`/session/analyze`'s headline decision/decision_code/score fields (see
+core.analysis_presentation.to_analysis_decision and the override block
+immediately before `analyze()`'s `return AnalysisResult(`) - that is
+the approved, single canonical decision authority, not the kind of
+duplicate/legacy path this audit exists to catch. `main.py` itself
+still never imports `decision_engine.service` directly (it's reached
+only via `core.analyzer`), which `test_main_does_not_import_decision_
+engine_service` below still locks in. `pipeline/pipeline.py`'s own
+docstring explains why it exists without being the canonical path: it
+reuses `DecisionEngine`'s pure building blocks (`decision_engine.
+aggregation.aggregate_votes`, `decision_engine.weighting.
+AccuracyWeightProvider`, `decision_engine.validation.validate_vote`,
 `decision_engine.repository.PostgresExecutionRepository`) directly,
 because `DecisionEngine.decide()`'s serial, timeout-free vote
 collection cannot satisfy Pipeline's parallel-execution requirement.
 
-That's a real, latent risk if left unguarded: `DecisionEngine.decide()`
-looks exactly like "the decision engine" to a future caller (an admin
-script, a new endpoint, a CLI command) who doesn't know
-`pipeline.service.PipelineService` is the one canonical production
-path - and unlike Pipeline's `ParallelEngineExecutor`, `decide()`
+The risk this file still guards against is narrower than before but
+still real: `DecisionEngine.decide()` looks exactly like "the decision
+engine" to a future caller (an admin script, a new endpoint, a CLI
+command) who doesn't know `pipeline.service.PipelineService` is the
+canonical path for anything outside `core.analyzer`'s pinned legacy
+contract - and unlike Pipeline's `ParallelEngineExecutor`, `decide()`
 enforces no per-engine timeout at all, so it would have materially
 worse resilience characteristics even though it shares the same
 aggregation math. These tests lock in that `decision_engine.service`
-is never imported from main.py or anywhere under pipeline/, so that
-risk can't silently reappear.
+is never imported from main.py directly or from anywhere under
+pipeline/, and that core/analyzer.py never imports the pipeline
+package, so that risk can't silently reappear or spread further than
+its one approved call site.
 
 Uses an AST scan (matching tests/test_research_isolation.py's own
 technique) rather than a string grep, so a substring match inside a
