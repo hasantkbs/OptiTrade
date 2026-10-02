@@ -21,7 +21,7 @@ itself does not (see tests/test_main_backward_compatibility.py).
 from typing import Optional
 import logging
 
-from core.analysis_presentation import to_analysis_decision
+from core.analysis_presentation import is_data_sufficient, to_analysis_decision
 from data.fetcher import fetch_history, get_balance_status
 from core.indicators import (
     calculate_rsi,
@@ -258,12 +258,22 @@ def analyze(
     # _apply_canonical_decision. long_signals/short_signals/
     # scoring_breakdown/patterns/support_resistance/fibonacci are
     # unaffected either way - they are explanatory evidence, not the
-    # decision, and decision_engine has no equivalent for them.
+    # decision, and decision_engine has no equivalent for them. A
+    # successful-but-low-data_sufficiency output gets the same
+    # fallback-to-local-score treatment via
+    # analysis_presentation.is_data_sufficient() - see
+    # intelligence/opportunity.py:60's identical precedent.
     try:
         from decision_engine.service import get_default_decision_engine
 
         canonical_output = get_default_decision_engine().decide(symbol.upper(), strict=True)
-        decision, decision_code, score = to_analysis_decision(canonical_output)
+        if is_data_sufficient(canonical_output):
+            decision, decision_code, score = to_analysis_decision(canonical_output)
+        else:
+            logger.warning(
+                f"{symbol}: decision engine data_sufficiency={canonical_output.data_sufficiency:.2f} "
+                "yetersiz (quality gate), yerel skor korunuyor"
+            )
     except Exception as exc:
         logger.error(f"{symbol}: decision engine yetkisi uygulanamadi, yerel skor korunuyor: {exc}")
 

@@ -131,6 +131,32 @@ async def test_analyze_falls_back_to_its_own_fusion_when_the_decision_engine_fai
 
 
 @pytest.mark.asyncio
+async def test_analyze_falls_back_to_its_own_fusion_when_data_sufficiency_too_low():
+    """Finding 3: decide(strict=True) can return normally with very few
+    engines voting (data_sufficiency=0.2 means only 1 of 5 voted) - that
+    low-confidence-input output must be treated the same as the
+    exception-fallback path, not silently override this engine's own
+    fusion result."""
+    decision_output = _make_decision_output(Prediction.SELL, confidence=0.9)
+    decision_output = decision_output.model_copy(update={"data_sufficiency": 0.2})
+    decision_engine = FakeDecisionEngine(decision_output)
+    engine = TradingEngineV2(
+        [FakeIndicator("fake1", score=0.5, confidence=0.8, side=SignalSide.BUY)],
+        decision_engine=decision_engine,
+    )
+
+    result = await engine.analyze("BTC-USD", _make_ohlcv())
+
+    assert decision_engine.calls == ["BTC-USD"]
+    # Not overridden by the low-data_sufficiency SELL output - falls
+    # back to the indicator fusion result instead (score=0.5, conf=0.8,
+    # same as test_analyze_falls_back_to_its_own_fusion_when_the_
+    # decision_engine_fails above).
+    assert result.aggregated_score == pytest.approx(0.5)
+    assert result.confidence == pytest.approx(0.8)
+
+
+@pytest.mark.asyncio
 async def test_analyze_result_timestamp_is_utc_aware_not_naive():
     """API contract audit: `EngineResult.timestamp` (a plain `str`
     field - see v2/models/schemas.py) must carry an explicit UTC offset

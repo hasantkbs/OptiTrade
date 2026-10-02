@@ -5,7 +5,7 @@ import time
 import pandas as pd
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
-from core.analysis_presentation import to_directional_score
+from core.analysis_presentation import is_data_sufficient, to_directional_score
 from v2.indicators.base import BaseIndicator
 from v2.models.schemas import EngineResult, IndicatorOutput, SignalSide
 from v2.ml.predictor import MLPredictorV2
@@ -134,7 +134,11 @@ class TradingEngineV2:
         # now come from there, not from this engine's own SignalFusion.
         # A Decision Engine failure (infra down, zero valid votes) falls
         # back to this engine's own fusion so a hiccup there never turns
-        # into a hard failure for this endpoint.
+        # into a hard failure for this endpoint. A successful-but-low-
+        # data_sufficiency output (e.g. only 1 of 5 engines voted) gets
+        # the same fallback treatment via
+        # analysis_presentation.is_data_sufficient() - see
+        # intelligence/opportunity.py:60's identical precedent.
         try:
             decision_engine = self.decision_engine
             if decision_engine is None:
@@ -142,7 +146,16 @@ class TradingEngineV2:
 
                 decision_engine = get_default_decision_engine()
             decision_output = await asyncio.to_thread(decision_engine.decide, symbol, strict=True)
-            aggregated_score, confidence = to_directional_score(decision_output)
+            if is_data_sufficient(decision_output):
+                aggregated_score, confidence = to_directional_score(decision_output)
+            else:
+                _log_structured_event(
+                    operation="canonical_decision", status="skipped", symbol=symbol,
+                    error_type="InsufficientDataSufficiency", level=logging.WARNING,
+                    data_sufficiency=decision_output.data_sufficiency,
+                )
+                aggregation = self.fusion.aggregate(indicator_results)
+                aggregated_score, confidence = aggregation["score"], aggregation["confidence"]
         except Exception as exc:
             _log_structured_event(
                 operation="canonical_decision", status="error", symbol=symbol,

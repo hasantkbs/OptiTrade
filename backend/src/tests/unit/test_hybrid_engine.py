@@ -62,7 +62,7 @@ def _risk():
     )
 
 
-def _decision_output(symbol="AAPL", decision=Prediction.BUY, confidence=0.70):
+def _decision_output(symbol="AAPL", decision=Prediction.BUY, confidence=0.70, data_sufficiency=1.0):
     """Default (BUY, 0.70) is deliberately chosen to map onto the exact
     same (TradeSignal.BUY, confidence_score=70) `_trade_rec()` already
     hardcodes - so `_apply_canonical_decision`'s override is a no-op for
@@ -72,7 +72,7 @@ def _decision_output(symbol="AAPL", decision=Prediction.BUY, confidence=0.70):
     return DecisionOutput(
         symbol=symbol, decision=decision, confidence=confidence,
         expected_return=0.01, expected_volatility=0.02,
-        aggregation_strategy_version="test", data_sufficiency=1.0,
+        aggregation_strategy_version="test", data_sufficiency=data_sufficiency,
         evidence=[], engine_results=[],
     )
 
@@ -354,3 +354,39 @@ class TestCanonicalDecisionOverride:
         result = engine.check_alerts(["AAPL"])
 
         assert result == []
+
+    def test_low_data_sufficiency_falls_back_to_the_llm_signal(self):
+        """Finding 3: decide(strict=True) can return normally with very
+        few engines voting (data_sufficiency=0.2 means only 1 of 5
+        voted) - that low-confidence-input output must be treated the
+        same as the exception-fallback path, not silently override the
+        LLM's own signal."""
+        engine = _make_engine(
+            decision_engine=_make_decision_engine(decision=Prediction.SELL, confidence=0.9, data_sufficiency=0.2)
+        )
+        engine.scanner.scan_and_filter.return_value = [_scanned()]
+        engine.analyzer.analyze.return_value = _analysis()
+        engine.news_adapter.get_sentiment.return_value = None
+        engine.risk_manager.calculate.return_value = _risk()
+        engine.ai_persona.generate_recommendation.return_value = _trade_rec()  # says BUY/70
+        engine.anomaly_detector.detect.return_value = None
+
+        result = engine.run(["AAPL"])
+
+        engine.decision_engine.decide.assert_called_once_with("AAPL", strict=True)
+        assert result == [_trade_rec()]  # unchanged - LLM's own signal survives
+
+    def test_investor_profile_low_data_sufficiency_falls_back_to_llm_horizon_1_week(self):
+        engine = _make_engine(
+            decision_engine=_make_decision_engine(decision=Prediction.SELL, confidence=0.9, data_sufficiency=0.2)
+        )
+        engine.scanner.scan_and_filter.return_value = [_scanned()]
+        engine.analyzer.analyze.return_value = _analysis()
+        engine.news_adapter.get_sentiment.return_value = None
+        engine.investor_persona.generate_recommendation.return_value = _investor_rec()
+        engine.anomaly_detector.detect.return_value = None
+
+        result = engine.run(["AAPL"], profile="investor")
+
+        assert result[0].horizon_1_week.signal == TradeSignal.BUY
+        assert result[0].horizon_1_week.confidence_score == 60

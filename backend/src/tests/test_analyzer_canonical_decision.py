@@ -49,9 +49,12 @@ def test_analyze_uses_decision_engine_decision_code(mock_get_engine, _mock_histo
     result = analyze(symbol="AAPL", asset_type="stock", include_news=False)
     assert result is not None
     assert result.decision_code == "STRONG_BUY"
-    # score is scaled WITHIN the STRONG_BUY band (78-100), not a raw
-    # confidence magnitude: 78 + round(0.9 * 22) == 98 (Fix 1).
-    assert result.score == 98
+    # score is scaled WITHIN the STRONG_BUY band (78-100), using the
+    # fraction of confidence WITHIN the strong tier's sub-range
+    # [0.75, 1.0] for continuity across the strong-signal threshold (see
+    # core.analysis_presentation.to_analysis_decision): fraction =
+    # (0.9-0.75)/0.25 = 0.6, 78 + round(0.6 * 22) == 91.
+    assert result.score == 91
 
 
 @patch("core.analyzer.fetch_history", return_value=_fake_history())
@@ -65,4 +68,33 @@ def test_analyze_falls_back_to_local_score_on_decision_engine_failure(mock_get_e
     # Fallback still produces a valid 5-way decision_code from the
     # local get_decision(score) path - exact value depends on the
     # synthetic fixture's indicators, so only the vocabulary is asserted.
+    assert result.decision_code in {"STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"}
+
+
+@patch("core.analyzer.to_analysis_decision")
+@patch("core.analyzer.fetch_history", return_value=_fake_history())
+@patch("decision_engine.service.get_default_decision_engine")
+def test_analyze_falls_back_to_local_score_when_data_sufficiency_too_low(
+    mock_get_engine, _mock_history, mock_to_analysis_decision
+):
+    """A successful-but-low-data_sufficiency DecisionOutput (e.g. only 1
+    of 5 engines voted) must be treated the same as the exception
+    fallback - the local/legacy score is kept, not silently overridden
+    by a low-confidence-input decision (Finding 3). Proven directly by
+    asserting `to_analysis_decision` (the function that would perform
+    the override) is never even called, not just by checking the
+    resulting decision_code is in-vocabulary."""
+    low_sufficiency_output = DecisionOutput(
+        symbol="AAPL", decision=Prediction.SELL, confidence=0.95,
+        expected_return=0.0, expected_volatility=0.1,
+        aggregation_strategy_version="test", data_sufficiency=0.2,
+    )
+    mock_get_engine.return_value = _FakeDecisionEngine(low_sufficiency_output)
+    from core.analyzer import analyze
+
+    result = analyze(symbol="AAPL", asset_type="stock", include_news=False)
+    assert result is not None
+    mock_to_analysis_decision.assert_not_called()
+    # Fallback still produces a valid 5-way decision_code from the
+    # local get_decision(score) path.
     assert result.decision_code in {"STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL"}

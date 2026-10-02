@@ -25,7 +25,7 @@ import logging
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from core.ai_trader_persona import AITraderPersona, TradeRecommendation
-from core.analysis_presentation import to_trade_signal
+from core.analysis_presentation import is_data_sufficient, to_trade_signal
 from core.cache_manager import TTLCache
 from core.interfaces import (
     AnomalyDetectorProtocol,
@@ -214,7 +214,11 @@ class HybridTradingEngine:
         A Decision Engine failure (infra down, zero valid votes, etc.)
         falls back to the LLM's own signal rather than dropping the
         recommendation entirely - this symbol's caching/error-isolation
-        behavior in `_process_symbol` is otherwise unaffected."""
+        behavior in `_process_symbol` is otherwise unaffected. A
+        successful-but-low-data_sufficiency output (e.g. only 1 of 5
+        engines voted) gets the same fallback treatment via
+        `analysis_presentation.is_data_sufficient()` - see
+        intelligence/opportunity.py:60's identical precedent."""
         try:
             decision_engine = self.decision_engine
             if decision_engine is None:
@@ -225,6 +229,12 @@ class HybridTradingEngine:
         except Exception as exc:
             logger.error(
                 f"{symbol}: decision engine yetkisi uygulanamadi, LLM sinyali korunuyor: {exc}"
+            )
+            return recommendation
+        if not is_data_sufficient(decision_output):
+            logger.warning(
+                f"{symbol}: decision engine data_sufficiency={decision_output.data_sufficiency:.2f} "
+                "yetersiz (quality gate), LLM sinyali korunuyor"
             )
             return recommendation
         signal, confidence_score = to_trade_signal(decision_output)
@@ -246,7 +256,8 @@ class HybridTradingEngine:
 
         A Decision Engine failure falls back to the LLM's own
         horizon_1_week signal rather than dropping the recommendation -
-        same resilience shape as `_apply_canonical_decision` above."""
+        same resilience shape as `_apply_canonical_decision` above,
+        including the same low-data_sufficiency quality gate."""
         try:
             decision_engine = self.decision_engine
             if decision_engine is None:
@@ -257,6 +268,12 @@ class HybridTradingEngine:
         except Exception as exc:
             logger.error(
                 f"{symbol}: decision engine yetkisi (investor 1-hafta) uygulanamadi, LLM sinyali korunuyor: {exc}"
+            )
+            return recommendation
+        if not is_data_sufficient(decision_output):
+            logger.warning(
+                f"{symbol}: decision engine data_sufficiency={decision_output.data_sufficiency:.2f} "
+                "yetersiz (investor 1-hafta, quality gate), LLM sinyali korunuyor"
             )
             return recommendation
         signal, confidence_score = to_trade_signal(decision_output)
