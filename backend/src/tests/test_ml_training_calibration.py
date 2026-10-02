@@ -2,6 +2,7 @@
 PostgreSQL persistence."""
 import os
 import tempfile
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -63,6 +64,32 @@ def test_calibrate_raises_when_trainer_not_fitted(split_data):
         calibrator.calibrate(trainer, split_data["X_cal"], split_data["y_cal"], CalibrationMethod.ISOTONIC)
 
 
+def test_calibrate_returns_trainer_uncalibrated_when_calibration_split_misses_a_known_class(caplog):
+    """A small/imbalanced calibration split can legitimately miss one of
+    the classes the trainer was fit on (e.g. a 3-way DIRECTION label's
+    rare middle band) - CalibratedClassifierCV's internal cross-
+    validation cannot handle that (it crashes deep in sklearn's fold-
+    stitching logic), so calibrate() detects this up front and returns
+    the trainer unmodified rather than attempting it. Trains on all 3
+    classes (0, 1, 2); calibration data covers only 2 of them."""
+    rng = np.random.RandomState(7)
+    X_train = rng.rand(90, 5)
+    y_train = np.array([0, 1, 2] * 30)  # all 3 classes present
+    trainer = create_trainer(ModelAlgorithm.RANDOM_FOREST, TaskType.CLASSIFICATION, _FEATURE_NAMES, {"n_estimators": 10})
+    trainer.fit(X_train, y_train)
+    assert set(trainer._model.classes_.tolist()) == {0, 1, 2}
+
+    X_cal = rng.rand(20, 5)
+    y_cal = np.array([0, 1] * 10)  # class 2 entirely missing
+
+    calibrator = ModelCalibrator()
+    with caplog.at_level("WARNING"):
+        result = calibrator.calibrate(trainer, X_cal, y_cal, CalibrationMethod.ISOTONIC)
+
+    assert result is trainer  # uncalibrated passthrough, not a _CalibratedTrainerAdapter
+    assert any("skipping calibration" in record.message for record in caplog.records)
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # service.py (real Postgres)
 # ─────────────────────────────────────────────────────────────────────────
@@ -94,6 +121,59 @@ def test_calibrate_and_save_persists_result_and_artifact(split_data, fitted_trai
     latest = svc.get_latest("calib-svc-test")
     assert latest.method == CalibrationMethod.ISOTONIC
     assert len(svc.list_for_model("calib-svc-test")) == 1
+
+
+def test_calibrate_and_save_warns_when_calibration_is_skipped(split_data, fitted_trainer, caplog, monkeypatch):
+    """When ModelCalibrator.calibrate returns the trainer unmodified (the
+    uncalibrated-passthrough case - calibration split missed a known
+    class), calibrate_and_save must still log a warning, so the skip is
+    visible to anyone investigating why calibration_error_before ==
+    calibration_error_after. Uses a fake repository (not real Postgres)
+    so the "must not persist" assertion below is a direct call-count
+    check, not an indirect read-back."""
+    fake_repository = MagicMock()
+    svc = CalibrationService(repository=fake_repository)
+    monkeypatch.setattr(svc.calibrator, "calibrate", lambda trainer, X_cal, y_cal, method: trainer)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        path = os.path.join(tmp_dir, "calibrated.joblib")
+        with caplog.at_level("WARNING"):
+            result = svc.calibrate_and_save(
+                "calib-svc-test-skip", fitted_trainer, split_data["X_cal"], split_data["y_cal"],
+                split_data["X_test"], split_data["y_test"], CalibrationMethod.ISOTONIC, path,
+            )
+
+    assert any(
+        "calib-svc-test-skip" in record.message and "skip" in record.message.lower()
+        for record in caplog.records
+    )
+    # Finding 4: a skipped calibration must NOT persist a DB row that
+    # looks indistinguishable from a successful run - the
+    # CalibrationResult is still built/returned (any future in-memory
+    # caller still gets it), just never saved to the repository.
+    fake_repository.save.assert_not_called()
+    assert result.calibration_error_before == result.calibration_error_after
+
+
+def test_calibrate_and_save_logs_skipped_status_not_success_when_skipped(
+    split_data, fitted_trainer, caplog, monkeypatch
+):
+    fake_repository = MagicMock()
+    svc = CalibrationService(repository=fake_repository)
+    monkeypatch.setattr(svc.calibrator, "calibrate", lambda trainer, X_cal, y_cal, method: trainer)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        path = os.path.join(tmp_dir, "calibrated.joblib")
+        with caplog.at_level("INFO"):
+            svc.calibrate_and_save(
+                "calib-svc-test-skip-status", fitted_trainer, split_data["X_cal"], split_data["y_cal"],
+                split_data["X_test"], split_data["y_test"], CalibrationMethod.ISOTONIC, path,
+            )
+
+    structured_records = [r for r in caplog.records if '"operation": "calibrate_and_save"' in r.message]
+    assert len(structured_records) == 1
+    assert '"status": "skipped"' in structured_records[0].message
+    assert '"status": "success"' not in structured_records[0].message
 
 
 def test_get_latest_returns_none_when_no_history(repository):

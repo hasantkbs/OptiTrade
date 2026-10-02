@@ -22,10 +22,10 @@ uçtan uca bağlayan ana motor. Ayrıca:
 from __future__ import annotations
 
 import logging
-import os
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from core.ai_trader_persona import AITraderPersona, TradeRecommendation, TradeSignal
+from core.ai_trader_persona import AITraderPersona, TradeRecommendation
+from core.analysis_presentation import is_data_sufficient, to_trade_signal
 from core.cache_manager import TTLCache
 from core.interfaces import (
     AnomalyDetectorProtocol,
@@ -42,36 +42,8 @@ from core.mtf_analyzer import MultiTimeframeAnalyzer
 from core.news_adapter import NewsSentimentAdapter
 from core.regime_scanner import MarketRegimeScanner, ScannedSymbol
 from core.risk_manager import DynamicRiskManager
-from decision_engine.models import DecisionOutput, Prediction
 
 logger = logging.getLogger(__name__)
-
-# Same "strong" confidence bar intelligence/config.py's
-# INTELLIGENCE_STRONG_BUY_CONFIDENCE_THRESHOLD uses (default 0.75),
-# applied symmetrically to SELL too - duplicated as its own env-driven
-# constant rather than importing intelligence.config here, so this
-# legacy orchestrator gains no new dependency on the newer intelligence
-# package for one threshold value.
-_STRONG_SIGNAL_CONFIDENCE_THRESHOLD = float(
-    os.getenv("INTELLIGENCE_STRONG_BUY_CONFIDENCE_THRESHOLD", "0.75")
-)
-
-
-def _to_trade_signal(decision_output: DecisionOutput) -> Tuple[TradeSignal, int]:
-    """Maps the Decision Engine's discrete (decision, confidence) onto
-    AITraderPersona's five-way `TradeSignal` vocabulary. `Prediction` is
-    only BUY/HOLD/SELL - STRONG_BUY/STRONG_SELL are derived here from
-    confidence crossing the same bar `intelligence.opportunity.
-    classify_opportunity` uses for STRONG_BUY_BIAS, applied to both
-    directions since a trade signal (unlike that product-facing
-    "opportunity" label) needs to be symmetric."""
-    confidence_score = round(decision_output.confidence * 100)
-    if decision_output.decision == Prediction.HOLD:
-        return TradeSignal.NEUTRAL, confidence_score
-    is_strong = decision_output.confidence >= _STRONG_SIGNAL_CONFIDENCE_THRESHOLD
-    if decision_output.decision == Prediction.BUY:
-        return (TradeSignal.STRONG_BUY if is_strong else TradeSignal.BUY), confidence_score
-    return (TradeSignal.STRONG_SELL if is_strong else TradeSignal.SELL), confidence_score
 
 DEFAULT_RECOMMENDATION_CACHE_TTL_SECONDS = 15 * 60  # 15 dakika
 DEFAULT_ALERT_CACHE_TTL_SECONDS = 2 * 60  # 2 dakika
@@ -215,6 +187,7 @@ class HybridTradingEngine:
                     analysis=analysis,
                     news_sentiment=news_sentiment,
                 )
+                recommendation = self._apply_canonical_decision_to_investor_horizon(symbol, recommendation)
 
             cache.set(symbol, recommendation)
             return recommendation
@@ -241,21 +214,73 @@ class HybridTradingEngine:
         A Decision Engine failure (infra down, zero valid votes, etc.)
         falls back to the LLM's own signal rather than dropping the
         recommendation entirely - this symbol's caching/error-isolation
-        behavior in `_process_symbol` is otherwise unaffected."""
+        behavior in `_process_symbol` is otherwise unaffected. A
+        successful-but-low-data_sufficiency output (e.g. only 1 of 5
+        engines voted) gets the same fallback treatment via
+        `analysis_presentation.is_data_sufficient()` - see
+        intelligence/opportunity.py:60's identical precedent."""
         try:
             decision_engine = self.decision_engine
             if decision_engine is None:
                 from decision_engine.service import get_default_decision_engine
 
                 decision_engine = get_default_decision_engine()
-            decision_output = decision_engine.decide(symbol)
+            decision_output = decision_engine.decide(symbol, strict=True)
         except Exception as exc:
             logger.error(
                 f"{symbol}: decision engine yetkisi uygulanamadi, LLM sinyali korunuyor: {exc}"
             )
             return recommendation
-        signal, confidence_score = _to_trade_signal(decision_output)
+        if not is_data_sufficient(decision_output):
+            logger.warning(
+                f"{symbol}: decision engine data_sufficiency={decision_output.data_sufficiency:.2f} "
+                "yetersiz (quality gate), LLM sinyali korunuyor"
+            )
+            return recommendation
+        signal, confidence_score = to_trade_signal(decision_output)
         return recommendation.model_copy(update={"signal": signal, "confidence_score": confidence_score})
+
+    def _apply_canonical_decision_to_investor_horizon(
+        self, symbol: str, recommendation: InvestorRecommendation
+    ) -> InvestorRecommendation:
+        """Overrides ONLY `horizon_1_week`'s signal/confidence_score with
+        the Decision Engine's statistical vote - `decision_engine.decide()`
+        produces one undifferentiated-by-horizon decision, closest in
+        meaning to a current-conditions (short-horizon) vote, so only the
+        1-week horizon is overridden (see docs/superpowers/specs/2026-10-01-
+        decision-path-consolidation-design.md's Global Constraints).
+        `horizon_1_month`/`horizon_1_year`/`investor_commentary` stay
+        fully LLM-driven - decision_engine has no medium/long-horizon
+        concept to supersede them with (see claude_build_spec.md Phase 1's
+        not-yet-built models/medium_horizon, models/long_horizon).
+
+        A Decision Engine failure falls back to the LLM's own
+        horizon_1_week signal rather than dropping the recommendation -
+        same resilience shape as `_apply_canonical_decision` above,
+        including the same low-data_sufficiency quality gate."""
+        try:
+            decision_engine = self.decision_engine
+            if decision_engine is None:
+                from decision_engine.service import get_default_decision_engine
+
+                decision_engine = get_default_decision_engine()
+            decision_output = decision_engine.decide(symbol, strict=True)
+        except Exception as exc:
+            logger.error(
+                f"{symbol}: decision engine yetkisi (investor 1-hafta) uygulanamadi, LLM sinyali korunuyor: {exc}"
+            )
+            return recommendation
+        if not is_data_sufficient(decision_output):
+            logger.warning(
+                f"{symbol}: decision engine data_sufficiency={decision_output.data_sufficiency:.2f} "
+                "yetersiz (investor 1-hafta, quality gate), LLM sinyali korunuyor"
+            )
+            return recommendation
+        signal, confidence_score = to_trade_signal(decision_output)
+        updated_horizon = recommendation.horizon_1_week.model_copy(
+            update={"signal": signal, "confidence_score": confidence_score}
+        )
+        return recommendation.model_copy(update={"horizon_1_week": updated_horizon})
 
     def _get_or_check_alert(self, scanned: ScannedSymbol) -> Optional[MarketAlert]:
         symbol = scanned.symbol

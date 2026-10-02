@@ -100,6 +100,10 @@ def test_different_symbols_and_markets_are_independent_cache_keys(monkeypatch):
 def test_no_news_result_is_also_cached(monkeypatch):
     calls = []
     monkeypatch.setattr("core.news_analyzer._fetch_yfinance_news", lambda symbol, max_news=15: calls.append(symbol) or [])
+    # _fetch_combined_news also calls _fetch_google_news_rss (live network
+    # RSS) twice - unmocked, it can return real results for "ZZZZ" and
+    # break this test's "no news" premise. Mock it too.
+    monkeypatch.setattr("core.news_analyzer._fetch_google_news_rss", lambda *args, **kwargs: [])
 
     first = analyze_news("ZZZZ", market="US", use_cache=True)
     second = analyze_news("ZZZZ", market="US", use_cache=True)
