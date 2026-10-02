@@ -8,7 +8,7 @@ from typing import List, Optional
 import joblib
 import numpy as np
 
-from core.structured_logging import STATUS_SUCCESS, log_event
+from core.structured_logging import STATUS_SKIPPED, STATUS_SUCCESS, log_event
 from ml_training.calibration.calibrator import ModelCalibrator
 from ml_training.calibration.repository import CalibrationRepository
 from ml_training.config import MLTrainingConfig
@@ -48,13 +48,16 @@ class CalibrationService:
         )
 
         calibrated_model = self.calibrator.calibrate(trainer, X_cal, y_cal, method)
-        if calibrated_model is trainer:
+        was_skipped = calibrated_model is trainer
+        if was_skipped:
             logger.warning(
                 "calibrate_and_save: calibration was skipped for model_id=%s (method=%s) - "
                 "the calibration split was missing a known class, so ModelCalibrator.calibrate "
-                "returned the trainer unmodified. The CalibrationResult saved below will still "
-                "record this as a run, but calibration_error_before == calibration_error_after "
-                "is expected and does NOT mean calibration had no effect.",
+                "returned the trainer unmodified. The CalibrationResult below is NOT persisted "
+                "to the repository (unlike a real calibration run) precisely because "
+                "calibration_error_before == calibration_error_after here does NOT mean "
+                "calibration had no effect - it means no calibration ran at all, and a "
+                "persisted row would be indistinguishable from a successful run.",
                 model_id, method.value,
             )
         error_after = calibration_error_from_predictions(
@@ -69,11 +72,18 @@ class CalibrationService:
             calibration_error_after=error_after, artifact_path=artifact_path,
             computed_at=datetime.now(timezone.utc),
         )
-        self.repository.save(result)
+        # A skipped calibration must NOT persist a DB row indistinguishable
+        # from a successful run - the only caller (ml_training/service.py)
+        # discards this method's return value, so `result` is still built
+        # and returned in case a future caller wants it in-memory, but it
+        # is never saved to the repository when skipped (Finding 4).
+        if not was_skipped:
+            self.repository.save(result)
 
         log_event(
             logger, component="ml_training", module="ml_training.calibration.service",
-            operation="calibrate_and_save", status=STATUS_SUCCESS, model_id=model_id, method=method.value,
+            operation="calibrate_and_save", status=STATUS_SKIPPED if was_skipped else STATUS_SUCCESS,
+            model_id=model_id, method=method.value,
             calibration_error_before=error_before, calibration_error_after=error_after,
         )
         return result
