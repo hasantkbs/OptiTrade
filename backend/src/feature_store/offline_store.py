@@ -70,6 +70,16 @@ CREATE INDEX IF NOT EXISTS ix_feature_store_lookup
     ON feature_store_records (symbol, feature_name, event_timestamp DESC, ingestion_timestamp DESC);
 """
 
+# Closes a duplicate-write hole: a day whose feature computation legitimately
+# yields fewer than all ALL_FEATURE_NAMES (an indicator returning None, or the
+# NaN/Inf guard in backfill_feature_store.py skipping one) could never satisfy
+# already_backfilled's "all present" check and would be recomputed and
+# re-inserted on every re-run without this constraint.
+_CREATE_UNIQUE_INDEX_SQL = """
+CREATE UNIQUE INDEX IF NOT EXISTS ux_feature_store_dedup
+    ON feature_store_records (symbol, feature_name, version, event_timestamp);
+"""
+
 
 class PostgresOfflineStore(PostgresRepositoryBase):
     """Offline (durable, versioned, point-in-time-queryable) feature store
@@ -88,7 +98,7 @@ class PostgresOfflineStore(PostgresRepositoryBase):
             minconn = env_minconn if minconn is None else minconn
             maxconn = env_maxconn if maxconn is None else maxconn
         super().__init__(
-            schema_statements=[_CREATE_TABLE_SQL, _CREATE_INDEX_SQL],
+            schema_statements=[_CREATE_TABLE_SQL, _CREATE_INDEX_SQL, _CREATE_UNIQUE_INDEX_SQL],
             config=config,
             minconn=minconn,
             maxconn=maxconn,
@@ -103,6 +113,7 @@ class PostgresOfflineStore(PostgresRepositoryBase):
                     INSERT INTO feature_store_records
                         (symbol, feature_name, value, version, event_timestamp, ingestion_timestamp)
                     VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, feature_name, version, event_timestamp) DO NOTHING
                     """,
                     (
                         record.symbol,

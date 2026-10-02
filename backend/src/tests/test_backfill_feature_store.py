@@ -8,7 +8,7 @@ unit-tested)."""
 import sys
 sys.path.insert(0, ".")
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -142,6 +142,40 @@ def test_already_backfilled_requires_as_of_at_or_after_event_timestamp():
     # was doing) -> the 23:59:59 row isn't "visible" yet as of midnight,
     # so it's wrongly NOT recognized as backfilled. This is the exact bug.
     assert already_backfilled(store, "AAPL", day) is False
+
+
+def test_already_backfilled_normalizes_non_utc_session_timezone():
+    """Regression test: the DB session's timezone must not affect this
+    check. A record whose event_timestamp, when read back, reports a
+    DIFFERENT tzinfo than UTC (simulating a non-UTC session) but the
+    SAME real instant must still match correctly."""
+    from datetime import timezone as tz
+
+    class _FakeRecord:
+        def __init__(self, event_timestamp):
+            self.event_timestamp = event_timestamp
+
+    class _FakeStore:
+        def __init__(self, record):
+            self._record = record
+
+        def get_as_of(self, symbol, feature_name, as_of, respect_ingestion_time=False):
+            return self._record
+
+    # A record whose event_timestamp is the SAME real instant as
+    # 2024-06-15T23:59:59Z, but represented in a +02:00 offset (as a
+    # non-UTC session timezone might return it) - the real instant is
+    # the same calendar day in UTC terms, so this must still count as
+    # a match.
+    day = datetime(2024, 6, 15, 23, 59, 59, tzinfo=timezone.utc)
+    same_instant_other_tz = day.astimezone(tz(timedelta(hours=2)))
+    record = _FakeRecord(event_timestamp=same_instant_other_tz)
+    store = _FakeStore(record)
+
+    from engines.technical.config import ALL_FEATURE_NAMES
+    store.get_as_of = lambda symbol, feature_name, as_of, respect_ingestion_time=False: record
+
+    assert backfill_feature_store.already_backfilled(store, "TESTSYM", day) is True
 
 
 def test_backfill_symbol_is_idempotent_across_runs(monkeypatch):

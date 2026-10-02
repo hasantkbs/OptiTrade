@@ -84,12 +84,21 @@ def already_backfilled(store: PostgresOfflineStore, symbol: str, day: datetime) 
     with no way to detect or repair that later. Requiring all 17 is
     the simplest, safest way to close that hole: a day is only
     skipped once everything the live engine computes for it has
-    actually been persisted."""
+    actually been persisted.
+
+    The date comparison is explicit-UTC on both sides: `record.
+    event_timestamp` is read back from a TIMESTAMPTZ column, and
+    psycopg2 returns it in the DB session's timezone, not necessarily
+    UTC - relying on `.date()` directly would only be correct by
+    coincidence of the session happening to be UTC. Normalizing both
+    `day` and `record.event_timestamp` to UTC before taking `.date()`
+    makes the comparison correct regardless of session timezone."""
     from engines.technical.config import ALL_FEATURE_NAMES
 
+    day_utc_date = day.astimezone(timezone.utc).date()
     for feature_name in ALL_FEATURE_NAMES:
         record = store.get_as_of(symbol, feature_name, day, respect_ingestion_time=False)
-        if record is None or record.event_timestamp.date() != day.date():
+        if record is None or record.event_timestamp.astimezone(timezone.utc).date() != day_utc_date:
             return False
     return True
 
