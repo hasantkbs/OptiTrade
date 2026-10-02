@@ -43,16 +43,21 @@ from typing import Optional
 
 import joblib
 import numpy as np
-import pandas as pd
 import yfinance as yf
 
-from core.indicators import (
-    calculate_bollinger_bands, calculate_ema_crossover, calculate_macd,
-    calculate_price_velocity, calculate_rsi, calculate_trend_strength,
-    calculate_volume_ratio,
-)
 from data.fetcher import fetch_history
 from decision_engine.service import get_default_decision_engine
+# extract_features/EMA_SIGNAL_ENC/FEATURE_NAMES are reused deliberately
+# here rather than reimplemented: this script's OOS accuracy number is
+# only meaningful if it feeds the model byte-identical features to what
+# it was trained on. A hand-copied duplicate already silently drifted
+# once (the duplicate used `or` for its None-substitutions, which also
+# fires on a legitimate exact 0.0 from calculate_rsi/percent_b - a bug
+# ml_trainer's `is None` checks don't have). Same reuse-over-duplication
+# choice scripts/train_ml_candidate.py already made for
+# ml_training.service._samples_to_arrays, for the same reason: duplicated
+# logic risks the two copies silently drifting.
+from research.ml_trainer import EMA_SIGNAL_ENC, FEATURE_NAMES, extract_features
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -68,28 +73,6 @@ SYMBOL_BASKET = [
     "THYAO.IS", "GARAN.IS", "ASELS.IS", "EREGL.IS", "AKBNK.IS",
     "BTC-USD", "ETH-USD", "SOL-USD",
 ]
-
-FEATURE_NAMES = ["rsi", "macd_diff", "bollinger_pb", "ema_signal_enc", "trend_strength", "price_velocity", "volume_ratio"]
-_EMA_SIGNAL_ENC = {"GOLDEN_CROSS": 2, "BULLISH": 1, "BEARISH": -1, "DEATH_CROSS": -2, None: 0}
-
-
-def _extract_features(window: pd.DataFrame) -> "list[float] | None":
-    try:
-        prices = window["Close"]
-        current, open_p = float(prices.iloc[-1]), float(window["Open"].iloc[-1])
-        vol, avg_vol = float(window["Volume"].iloc[-1]), float(window["Volume"].mean())
-        rsi = calculate_rsi(prices) or 50.0
-        macd, macd_sig, _ = calculate_macd(prices)
-        macd_diff = (macd - macd_sig) if (macd is not None and macd_sig is not None) else 0.0
-        boll = calculate_bollinger_bands(prices)
-        pb = (boll.get("percent_b") if boll else None) or 0.5
-        ema_enc = _EMA_SIGNAL_ENC.get(calculate_ema_crossover(prices), 0)
-        trend = calculate_trend_strength(prices) or 0.0
-        vel = calculate_price_velocity(current, open_p)
-        vol_r = calculate_volume_ratio(vol, avg_vol)
-        return [rsi, macd_diff, pb, ema_enc, trend, vel, vol_r]
-    except Exception:
-        return None
 
 
 def walk_forward_evaluate(model_path: str, model_name: str) -> dict:
@@ -134,7 +117,7 @@ def walk_forward_evaluate(model_path: str, model_name: str) -> dict:
             if train_end_date is not None and hist.index[i].date() <= train_end_date:
                 continue  # this bar (or an earlier one the model could have trained on) - skip
             window = hist.iloc[i - LOOKBACK: i + 1]
-            feats = _extract_features(window)
+            feats = extract_features(window)
             if feats is None:
                 continue
             current_p = float(hist["Close"].iloc[i])

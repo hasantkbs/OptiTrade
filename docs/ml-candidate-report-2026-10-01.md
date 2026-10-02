@@ -80,6 +80,45 @@ above, but it is an unmodeled train/serve alignment detail worth
 disclosing rather than silently omitting from a report whose purpose is
 honesty.
 
+**Crypto data-source and coverage gaps (disclosure):** two further gaps in
+the training data feeding this candidate, neither previously disclosed:
+
+1. *Data-source skew.* `scripts/backfill_feature_store.py` fetches every
+   symbol's OHLCV via a direct `yf.Ticker(symbol).history(...)` call. Live
+   serving instead goes through `fetch_history()`
+   (`engines/technical/feature_adapter.py`), which resolves to
+   `HybridProvider` and routes any symbol ending `-USD` to Binance rather
+   than yfinance. 7 of the basket's 22 symbols are crypto
+   (BTC-USD, ETH-USD, BNB-USD, SOL-USD, AVAX-USD, XRP-USD, DOGE-USD), so
+   ~32% of the basket's backfilled Feature Store rows were computed from a
+   different OHLCV source (yfinance) than what the live Technical engine
+   - and any future SHADOW/ACTIVE model - would see at vote time
+   (Binance). The rows are indistinguishable by inspection once written.
+   There is no live-serving risk today (this model is CANDIDATE only;
+   nothing reads these rows for serving), but this skew MUST be resolved
+   before any SHADOW/ACTIVE promotion decision for this candidate or a
+   retrained successor.
+2. *Missing crypto weekend history.* `trading_days_in_range` in the same
+   script excludes Saturday/Sunday for every symbol - correct for BIST
+   (`.IS`) equities, which don't trade on weekends, but wrong for 24/7
+   crypto assets. Verified directly against production: BTC-USD's
+   backfilled rows show 0 rows on both Saturday and Sunday, versus
+   ~1,768-1,785 on each weekday - crypto is missing close to 2 of every 7
+   days of available history (~28% of calendar days for those 7 symbols).
+   This is a deliberate, tested design choice, not an accident, but it
+   means (a) crypto contributes fewer training/eval samples than it
+   could, and (b) a Monday crypto sample's point-in-time feature lookup
+   resolves back to the PRECEDING FRIDAY's backfilled value - a
+   3-calendar-day-stale feature - which compounds the as-of skew already
+   disclosed above specifically for crypto symbols.
+
+Neither issue affects today's result's validity as a CANDIDATE-stage
+finding: the reported 0.429 vs 0.479 comparison used the same - if
+imperfect - feature computation consistently for both the training set
+and the held-out set. Both issues must be tracked and resolved, however,
+before considering this candidate (or a retrained successor) for SHADOW
+or ACTIVE.
+
 ## In-training metrics (for reference, NOT the out-of-sample result above)
 
 | Metric | Value |
