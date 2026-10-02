@@ -243,6 +243,24 @@ and must bind sub-project 2 (which this spec's work enables):
   out-of-scope during PR #1's review; still out of scope here unless
   they start blocking this work directly.
 
+## Known Limitations
+
+- **`core.advanced_analysis.compute_recommendation`'s `action_code` is a
+  separate, pre-existing composite signal that this consolidation does
+  NOT route through `decision_engine`.** It blends `score` (now
+  canonical, via `to_analysis_decision`) with ML confidence, Monte
+  Carlo, and Chart AI into its own weighted composite
+  (`0.40*score_norm + 0.25*ml_norm + 0.20*mc_norm + 0.15*ai_norm`) and
+  applies its own independent 5-way thresholds to produce
+  `action_code`/`suggested_position_pct`. Because 60% of that composite
+  comes from non-canonical inputs, `/analyze/enhanced` can legitimately
+  return a `decision_code` (e.g. `STRONG_BUY`) that disagrees with
+  `recommendation.action_code` (e.g. `NEUTRAL`) for the same symbol.
+  This is an accepted, pre-existing characteristic of that endpoint's
+  response shape, not a defect this PR introduces or is responsible for
+  closing — changing `compute_recommendation`'s own logic is out of
+  scope here (see "Explicitly Out of Scope" above).
+
 ## Risks
 
 - **Decision-value drift is the main risk, and it's accepted, not
