@@ -146,8 +146,8 @@ def _cleanup(svc: MLTrainingService, model_ids: list) -> None:
         _exec(svc.calibration.repository._pool, "DELETE FROM ml_training_calibration_results WHERE model_id = ANY(%s)", (model_ids,))
         _exec(
             svc.importance.feature_analysis_service.repository._pool,
-            "DELETE FROM research_feature_importance WHERE engine_name = ANY(%s)",
-            ([f"MLModel:{mid}" for mid in model_ids],),
+            "DELETE FROM research_feature_importance WHERE symbol = ANY(%s)",
+            (model_ids,),
         )
         _exec(
             svc.benchmarking.repository._pool,
@@ -248,7 +248,6 @@ def test_cleanup_does_not_delete_a_different_models_registry_row(service, featur
 
         created_model_ids.clear()  # already cleaned up above; the fixture's own teardown would otherwise no-op harmlessly on an empty list anyway
     finally:
-        svc.registry.repository._pool  # no-op touch to keep the pool import path warm; real cleanup below
         conn = svc.registry.repository._pool.getconn()
         try:
             with conn, conn.cursor() as cur:
