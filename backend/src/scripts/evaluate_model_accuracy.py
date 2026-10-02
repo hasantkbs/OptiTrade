@@ -57,7 +57,7 @@ from decision_engine.service import get_default_decision_engine
 # choice scripts/train_ml_candidate.py already made for
 # ml_training.service._samples_to_arrays, for the same reason: duplicated
 # logic risks the two copies silently drifting.
-from research.ml_trainer import EMA_SIGNAL_ENC, FEATURE_NAMES, extract_features
+from research.ml_trainer import extract_features
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
