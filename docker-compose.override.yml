@@ -9,11 +9,13 @@
 # worked before docker-compose.yml's redis service was hardened to be
 # internal-network-only (SERVER STEP 1).
 #
-# postgres is deliberately NOT re-exposed here: this host's local dev
-# already points FEATURE_STORE_POSTGRES_HOST=localhost at a pre-existing,
-# separately-managed PostgreSQL instance bound to 127.0.0.1:5432 (not
-# this project's own `postgres` service, which stays internal-only even
-# in dev) - binding the same host port here would just conflict with it.
+# postgres is now exposed too, but on 5433 (not 5432) - 5432 is occupied
+# by a separate, stale host-native PostgreSQL instance from an earlier
+# setup (see docs/superpowers/specs/2026-10-02-pre-deploy-stabilization-design.md
+# for how that was discovered and confirmed to be the wrong database).
+# Binding 5432 here would conflict with that instance; 5433 gives host
+# tooling (backfill/training scripts, pytest) a path to the REAL
+# optitrade-postgres data without disturbing it.
 #
 # api's :8000 is exposed here too (SERVER STEP 5 changed
 # docker-compose.yml's own `api` service from a published port to
@@ -35,3 +37,7 @@ services:
   api:
     ports:
       - "127.0.0.1:8000:8000"
+
+  postgres:
+    ports:
+      - "127.0.0.1:5433:5432"
