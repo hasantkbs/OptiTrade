@@ -49,16 +49,22 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-def trading_days_in_range(start: datetime, end: datetime) -> List[datetime]:
-    """Every calendar day in [start, end] that isn't a Saturday/Sunday -
-    a cheap proxy for "is this likely a trading day" that doesn't need a
-    market-calendar dependency. Weekday OHLCV will simply be absent from
-    yfinance's returned history for actual market holidays, which the
-    per-day lookup below already handles by finding no matching row."""
+def trading_days_in_range(start: datetime, end: datetime, include_weekends: bool = False) -> List[datetime]:
+    """Every calendar day in [start, end] - weekdays only by default (a
+    cheap proxy for "is this likely a trading day" for BIST/equities
+    that doesn't need a market-calendar dependency; actual market
+    holidays simply have no matching OHLCV row, which the per-day
+    lookup below already handles). `include_weekends=True` is for 24/7
+    crypto assets, which trade every calendar day - without it, ~28% of
+    available crypto history was being silently skipped (verified
+    against production: BTC-USD had 0 backfilled rows on Saturday/Sunday
+    versus ~1768-1785 on each weekday), and a Monday sample's
+    point-in-time feature lookup would resolve back to the preceding
+    Friday's stale value instead of Sunday's real one."""
     days = []
     cursor = start
     while cursor <= end:
-        if cursor.weekday() < 5:  # Monday=0 .. Friday=4
+        if include_weekends or cursor.weekday() < 5:  # Monday=0 .. Friday=4
             days.append(cursor)
         cursor += timedelta(days=1)
     return days
@@ -154,7 +160,7 @@ def backfill_symbol(store: PostgresOfflineStore, config: TechnicalEngineConfig, 
         return 0
 
     written = 0
-    for day in trading_days_in_range(start, end):
+    for day in trading_days_in_range(start, end, include_weekends=symbol.upper().endswith("-USD")):
         # Computed ONCE, before the skip check, and reused for both the
         # check and the write below - they must query/write the SAME
         # instant. `day` itself carries whatever wall-clock time-of-day

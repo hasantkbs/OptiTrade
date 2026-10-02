@@ -21,13 +21,20 @@ from scripts.backfill_feature_store import (
 )
 
 
-def test_trading_days_in_range_excludes_weekends():
-    start = datetime(2026, 1, 1, tzinfo=timezone.utc)   # a Thursday
-    end = datetime(2026, 1, 7, tzinfo=timezone.utc)     # the following Wednesday
+def test_trading_days_in_range_excludes_weekends_by_default():
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)  # Monday
+    end = datetime(2024, 1, 7, tzinfo=timezone.utc)    # Sunday
     days = trading_days_in_range(start, end)
-    weekdays = {d.weekday() for d in days}
-    assert 5 not in weekdays and 6 not in weekdays  # no Saturday (5) or Sunday (6)
-    assert len(days) == 5  # Thu, Fri, Mon, Tue, Wed
+    assert all(d.weekday() < 5 for d in days)
+    assert len(days) == 5
+
+
+def test_trading_days_in_range_includes_weekends_for_crypto():
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)  # Monday
+    end = datetime(2024, 1, 7, tzinfo=timezone.utc)    # Sunday
+    days = trading_days_in_range(start, end, include_weekends=True)
+    assert len(days) == 7
+    assert any(d.weekday() >= 5 for d in days)
 
 
 def test_already_backfilled_true_when_row_exists(monkeypatch):
