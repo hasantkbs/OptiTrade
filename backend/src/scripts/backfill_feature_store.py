@@ -110,16 +110,37 @@ def _price_period_to_days(price_period: str) -> int:
     raise ValueError(f"unrecognized price_period format: {price_period!r}")
 
 
+def _fetch_backfill_history(symbol: str, fetch_start_dt: datetime, fetch_end_dt: datetime):
+    """Fetches `symbol`'s OHLCV for the full backfill window from the
+    SAME source the live engine would use for it - HybridProvider's own
+    "-USD" routing predicate (providers/hybrid_provider.py::_route),
+    duplicated here as a single `endswith` check rather than importing
+    HybridProvider itself (constructing it pulls in FinnhubProvider's
+    API-key check, irrelevant to this binary yfinance/Binance choice).
+    Closes the train/serve data-source skew for crypto symbols: before
+    this fix, ALL symbols backfilled via yfinance even though live
+    serving reads the 7 "-USD" symbols from Binance. Falls back to
+    yfinance on a Binance failure, matching HybridProvider.fetch_ohlcv's
+    own fallback behavior for the live path."""
+    fetch_start_str = fetch_start_dt.strftime("%Y-%m-%d")
+    fetch_end_str = fetch_end_dt.strftime("%Y-%m-%d")
+    if symbol.upper().endswith("-USD"):
+        from providers.binance_provider import BinanceProvider
+        hist = BinanceProvider().fetch_ohlcv_range(symbol, fetch_start_dt, fetch_end_dt)
+        if hist is not None and not hist.empty:
+            return hist
+        logger.info("%s: Binance range fetch returned nothing, falling back to yfinance", symbol)
+    return yf.Ticker(symbol).history(start=fetch_start_str, end=fetch_end_str)
+
+
 def backfill_symbol(store: PostgresOfflineStore, config: TechnicalEngineConfig, symbol: str, start: datetime, end: datetime) -> int:
     """Fetches `symbol`'s full historical OHLCV ONCE (not once per day),
     then computes and writes features for every trading day in
     [start, end] not already backfilled. Returns the number of days
     actually written (skipped days don't count)."""
     window_days = _price_period_to_days(config.price_period)
-    fetch_start = (start - timedelta(days=window_days + 10)).strftime("%Y-%m-%d")
-    fetch_end = (end + timedelta(days=1)).strftime("%Y-%m-%d")
     try:
-        hist = yf.Ticker(symbol).history(start=fetch_start, end=fetch_end)
+        hist = _fetch_backfill_history(symbol, start - timedelta(days=window_days + 10), end + timedelta(days=1))
     except Exception as exc:
         # A single symbol's fetch raising (network timeout, yfinance
         # rate-limit, a delisted/renamed ticker) must not abort the
