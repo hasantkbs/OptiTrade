@@ -3,22 +3,40 @@ OptiTrade XGBoost Sinyal Sınıflandırıcı Eğitim Scripti
 ------------------------------------------------------
 Çalıştırmak için:
   cd backend/src
-  python research/ml_trainer.py
+  python research/ml_trainer.py [--train-end-date YYYY-MM-DD] [--output-suffix _oos_test]
 
 Gereksinimler:
   pip install xgboost scikit-learn joblib
+
+--train-end-date, verilen tarihte durmuş gibi davranarak eğitir: yfinance'ten
+sadece o tarihe kadarki (ve ondan 2 yıl önceye kadar geriye giden) veriyi
+çeker, train_end_date'i model paketinin içine kaydeder. Bu, scripts/
+evaluate_model_accuracy.py'nin train_end_date'ten SONRAKİ veriyle gerçek
+bir out-of-sample (gerçekten hiç görülmemiş) değerlendirme yapabilmesini
+sağlar - verilmezse (varsayılan) script'in eski davranışı korunur: "şimdi"ye
+kadarki en güncel 2 yıl, train_end_date paket içine kaydedilmez
+(None) ve hiçbir gerçek held-out pencere garanti edilmez (bu script'in
+kendi iç train_test_split'i hâlâ kronolojik değil, rastgele - ayrı,
+bilinen bir sınırlama, bu değişikliğin kapsamı dışında).
+
+--output-suffix, verilirse model_artifacts/xgb_signal_model<suffix>.joblib'e
+yazar (prod'un servis ettiği xgb_signal_model.joblib'in üzerine YAZMAZ) -
+yeniden eğitilmiş bir modeli canlıya almadan önce ayrı, incelenebilir bir
+dosya olarak üretmek için.
 """
 
+import argparse
 import sys
 import os
 import shutil
 import tempfile
+from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple
 import logging
 
 logging.basicConfig(level=logging.WARNING)
@@ -104,16 +122,29 @@ def extract_features(window: pd.DataFrame) -> Optional[List[float]]:
         return None
 
 
-def build_dataset(symbol: str) -> Tuple[np.ndarray, np.ndarray]:
+def build_dataset(symbol: str, train_end_date: Optional[datetime] = None) -> Tuple[np.ndarray, np.ndarray]:
     """Never raises - a single symbol's `yfinance` fetch failing (rate
     limit, delisted ticker, network hiccup) must not abort a
     multi-symbol training run any more than "insufficient history"
     does (the pre-existing `len(hist) < ...` skip below). The failure
     is still logged, not silently discarded, so a systemic fetch
-    problem (e.g. every symbol failing) remains visible."""
+    problem (e.g. every symbol failing) remains visible.
+
+    `train_end_date`, verilirse, yfinance'ten sadece [train_end_date -
+    2 yıl, train_end_date] aralığındaki veriyi çeker - "şimdi"ye kadar
+    değil, böylece bu fonksiyonun ürettiği hiçbir satır train_end_date'i
+    geçmez (scripts/evaluate_model_accuracy.py'nin bu tarihten SONRAKİ
+    veriyle değerlendirme yapabilmesinin ön koşulu). `None` ise (varsayılan),
+    eski davranış korunur: en güncel 2 yıl."""
     try:
         ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="2y")
+        if train_end_date is not None:
+            hist = ticker.history(
+                start=(train_end_date - timedelta(days=730)).strftime("%Y-%m-%d"),
+                end=train_end_date.strftime("%Y-%m-%d"),
+            )
+        else:
+            hist = ticker.history(period="2y")
     except Exception as exc:
         logger.warning(f"{symbol} için veri çekilemedi, atlanıyor: {exc}")
         return np.array([]), np.array([])
@@ -186,7 +217,7 @@ def _deploy_if_not_regressed(model_path: str, package: dict, joblib_module) -> b
     return True
 
 
-def train():
+def train(train_end_date: Optional[datetime] = None, output_suffix: str = ""):
     try:
         from xgboost import XGBClassifier
     except ImportError:
@@ -204,12 +235,14 @@ def train():
     print("=" * 65)
     print("OptiTrade - XGBoost Sinyal Sınıflandırıcı Eğitimi")
     print(f"Lookback: {LOOKBACK} gün | Forward: {FORWARD_DAYS} gün | Eşik: +%{THRESHOLD_UP}")
+    if train_end_date is not None:
+        print(f"Eğitim verisi kesme tarihi: {train_end_date.date().isoformat()} (bu tarihten sonraki hiçbir satır eğitime girmez)")
     print("=" * 65)
 
     all_X, all_y = [], []
     for sym in SYMBOLS:
         print(f"  Veri çekiliyor: {sym}...", end=" ", flush=True)
-        X, y = build_dataset(sym)
+        X, y = build_dataset(sym, train_end_date=train_end_date)
         if len(X) > 0:
             all_X.append(X)
             all_y.append(y)
@@ -271,7 +304,7 @@ def train():
         print(f"  {name:18s}: {bar} ({imp:.3f})")
 
     os.makedirs("../model_artifacts", exist_ok=True)
-    model_path = os.path.join("..", "model_artifacts", "xgb_signal_model.joblib")
+    model_path = os.path.join("..", "model_artifacts", f"xgb_signal_model{output_suffix}.joblib")
     package = {
         "model": model,
         "feature_names": FEATURE_NAMES,
@@ -282,6 +315,9 @@ def train():
         "cv_accuracy_std": float(cv_scores.std()),
         "train_samples": len(X_train),
         "test_samples": len(X_test),
+        # None for the default (no --train-end-date) invocation - evaluate_model_
+        # accuracy.py treats that as "no recorded cutoff, don't claim out-of-sample".
+        "train_end_date": train_end_date.date().isoformat() if train_end_date is not None else None,
     }
     if _deploy_if_not_regressed(model_path, package, joblib):
         print(f"\nModel kaydedildi: {model_path}")
@@ -289,4 +325,18 @@ def train():
 
 
 if __name__ == "__main__":
-    train()
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--train-end-date", type=str, default=None, metavar="YYYY-MM-DD",
+        help="Eğitim verisini bu tarihte kesin; verilmezse eski davranış (en güncel 2 yıl, kesim tarihi kaydedilmez).",
+    )
+    parser.add_argument(
+        "--output-suffix", type=str, default="", metavar="_suffix",
+        help="model_artifacts/xgb_signal_model<suffix>.joblib'e yaz - boşsa (varsayılan) prod dosyasının üzerine yazar.",
+    )
+    args = parser.parse_args()
+    _train_end_date = (
+        datetime.strptime(args.train_end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        if args.train_end_date else None
+    )
+    train(train_end_date=_train_end_date, output_suffix=args.output_suffix)
