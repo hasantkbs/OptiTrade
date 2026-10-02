@@ -7,6 +7,8 @@
 | xgb_signal_model | 1850 | 0.608 | 0.568 | 0.546 | 0.559 |
 | v2_xgb_model | 0 | ERROR | - | - | Feature shape mismatch, expected: 5, got 7 |
 
+`v2_xgb_model`'s feature-shape mismatch above is a known, pre-existing issue, tracked separately — it needs its own feature-schema realignment and retraining, which is out of scope for the decision-path-consolidation work.
+
 ## decision_engine current-state snapshot (NOT a backtest)
 
 `decision_engine.decide()` has no point-in-time parameter, so this is today's live decision only, not a historical accuracy figure. A proper decision_engine backtest needs historical replay support - out of scope for this evaluation.
