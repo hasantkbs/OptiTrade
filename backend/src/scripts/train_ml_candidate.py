@@ -32,6 +32,7 @@ import sys
 sys.path.insert(0, ".")
 
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
@@ -64,6 +65,7 @@ logger = logging.getLogger(__name__)
 
 _AUTHOR = "train_ml_candidate_script"
 HORIZON_DAYS = 5  # matches research/ml_trainer.py's FORWARD_DAYS - fair comparison with xgb_signal_model_oos_test
+REPORT_FILENAME_SUFFIX = os.getenv("TRAIN_ML_CANDIDATE_REPORT_SUFFIX", "")
 
 
 class CachingPriceFetcher:
@@ -219,7 +221,8 @@ def main() -> None:
     ]
     report = "\n".join(lines)
     print("\n" + report)
-    with open(f"../../docs/ml-candidate-report-{now.date().isoformat()}.md", "w") as f:
+    report_path = f"../../docs/ml-candidate-report-{now.date().isoformat()}{REPORT_FILENAME_SUFFIX}.md"
+    with open(report_path, "w") as f:
         f.write(report + "\n")
 
 
