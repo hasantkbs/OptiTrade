@@ -1,22 +1,27 @@
 """
-OptiTrade — legacy scoring engine (pre-pipeline).
+OptiTrade — legacy scoring engine (pre-pipeline presentation source).
 
-Backs `main.py`'s `POST /analyze` only. Entirely self-contained (its own
-indicators, pattern recognition, scoring/decision/risk logic, ML
-confidence, and news analysis) and completely independent of the
-Technical/Fundamental/News voting architecture `pipeline.service.
-PipelineService` runs behind `/quant/analyze` - this is a deliberately
-preserved, separately-tested legacy decision path (see
-tests/test_main_backward_compatibility.py), not one the new pipeline
-was ever meant to replace or converge with. `pipeline.service.
-PipelineService` is the sole canonical path for production decisions
-outside this pinned legacy contract; nothing here should be extended to
-serve as a second implementation of the Decision Engine's own
-accuracy-weighted voting.
+Backs `main.py`'s `POST /analyze`, `POST /analyze/enhanced`, and
+`POST /session/analyze`. Still computes its own indicators, pattern
+recognition, support/resistance, fibonacci, ML confidence, and news
+analysis locally (none of these have a decision_engine equivalent -
+they are presentation/evidence, not the decision itself). As of
+docs/superpowers/specs/2026-10-01-decision-path-consolidation-design.md,
+the headline `decision`/`decision_code`/`score` fields are no longer
+computed from this file's own `compute_score()`/`get_decision()` -
+they come from `decision_engine`, the single canonical decision
+authority (see docs/architecture/gap-analysis.md section 2), with the
+local `get_decision(score)` computation kept only as the fallback value
+if decision_engine is unreachable. This is a deliberate, user-approved
+behavior change from this function's own prior scores (see the spec's
+"Why /analyze was deliberately left alone" section) - existing clients'
+exact score/decision VALUES may shift; the `AnalysisResult` field set
+itself does not (see tests/test_main_backward_compatibility.py).
 """
 from typing import Optional
 import logging
 
+from core.analysis_presentation import is_data_sufficient, to_analysis_decision
 from data.fetcher import fetch_history, get_balance_status
 from core.indicators import (
     calculate_rsi,
@@ -241,6 +246,36 @@ def analyze(
         avg_monthly_volume = avg_monthly_volume,
         volume_ratio     = volume_ratio,
     )
+
+    # ── Kanonik karar ─────────────────────────────────────────────────────────
+    # decision_engine is the single decision authority (see
+    # docs/architecture/gap-analysis.md section 2) - everything computed
+    # above (score/decision/decision_code via compute_score()+get_decision(),
+    # pattern_delta, news_delta) stays exactly as it was and becomes this
+    # override's fallback value if decision_engine is unreachable, rather
+    # than being deleted - same resilience pattern as v2/core/engine.py's
+    # SignalFusion fallback and core/hybrid_engine.py's
+    # _apply_canonical_decision. long_signals/short_signals/
+    # scoring_breakdown/patterns/support_resistance/fibonacci are
+    # unaffected either way - they are explanatory evidence, not the
+    # decision, and decision_engine has no equivalent for them. A
+    # successful-but-low-data_sufficiency output gets the same
+    # fallback-to-local-score treatment via
+    # analysis_presentation.is_data_sufficient() - see
+    # intelligence/opportunity.py:60's identical precedent.
+    try:
+        from decision_engine.service import get_default_decision_engine
+
+        canonical_output = get_default_decision_engine().decide(symbol.upper(), strict=True)
+        if is_data_sufficient(canonical_output):
+            decision, decision_code, score = to_analysis_decision(canonical_output)
+        else:
+            logger.warning(
+                f"{symbol}: decision engine data_sufficiency={canonical_output.data_sufficiency:.2f} "
+                "yetersiz (quality gate), yerel skor korunuyor"
+            )
+    except Exception as exc:
+        logger.error(f"{symbol}: decision engine yetkisi uygulanamadi, yerel skor korunuyor: {exc}")
 
     return AnalysisResult(
         symbol          = symbol,

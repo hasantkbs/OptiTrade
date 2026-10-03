@@ -74,6 +74,20 @@ exchange for removing this last and largest duplicate decision path.
 The field-presence test itself is unaffected (fields stay the same) and
 needs no change.
 
+**Addendum (post-implementation, final-review fix wave):** the route
+table above lists `/analyze`/`/analyze/enhanced`/`/session/analyze` as
+`core/analyzer.py::analyze()`'s only callers, but that function also
+backs `/scan`, `/scan/bist`, and `/scan/crypto` (via `main.py`'s
+`_analyze_safe`/`_parallel_scan`) and `core/sector_intelligence.py`'s
+fast-analysis path. Now that `analyze()` is wired to `decision_engine`,
+every scan request triggers one full `decide()` call (3 voting engines +
+Feature Store lookups + a `decision_engine_executions` DB insert) **per
+symbol scanned** — 15 symbols for `/scan/bist`, 10 for `/scan/crypto`.
+This is functionally correct (both scan routes were verified working),
+but it is a real, previously-undocumented increase in per-scan latency
+and DB write volume that anyone changing scan-route performance or
+`decision_engine` load characteristics should be aware of.
+
 ## Architecture
 
 **The established pattern, generalized.** Two of the three already-wired
@@ -228,6 +242,24 @@ and must bind sub-project 2 (which this spec's work enables):
   CWD-relative path bugs — already identified and explicitly ruled
   out-of-scope during PR #1's review; still out of scope here unless
   they start blocking this work directly.
+
+## Known Limitations
+
+- **`core.advanced_analysis.compute_recommendation`'s `action_code` is a
+  separate, pre-existing composite signal that this consolidation does
+  NOT route through `decision_engine`.** It blends `score` (now
+  canonical, via `to_analysis_decision`) with ML confidence, Monte
+  Carlo, and Chart AI into its own weighted composite
+  (`0.40*score_norm + 0.25*ml_norm + 0.20*mc_norm + 0.15*ai_norm`) and
+  applies its own independent 5-way thresholds to produce
+  `action_code`/`suggested_position_pct`. Because 60% of that composite
+  comes from non-canonical inputs, `/analyze/enhanced` can legitimately
+  return a `decision_code` (e.g. `STRONG_BUY`) that disagrees with
+  `recommendation.action_code` (e.g. `NEUTRAL`) for the same symbol.
+  This is an accepted, pre-existing characteristic of that endpoint's
+  response shape, not a defect this PR introduces or is responsible for
+  closing — changing `compute_recommendation`'s own logic is out of
+  scope here (see "Explicitly Out of Scope" above).
 
 ## Risks
 

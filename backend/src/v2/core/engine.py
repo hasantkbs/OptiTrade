@@ -3,9 +3,9 @@ import json
 import logging
 import time
 import pandas as pd
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
-from decision_engine.models import DecisionOutput, Prediction
+from core.analysis_presentation import is_data_sufficient, to_directional_score
 from v2.indicators.base import BaseIndicator
 from v2.models.schemas import EngineResult, IndicatorOutput, SignalSide
 from v2.ml.predictor import MLPredictorV2
@@ -100,18 +100,6 @@ class RiskManager:
         # Combine
         return (vol_risk * 0.4) + (agreement_risk * 0.6)
 
-def _to_directional_score(decision_output: DecisionOutput) -> Tuple[float, float]:
-    """Encodes the Decision Engine's discrete decision+confidence into
-    this engine's existing signed-magnitude scale: BUY/SELL set the
-    sign, confidence (already 0..1) sets the magnitude, HOLD is exactly
-    0.0. Matches every `IndicatorOutput.score`'s own [-1, 1] bound and
-    the shape `SignalFusion.aggregate()` already produced (a confidence-
-    weighted signed score) - so `EngineResult`'s contract is unchanged,
-    only which computation is authoritative for it."""
-    sign = {Prediction.BUY: 1.0, Prediction.HOLD: 0.0, Prediction.SELL: -1.0}[decision_output.decision]
-    return sign * decision_output.confidence, decision_output.confidence
-
-
 class TradingEngineV2:
     def __init__(self, indicators: List[BaseIndicator], decision_engine: Optional[Any] = None):
         self.indicators = indicators
@@ -146,15 +134,28 @@ class TradingEngineV2:
         # now come from there, not from this engine's own SignalFusion.
         # A Decision Engine failure (infra down, zero valid votes) falls
         # back to this engine's own fusion so a hiccup there never turns
-        # into a hard failure for this endpoint.
+        # into a hard failure for this endpoint. A successful-but-low-
+        # data_sufficiency output (e.g. only 1 of 5 engines voted) gets
+        # the same fallback treatment via
+        # analysis_presentation.is_data_sufficient() - see
+        # intelligence/opportunity.py:60's identical precedent.
         try:
             decision_engine = self.decision_engine
             if decision_engine is None:
                 from decision_engine.service import get_default_decision_engine
 
                 decision_engine = get_default_decision_engine()
-            decision_output = await asyncio.to_thread(decision_engine.decide, symbol)
-            aggregated_score, confidence = _to_directional_score(decision_output)
+            decision_output = await asyncio.to_thread(decision_engine.decide, symbol, strict=True)
+            if is_data_sufficient(decision_output):
+                aggregated_score, confidence = to_directional_score(decision_output)
+            else:
+                _log_structured_event(
+                    operation="canonical_decision", status="skipped", symbol=symbol,
+                    error_type="InsufficientDataSufficiency", level=logging.WARNING,
+                    data_sufficiency=decision_output.data_sufficiency,
+                )
+                aggregation = self.fusion.aggregate(indicator_results)
+                aggregated_score, confidence = aggregation["score"], aggregation["confidence"]
         except Exception as exc:
             _log_structured_event(
                 operation="canonical_decision", status="error", symbol=symbol,

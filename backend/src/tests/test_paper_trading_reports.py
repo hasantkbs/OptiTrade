@@ -71,7 +71,13 @@ def test_weekly_report(repo, report_service):
 
 def test_monthly_report(repo, report_service):
     account = _account(repo, 3)
-    now = datetime.now(timezone.utc)
+    # Fixed, deterministic reference (not datetime.now()) - MONTHLY is a
+    # CALENDAR month window (core/report_periods.py::period_bounds), so
+    # a now()-relative "10 days ago" fill lands in the PREVIOUS calendar
+    # month whenever the suite runs in the first ~10 days of a month,
+    # making this test flaky by wall-clock date. A fixed mid-month
+    # reference removes that dependency entirely.
+    now = datetime(2026, 6, 15, tzinfo=timezone.utc)
     _fill(repo, account, "AAPL", OrderSide.BUY, 10, 100.0, now - timedelta(days=10))
     _fill(repo, account, "AAPL", OrderSide.SELL, 10, 110.0, now - timedelta(days=9))
     report = report_service.generate(account, ReportPeriod.MONTHLY, reference=now)

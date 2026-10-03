@@ -1294,19 +1294,21 @@ def get_current_price(request: Request, symbol: str) -> Dict[str, Any]:
 @limiter.limit("30/minute")
 def analyze_symbol(request: Request, body: AnalysisRequest,
                    uid: Optional[str] = Depends(_verify_jwt_or_firebase_token)) -> AnalysisResult:
-    """The original, pre-pipeline scoring endpoint (`core.analyzer.
-    analyze()` - its own self-contained indicators/pattern-recognition/
-    scoring/ML-confidence/news code, entirely independent of the
-    Technical/Fundamental/News voting architecture `pipeline.service.
-    PipelineService` runs). Deliberately NOT unified with the new
-    pipeline: existing clients depend on this exact `AnalysisResult`
-    shape and scoring behavior (see tests/test_main_backward_
-    compatibility.py's `test_legacy_analyze_endpoint_still_returns_the_
-    original_analysisresult_shape`), which routing through the new
-    pipeline would silently change. `pipeline.service.PipelineService`
-    (behind `/quant/analyze`) is the sole canonical production decision
-    path for anything that isn't this pinned legacy contract - see that
-    endpoint's own docstring."""
+    """`core.analyzer.analyze()` backs this route - its own indicators/
+    pattern-recognition/support-resistance/fibonacci/ML-confidence/news
+    computation stays local (no decision_engine equivalent exists for
+    these), but as of docs/superpowers/specs/2026-10-01-decision-path-
+    consolidation-design.md the headline `decision`/`decision_code`/
+    `score` fields come from `decision_engine`, the single canonical
+    decision authority, not this function's own formula. This is a
+    deliberate, approved behavior change: existing clients' exact
+    decision VALUES may shift; the `AnalysisResult` field set itself
+    is unchanged (see tests/test_main_backward_compatibility.py's
+    `test_legacy_analyze_endpoint_still_returns_the_original_
+    analysisresult_shape`, which checks field presence, not values).
+    `pipeline.service.PipelineService` (behind `/quant/analyze`) remains
+    the sole canonical path for anything outside this pinned response
+    contract."""
     result = analyze(symbol=body.symbol, potential_price=body.potential_price,
                      asset_type=body.asset_type)
     if result is None:
