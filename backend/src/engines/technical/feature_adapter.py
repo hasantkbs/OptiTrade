@@ -203,9 +203,24 @@ class TechnicalFeatureAdapter:
         backtesting) - queries ONLY the already-backfilled historical
         Feature Store via get_feature_as_of(respect_ingestion_time=True),
         with no live-compute fallback: "freshly computing" a historical
-        date's RSI from today's live OHLCV would be meaningless. A
-        feature with no backfilled row for this exact date stays
-        missing, honestly - it is never silently filled in."""
+        date's RSI from today's live OHLCV would be meaningless.
+
+        Behavior of the underlying lookup (PostgresOfflineStore.get_as_of)
+        matters here and is easy to misread: its query is
+        `event_timestamp <= as_of ORDER BY event_timestamp DESC LIMIT 1`,
+        with no lower bound. So a feature genuinely stays missing only
+        when NO row at or before `as_of` exists at all (e.g. a date
+        before any data was ever backfilled for that symbol/feature).
+        But if at least one earlier row exists, a short data gap on
+        `as_of` itself (a holiday, a backfill pause) is silently bridged:
+        the MOST RECENT PRIOR value is returned and used as-is, however
+        old it is, rather than the feature being treated as missing for
+        that day. This is NOT a leakage risk - the value returned is
+        still strictly from before `as_of`, so no future information
+        crosses into the past - but it IS a staleness consideration:
+        a day that looks like it has "real" feature data may actually be
+        carrying forward a value from several days (or more) earlier.
+        Worth keeping in mind when interpreting backtest results."""
         resolution = FeatureResolution()
         for name in ALL_FEATURE_NAMES:
             record = self.feature_store.get_feature_as_of(symbol, name, as_of, respect_ingestion_time=True)
