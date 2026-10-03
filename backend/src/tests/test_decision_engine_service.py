@@ -38,9 +38,11 @@ class FakeVotingEngine:
         self._evidence = evidence or []
         self._raises = raises
         self.calls: List[str] = []
+        self.as_of_calls: List[Optional[datetime]] = []  # NEW - tracked separately so existing `self.calls == [...]` assertions never need to change
 
-    def vote(self, symbol: str) -> EngineVote:
+    def vote(self, symbol: str, as_of: Optional[datetime] = None) -> EngineVote:
         self.calls.append(symbol)
+        self.as_of_calls.append(as_of)
         if self._raises:
             raise RuntimeError("simulated engine failure")
         return EngineVote(
@@ -231,6 +233,107 @@ def test_decide_result_reflects_aggregation_strategy_version_from_config():
     )
     output = engine.decide("BTC-USD")
     assert output.aggregation_strategy_version == "custom_v2"
+
+
+def test_decide_without_as_of_calls_vote_with_no_as_of_kwarg():
+    """Regression test: decide(symbol) with no as_of must call
+    engine.vote(symbol) exactly as before this feature existed - proven
+    by checking the fake's as_of_calls list recorded None, not by
+    inspecting call signatures (which can't detect a kwarg that was
+    simply never passed vs. passed as None)."""
+    engines = [FakeVotingEngine("TechnicalEngine")]
+    engine = _build_engine(engines)
+    engine.decide("BTC-USD")
+    assert engines[0].as_of_calls == [None]
+
+
+def test_decide_with_as_of_passes_it_to_every_registered_engine():
+    engines = [FakeVotingEngine("TechnicalEngine"), FakeVotingEngine("FundamentalEngine")]
+    engine = _build_engine(engines)
+    as_of = datetime(2025, 6, 15, 23, 59, 59, tzinfo=timezone.utc)
+    engine.decide("BTC-USD", as_of=as_of)
+    assert engines[0].as_of_calls == [as_of]
+    assert engines[1].as_of_calls == [as_of]
+
+
+def test_decide_with_as_of_does_not_persist():
+    repo = FakeExecutionRepository()
+    engine = _build_engine([FakeVotingEngine("TechnicalEngine")], repo=repo)
+    as_of = datetime(2025, 6, 15, 23, 59, 59, tzinfo=timezone.utc)
+    output = engine.decide("BTC-USD", as_of=as_of)
+    assert output.decision == Prediction.BUY  # still returns a real result
+    assert repo.saved == []  # but nothing was persisted
+
+
+def test_decide_without_as_of_still_persists_unchanged():
+    """Regression test: the as_of feature must not affect the default
+    (as_of=None) persistence behavior at all."""
+    repo = FakeExecutionRepository()
+    engine = _build_engine([FakeVotingEngine("TechnicalEngine")], repo=repo)
+    output = engine.decide("BTC-USD")
+    assert repo.saved == [output]
+
+
+def test_decide_with_as_of_sets_output_timestamp_to_as_of():
+    engine = _build_engine([FakeVotingEngine("TechnicalEngine")])
+    as_of = datetime(2025, 6, 15, 23, 59, 59, tzinfo=timezone.utc)
+    output = engine.decide("BTC-USD", as_of=as_of)
+    assert output.timestamp == as_of
+
+
+def test_decide_without_as_of_sets_output_timestamp_to_now():
+    """Regression test: the default must still stamp real wall-clock
+    time, not silently default to None or epoch."""
+    before = datetime.now(timezone.utc)
+    engine = _build_engine([FakeVotingEngine("TechnicalEngine")])
+    output = engine.decide("BTC-USD")
+    after = datetime.now(timezone.utc)
+    assert before <= output.timestamp <= after
+
+
+class _LegacyVotingEngineWithoutAsOf:
+    """Simulates one of the 24+ OTHER vote() implementations found
+    elsewhere in this codebase (pipeline/learning/shadow test fakes,
+    ml_training/shadow/adapter.py) that only implement vote(self,
+    symbol) - no as_of parameter at all, and are NOT modified by this
+    plan. This class is the core safety proof for the whole design."""
+    engine_name = "LegacyEngine"
+    engine_version = "v1"
+
+    def vote(self, symbol: str) -> EngineVote:
+        return EngineVote(
+            engine_name=self.engine_name, engine_version=self.engine_version,
+            prediction=Prediction.BUY, confidence=0.7, expected_return=1.0,
+            volatility=1.0, evidence=[],
+        )
+
+
+def test_decide_without_as_of_works_with_an_engine_that_has_no_as_of_parameter_at_all():
+    """Proves every one of the 24+ other vote() implementations in this
+    codebase needs ZERO changes: a plain vote(self, symbol) engine works
+    exactly as before when as_of is omitted (the overwhelming majority
+    of all real calls, today and after this change)."""
+    engine = _build_engine([_LegacyVotingEngineWithoutAsOf()])
+    output = engine.decide("BTC-USD")  # no as_of - must not raise
+    assert output.decision == Prediction.BUY
+
+
+def test_decide_with_as_of_gracefully_skips_an_engine_without_as_of_support():
+    """A replay call against an engine that was never updated for as_of
+    raises TypeError inside engine.vote(symbol, as_of=as_of) - decide()'s
+    EXISTING per-engine exception isolation (the same mechanism that
+    already handles any other engine failure, see
+    test_decide_ignores_an_engine_that_raises above) catches this and
+    simply excludes that engine's vote, rather than crashing the whole
+    replay. This is why the backtest script only ever registers
+    TechnicalEngine into its own replay-mode registry - any engine not
+    updated for as_of degrades gracefully if it's ever accidentally
+    included, it doesn't blow up the call."""
+    engine = _build_engine([_LegacyVotingEngineWithoutAsOf()])
+    as_of = datetime(2025, 6, 15, 23, 59, 59, tzinfo=timezone.utc)
+    output = engine.decide("BTC-USD", as_of=as_of)  # must not raise
+    assert output.engine_results == []
+    assert output.data_sufficiency == 0.0
 
 
 # ─────────────────────────────────────────────────────────────────────────

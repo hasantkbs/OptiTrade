@@ -10,7 +10,8 @@ concrete implementation.
 """
 from __future__ import annotations
 
-from typing import List, Protocol, runtime_checkable
+from datetime import datetime
+from typing import List, Optional, Protocol, runtime_checkable
 
 from decision_engine.models import DecisionOutput, EngineVote
 
@@ -25,7 +26,7 @@ class VotingEngineProtocol(Protocol):
     engine_name: str
     engine_version: str
 
-    def vote(self, symbol: str) -> EngineVote: ...
+    def vote(self, symbol: str, as_of: Optional[datetime] = None) -> EngineVote: ...
 
 
 @runtime_checkable

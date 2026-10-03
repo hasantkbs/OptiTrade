@@ -57,7 +57,7 @@ class DecisionEngine:
         )
         self.weight_provider = AccuracyWeightProvider(self.feature_store, self.config)
 
-    def decide(self, symbol: str, strict: bool = False) -> DecisionOutput:
+    def decide(self, symbol: str, strict: bool = False, as_of: Optional[datetime] = None) -> DecisionOutput:
         """Runs every registered voting engine for `symbol` and returns a
         single aggregated `DecisionOutput`.
 
@@ -68,10 +68,27 @@ class DecisionEngine:
         caller. With `strict=True`, `NoValidVotesError` is raised instead,
         for callers (e.g. a future monitoring/learning job) that need to
         detect a total voting failure explicitly.
+
+        `as_of`, when given, replays what this decision would have been
+        on that historical date instead of "now": it is passed to
+        `engine.vote(symbol, as_of=as_of)` ONLY when not None (every live
+        caller omits it, so every engine currently registered anywhere in
+        this codebase - including the 24+ test fakes/adapters that only
+        implement `vote(self, symbol)` - is completely unaffected; only
+        an engine actually registered into a replay call needs to accept
+        this kwarg, which today is just `TechnicalEngine`). A replay call
+        also skips `self._persist()` entirely (a backtest can run
+        thousands of calls; persisting synthetic historical decisions
+        into `decision_engine_executions` would pollute the same table
+        real live decisions are monitored through) and stamps
+        `output.timestamp` with `as_of` itself rather than real
+        wall-clock time, so a caller inspecting a batch of replayed
+        DecisionOutputs can tell which historical date each one
+        represents.
         """
         started_at = time.perf_counter()
         registered = self.registry.all()
-        votes = self._collect_valid_votes(symbol, registered)
+        votes = self._collect_valid_votes(symbol, registered, as_of=as_of)
 
         if not votes and strict:
             raise NoValidVotesError(symbol)
@@ -91,10 +108,11 @@ class DecisionEngine:
             data_sufficiency=data_sufficiency,
             evidence=aggregation.evidence,
             engine_results=votes,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=as_of if as_of is not None else datetime.now(timezone.utc),
         )
 
-        self._persist(output)
+        if as_of is None:
+            self._persist(output)
 
         log_event(
             logger,
@@ -107,16 +125,19 @@ class DecisionEngine:
             confidence=output.confidence,
             valid_votes=len(votes),
             registered_engines=len(registered),
+            as_of=as_of.isoformat() if as_of is not None else None,
             execution_time_ms=(time.perf_counter() - started_at) * 1000,
         )
         return output
 
-    def _collect_valid_votes(self, symbol: str, engines: list) -> List[EngineVote]:
+    def _collect_valid_votes(
+        self, symbol: str, engines: list, as_of: Optional[datetime] = None
+    ) -> List[EngineVote]:
         votes: List[EngineVote] = []
         for engine in engines:
             engine_name = getattr(engine, "engine_name", type(engine).__name__)
             try:
-                vote = engine.vote(symbol)
+                vote = engine.vote(symbol, as_of=as_of) if as_of is not None else engine.vote(symbol)
             except Exception as exc:
                 log_event(
                     logger,
