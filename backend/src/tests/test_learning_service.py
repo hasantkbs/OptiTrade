@@ -122,7 +122,15 @@ def test_run_learning_cycle_evaluates_and_computes_metrics(service):
     _track_matured_decision(service)
     result = service.run_learning_cycle(now=datetime.now(timezone.utc))
     assert result.evaluated_count == 1
-    assert result.engines_processed == 1
+    # engines_processed counts every distinct engine the real, shared
+    # Postgres instance has EVER recorded an outcome for (see
+    # LearningRepository.distinct_engines() - unscoped by design), not
+    # just this test's own fixture engine, so it isn't an exact count we
+    # can assert without re-breaking as more real engines accumulate
+    # outcomes. The test-scoped, structurally correct assertion is that
+    # our own engine was processed this cycle (below).
+    assert result.engines_processed >= 1
+    assert (_ENGINE, "v1") in result.accuracy_snapshots
 
 
 def test_get_accuracy_reads_back_computed_metrics(service):

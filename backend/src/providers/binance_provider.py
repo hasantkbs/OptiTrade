@@ -11,6 +11,7 @@ All methods return None / {} / "Notr" on failure — they never raise.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Optional
 
 import httpx
@@ -70,6 +71,49 @@ class BinanceProvider:
             return df[["Open", "High", "Low", "Close", "Volume"]]
         except Exception as exc:
             logger.error("Binance OHLCV fetch failed for %s (%s): %s", symbol, pair, exc)
+            return None
+
+    def fetch_ohlcv_range(self, symbol: str, start: datetime, end: datetime) -> Optional[pd.DataFrame]:
+        """Date-bounded daily OHLCV via Binance's startTime/endTime klines
+        params - NOT exposed by fetch_ohlcv above (period-only, capped at
+        365 daily candles via _PERIOD_TO_KLINES). Used by the historical
+        Feature Store backfill, which needs ~2 years of crypto history
+        from the SAME source (Binance) the live engine reads for these
+        symbols, not yfinance - reuses _to_binance_symbol so symbol
+        mapping stays identical to the live fetch_ohlcv path above.
+        Binance's klines endpoint allows up to 1000 candles per request;
+        1000 daily candles covers ~2.7 years, comfortably enough for this
+        backfill's typical ~730-day window in a single call."""
+        pair = _to_binance_symbol(symbol)
+        try:
+            resp = httpx.get(
+                f"{_BASE_URL}/klines",
+                params={
+                    "symbol": pair, "interval": "1d",
+                    "startTime": int(start.timestamp() * 1000),
+                    "endTime": int(end.timestamp() * 1000),
+                    "limit": 1000,
+                },
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            raw = resp.json()
+            if not raw:
+                logger.warning("No Binance OHLCV range data for %s (%s)", symbol, pair)
+                return None
+
+            df = pd.DataFrame(raw, columns=[
+                "open_time", "Open", "High", "Low", "Close", "Volume",
+                "close_time", "quote_volume", "trades",
+                "taker_base", "taker_quote", "ignore",
+            ])
+            df[["Open", "High", "Low", "Close", "Volume"]] = df[
+                ["Open", "High", "Low", "Close", "Volume"]
+            ].astype(float)
+            df.index = pd.to_datetime(df["open_time"], unit="ms", utc=True)
+            return df[["Open", "High", "Low", "Close", "Volume"]]
+        except Exception as exc:
+            logger.error("Binance OHLCV range fetch failed for %s (%s): %s", symbol, pair, exc)
             return None
 
     def fetch_info(self, symbol: str) -> dict:

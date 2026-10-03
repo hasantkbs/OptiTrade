@@ -157,12 +157,25 @@ def test_validate_respects_symbol_filter(repository, service):
 
 
 def test_validate_includes_all_symbols_when_symbol_is_none(repository, service):
+    # symbol=None deliberately means "every symbol" - service.validate()
+    # applies no symbol filter at all in that case (see
+    # ValidationService.validate()), so against the real, shared
+    # Postgres instance this legitimately also counts other real LIVE
+    # evaluated trades already sitting in learning_samples, not just
+    # this test's own two fixture symbols. An exact absolute count would
+    # re-break the next time more real trades accumulate. Instead,
+    # measure this test's own contribution as a delta over a baseline
+    # taken before inserting its fixtures - that isolates exactly what
+    # THIS test added, regardless of how much other real data exists.
+    since = datetime.now(timezone.utc) - timedelta(days=30)
+    baseline_count = service.validate(since=since).trade_count
+
     _save_evaluated(repository, _sample(symbol=_SYMBOL), actual_return=5.0)
     _save_evaluated(repository, _sample(symbol=_OTHER_SYMBOL), actual_return=5.0)
 
-    report = service.validate(since=datetime.now(timezone.utc) - timedelta(days=30))
+    report = service.validate(since=since)
 
-    assert report.trade_count == 2
+    assert report.trade_count == baseline_count + 2
 
 
 def test_validate_includes_benchmark_comparison(repository, service):

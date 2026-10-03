@@ -219,7 +219,7 @@ def main() -> None:
     ]
     report = "\n".join(lines)
     print("\n" + report)
-    with open("../../docs/ml-candidate-report-2026-10-01.md", "w") as f:
+    with open(f"../../docs/ml-candidate-report-{now.date().isoformat()}.md", "w") as f:
         f.write(report + "\n")
 
 

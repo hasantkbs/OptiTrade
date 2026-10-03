@@ -8,8 +8,12 @@ unit-tested)."""
 import sys
 sys.path.insert(0, ".")
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+import httpx
+
+import scripts.backfill_feature_store as backfill_feature_store
+from providers.binance_provider import BinanceProvider
 from scripts.backfill_feature_store import (
     _price_period_to_days,
     already_backfilled,
@@ -17,13 +21,20 @@ from scripts.backfill_feature_store import (
 )
 
 
-def test_trading_days_in_range_excludes_weekends():
-    start = datetime(2026, 1, 1, tzinfo=timezone.utc)   # a Thursday
-    end = datetime(2026, 1, 7, tzinfo=timezone.utc)     # the following Wednesday
+def test_trading_days_in_range_excludes_weekends_by_default():
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)  # Monday
+    end = datetime(2024, 1, 7, tzinfo=timezone.utc)    # Sunday
     days = trading_days_in_range(start, end)
-    weekdays = {d.weekday() for d in days}
-    assert 5 not in weekdays and 6 not in weekdays  # no Saturday (5) or Sunday (6)
-    assert len(days) == 5  # Thu, Fri, Mon, Tue, Wed
+    assert all(d.weekday() < 5 for d in days)
+    assert len(days) == 5
+
+
+def test_trading_days_in_range_includes_weekends_for_crypto():
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)  # Monday
+    end = datetime(2024, 1, 7, tzinfo=timezone.utc)    # Sunday
+    days = trading_days_in_range(start, end, include_weekends=True)
+    assert len(days) == 7
+    assert any(d.weekday() >= 5 for d in days)
 
 
 def test_already_backfilled_true_when_row_exists(monkeypatch):
@@ -131,6 +142,40 @@ def test_already_backfilled_requires_as_of_at_or_after_event_timestamp():
     # was doing) -> the 23:59:59 row isn't "visible" yet as of midnight,
     # so it's wrongly NOT recognized as backfilled. This is the exact bug.
     assert already_backfilled(store, "AAPL", day) is False
+
+
+def test_already_backfilled_normalizes_non_utc_session_timezone():
+    """Regression test: the DB session's timezone must not affect this
+    check. A record whose event_timestamp, when read back, reports a
+    DIFFERENT tzinfo than UTC (simulating a non-UTC session) but the
+    SAME real instant must still match correctly."""
+    from datetime import timezone as tz
+
+    class _FakeRecord:
+        def __init__(self, event_timestamp):
+            self.event_timestamp = event_timestamp
+
+    class _FakeStore:
+        def __init__(self, record):
+            self._record = record
+
+        def get_as_of(self, symbol, feature_name, as_of, respect_ingestion_time=False):
+            return self._record
+
+    # A record whose event_timestamp is the SAME real instant as
+    # 2024-06-15T23:59:59Z, but represented in a +02:00 offset (as a
+    # non-UTC session timezone might return it) - the real instant is
+    # the same calendar day in UTC terms, so this must still count as
+    # a match.
+    day = datetime(2024, 6, 15, 23, 59, 59, tzinfo=timezone.utc)
+    same_instant_other_tz = day.astimezone(tz(timedelta(hours=2)))
+    record = _FakeRecord(event_timestamp=same_instant_other_tz)
+    store = _FakeStore(record)
+
+    from engines.technical.config import ALL_FEATURE_NAMES
+    store.get_as_of = lambda symbol, feature_name, as_of, respect_ingestion_time=False: record
+
+    assert backfill_feature_store.already_backfilled(store, "TESTSYM", day) is True
 
 
 def test_backfill_symbol_is_idempotent_across_runs(monkeypatch):
@@ -255,3 +300,109 @@ def test_price_period_to_days_rejects_unrecognized_format():
     import pytest
     with pytest.raises(ValueError):
         _price_period_to_days("bogus")
+
+
+def test_fetch_ohlcv_range_requests_the_full_date_bounded_window(monkeypatch):
+    captured = {}
+
+    class _FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            # Two daily candles, matching Binance's real klines array shape.
+            return [
+                [1700000000000, "100", "105", "95", "102", "10", 0, "0", 0, "0", "0", "0"],
+                [1700086400000, "102", "108", "100", "106", "12", 0, "0", 0, "0", "0", "0"],
+            ]
+
+    def _fake_get(url, params=None, timeout=None):
+        captured["url"] = url
+        captured["params"] = params
+        return _FakeResponse()
+
+    monkeypatch.setattr(httpx, "get", _fake_get)
+
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 3, tzinfo=timezone.utc)
+    result = BinanceProvider().fetch_ohlcv_range("BTC-USD", start, end)
+
+    assert result is not None
+    assert len(result) == 2
+    assert list(result.columns) == ["Open", "High", "Low", "Close", "Volume"]
+    assert captured["params"]["symbol"] == "BTCUSDT"
+    assert captured["params"]["interval"] == "1d"
+    assert captured["params"]["startTime"] == int(start.timestamp() * 1000)
+    assert captured["params"]["endTime"] == int(end.timestamp() * 1000)
+    assert captured["params"]["limit"] == 1000
+
+
+def test_fetch_ohlcv_range_returns_none_on_empty_response(monkeypatch):
+    class _FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return []
+
+    monkeypatch.setattr(httpx, "get", lambda *a, **kw: _FakeResponse())
+    result = BinanceProvider().fetch_ohlcv_range("ETH-USD", datetime(2024, 1, 1, tzinfo=timezone.utc), datetime(2024, 1, 2, tzinfo=timezone.utc))
+    assert result is None
+
+
+def test_backfill_symbol_routes_crypto_through_binance_not_yfinance(monkeypatch):
+    import pandas as pd
+
+    binance_called = {"was": False}
+    yfinance_called = {"was": False}
+
+    def _fake_fetch_ohlcv_range(self, symbol, start, end):
+        binance_called["was"] = True
+        dates = pd.date_range(start=start, end=end, freq="D", tz="UTC")
+        return pd.DataFrame({"Open": 100.0, "High": 105.0, "Low": 95.0, "Close": 102.0, "Volume": 10.0}, index=dates)
+
+    class _FakeTicker:
+        def __init__(self, symbol):
+            pass
+
+        def history(self, start=None, end=None):
+            yfinance_called["was"] = True
+            return pd.DataFrame()
+
+    monkeypatch.setattr(BinanceProvider, "fetch_ohlcv_range", _fake_fetch_ohlcv_range)
+    monkeypatch.setattr(backfill_feature_store.yf, "Ticker", _FakeTicker)
+
+    hist = backfill_feature_store._fetch_backfill_history(
+        "BTC-USD", datetime(2024, 1, 1, tzinfo=timezone.utc), datetime(2024, 1, 10, tzinfo=timezone.utc),
+    )
+
+    assert binance_called["was"] is True
+    assert yfinance_called["was"] is False
+    assert not hist.empty
+
+
+def test_backfill_symbol_routes_equities_through_yfinance_not_binance(monkeypatch):
+    import pandas as pd
+
+    binance_called = {"was": False}
+
+    def _fake_fetch_ohlcv_range(self, symbol, start, end):
+        binance_called["was"] = True
+        return None
+
+    class _FakeTicker:
+        def __init__(self, symbol):
+            pass
+
+        def history(self, start=None, end=None):
+            return pd.DataFrame({"Open": [100.0]}, index=pd.date_range("2024-01-01", periods=1, tz="UTC"))
+
+    monkeypatch.setattr(BinanceProvider, "fetch_ohlcv_range", _fake_fetch_ohlcv_range)
+    monkeypatch.setattr(backfill_feature_store.yf, "Ticker", _FakeTicker)
+
+    hist = backfill_feature_store._fetch_backfill_history(
+        "THYAO.IS", datetime(2024, 1, 1, tzinfo=timezone.utc), datetime(2024, 1, 10, tzinfo=timezone.utc),
+    )
+
+    assert binance_called["was"] is False
+    assert not hist.empty

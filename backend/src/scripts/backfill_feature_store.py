@@ -49,16 +49,22 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-def trading_days_in_range(start: datetime, end: datetime) -> List[datetime]:
-    """Every calendar day in [start, end] that isn't a Saturday/Sunday -
-    a cheap proxy for "is this likely a trading day" that doesn't need a
-    market-calendar dependency. Weekday OHLCV will simply be absent from
-    yfinance's returned history for actual market holidays, which the
-    per-day lookup below already handles by finding no matching row."""
+def trading_days_in_range(start: datetime, end: datetime, include_weekends: bool = False) -> List[datetime]:
+    """Every calendar day in [start, end] - weekdays only by default (a
+    cheap proxy for "is this likely a trading day" for BIST/equities
+    that doesn't need a market-calendar dependency; actual market
+    holidays simply have no matching OHLCV row, which the per-day
+    lookup below already handles). `include_weekends=True` is for 24/7
+    crypto assets, which trade every calendar day - without it, ~28% of
+    available crypto history was being silently skipped (verified
+    against production: BTC-USD had 0 backfilled rows on Saturday/Sunday
+    versus ~1768-1785 on each weekday), and a Monday sample's
+    point-in-time feature lookup would resolve back to the preceding
+    Friday's stale value instead of Sunday's real one."""
     days = []
     cursor = start
     while cursor <= end:
-        if cursor.weekday() < 5:  # Monday=0 .. Friday=4
+        if include_weekends or cursor.weekday() < 5:  # Monday=0 .. Friday=4
             days.append(cursor)
         cursor += timedelta(days=1)
     return days
@@ -78,12 +84,21 @@ def already_backfilled(store: PostgresOfflineStore, symbol: str, day: datetime) 
     with no way to detect or repair that later. Requiring all 17 is
     the simplest, safest way to close that hole: a day is only
     skipped once everything the live engine computes for it has
-    actually been persisted."""
+    actually been persisted.
+
+    The date comparison is explicit-UTC on both sides: `record.
+    event_timestamp` is read back from a TIMESTAMPTZ column, and
+    psycopg2 returns it in the DB session's timezone, not necessarily
+    UTC - relying on `.date()` directly would only be correct by
+    coincidence of the session happening to be UTC. Normalizing both
+    `day` and `record.event_timestamp` to UTC before taking `.date()`
+    makes the comparison correct regardless of session timezone."""
     from engines.technical.config import ALL_FEATURE_NAMES
 
+    day_utc_date = day.astimezone(timezone.utc).date()
     for feature_name in ALL_FEATURE_NAMES:
         record = store.get_as_of(symbol, feature_name, day, respect_ingestion_time=False)
-        if record is None or record.event_timestamp.date() != day.date():
+        if record is None or record.event_timestamp.astimezone(timezone.utc).date() != day_utc_date:
             return False
     return True
 
@@ -110,16 +125,37 @@ def _price_period_to_days(price_period: str) -> int:
     raise ValueError(f"unrecognized price_period format: {price_period!r}")
 
 
+def _fetch_backfill_history(symbol: str, fetch_start_dt: datetime, fetch_end_dt: datetime):
+    """Fetches `symbol`'s OHLCV for the full backfill window from the
+    SAME source the live engine would use for it - HybridProvider's own
+    "-USD" routing predicate (providers/hybrid_provider.py::_route),
+    duplicated here as a single `endswith` check rather than importing
+    HybridProvider itself (constructing it pulls in FinnhubProvider's
+    API-key check, irrelevant to this binary yfinance/Binance choice).
+    Closes the train/serve data-source skew for crypto symbols: before
+    this fix, ALL symbols backfilled via yfinance even though live
+    serving reads the 7 "-USD" symbols from Binance. Falls back to
+    yfinance on a Binance failure, matching HybridProvider.fetch_ohlcv's
+    own fallback behavior for the live path."""
+    fetch_start_str = fetch_start_dt.strftime("%Y-%m-%d")
+    fetch_end_str = fetch_end_dt.strftime("%Y-%m-%d")
+    if symbol.upper().endswith("-USD"):
+        from providers.binance_provider import BinanceProvider
+        hist = BinanceProvider().fetch_ohlcv_range(symbol, fetch_start_dt, fetch_end_dt)
+        if hist is not None and not hist.empty:
+            return hist
+        logger.info("%s: Binance range fetch returned nothing, falling back to yfinance", symbol)
+    return yf.Ticker(symbol).history(start=fetch_start_str, end=fetch_end_str)
+
+
 def backfill_symbol(store: PostgresOfflineStore, config: TechnicalEngineConfig, symbol: str, start: datetime, end: datetime) -> int:
     """Fetches `symbol`'s full historical OHLCV ONCE (not once per day),
     then computes and writes features for every trading day in
     [start, end] not already backfilled. Returns the number of days
     actually written (skipped days don't count)."""
     window_days = _price_period_to_days(config.price_period)
-    fetch_start = (start - timedelta(days=window_days + 10)).strftime("%Y-%m-%d")
-    fetch_end = (end + timedelta(days=1)).strftime("%Y-%m-%d")
     try:
-        hist = yf.Ticker(symbol).history(start=fetch_start, end=fetch_end)
+        hist = _fetch_backfill_history(symbol, start - timedelta(days=window_days + 10), end + timedelta(days=1))
     except Exception as exc:
         # A single symbol's fetch raising (network timeout, yfinance
         # rate-limit, a delisted/renamed ticker) must not abort the
@@ -133,7 +169,7 @@ def backfill_symbol(store: PostgresOfflineStore, config: TechnicalEngineConfig, 
         return 0
 
     written = 0
-    for day in trading_days_in_range(start, end):
+    for day in trading_days_in_range(start, end, include_weekends=symbol.upper().endswith("-USD")):
         # Computed ONCE, before the skip check, and reused for both the
         # check and the write below - they must query/write the SAME
         # instant. `day` itself carries whatever wall-clock time-of-day

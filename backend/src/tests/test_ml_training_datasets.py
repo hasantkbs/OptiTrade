@@ -59,7 +59,10 @@ def dataset_repository():
     conn = repo._pool.getconn()
     try:
         with conn, conn.cursor() as cur:
-            cur.execute("DELETE FROM ml_training_dataset_versions WHERE name LIKE 'trader-%' OR name LIKE 'investor-%'")
+            cur.execute(
+                "DELETE FROM ml_training_dataset_versions WHERE (name LIKE 'trader-%%' OR name LIKE 'investor-%%') AND symbols::text LIKE %s",
+                (f"%{_SYMBOL}%",),
+            )
     finally:
         repo._pool.putconn(conn)
 

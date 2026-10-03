@@ -1,4 +1,4 @@
-# ML Model Accuracy Report — 2026-10-01
+# ML Model Accuracy Report — 2026-10-03
 
 ## Walk-forward evaluation (XGBoost models)
 
@@ -6,11 +6,9 @@ Rows with a `train_end_date` evaluate ONLY on bars strictly after that date - ge
 
 | Model | Samples | Accuracy | Majority baseline | Precision | Recall | Out-of-sample? | Train end date |
 |---|---|---|---|---|---|---|---|
-| xgb_signal_model | 1850 | 0.608 | 0.568 | 0.546 | 0.559 | no (in-sample/unknown) | - |
-| v2_xgb_model | 0 | ERROR | - | - | Feature shape mismatch, expected: 5, got 7 | - | - |
-| xgb_signal_model_oos_test | 1144 | 0.568 | 0.580 | 0.467 | 0.208 | yes | 2026-04-01 |
-
-`v2_xgb_model`'s feature-shape mismatch above is a known, pre-existing issue, tracked separately — it needs its own feature-schema realignment and retraining, which is out of scope for the decision-path-consolidation work.
+| xgb_signal_model | 1850 | 0.608 | 0.571 | 0.541 | 0.560 | no (in-sample/unknown) | - |
+| v2_xgb_model | 300 | 0.543 | 0.627 | 0.389 | 0.393 | no (in-sample/unknown) | - |
+| xgb_signal_model_oos_test | 1155 | 0.571 | 0.584 | 0.467 | 0.208 | yes | 2026-04-01 |
 
 ## decision_engine current-state snapshot (NOT a backtest)
 
@@ -18,11 +16,11 @@ Rows with a `train_end_date` evaluate ONLY on bars strictly after that date - ge
 
 | Symbol | Decision | Confidence | Data sufficiency |
 |---|---|---|---|
-| THYAO.IS | HOLD | 0.87 | 1.00 |
+| THYAO.IS | HOLD | 1.00 | 1.00 |
 | GARAN.IS | BUY | 0.73 | 1.00 |
-| ASELS.IS | BUY | 0.73 | 1.00 |
+| ASELS.IS | BUY | 0.71 | 1.00 |
 | EREGL.IS | BUY | 0.81 | 1.00 |
 | AKBNK.IS | HOLD | 0.53 | 1.00 |
 | BTC-USD | HOLD | 1.00 | 1.00 |
-| ETH-USD | BUY | 0.71 | 1.00 |
-| SOL-USD | BUY | 0.66 | 1.00 |
+| ETH-USD | HOLD | 1.00 | 1.00 |
+| SOL-USD | HOLD | 1.00 | 1.00 |
