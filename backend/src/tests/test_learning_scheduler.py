@@ -85,7 +85,16 @@ def test_run_once_evaluates_matured_samples(scheduler_setup):
 def test_run_once_processes_the_observed_engine(scheduler_setup):
     scheduler, repo, _ = scheduler_setup
     result = scheduler.run_once(now=datetime.now(timezone.utc))
-    assert result.engines_processed == 1
+    # engines_processed counts every distinct engine the real,
+    # shared-Postgres-backed repository has EVER recorded an outcome
+    # for (see LearningRepository.distinct_engines() - unscoped by
+    # design), not just this test's own fixture engine, so it can't be
+    # asserted as an exact count without the suite re-breaking the next
+    # time more real engines/outcomes accumulate. The structurally
+    # correct, test-scoped assertion is that our own engine was among
+    # those processed this cycle (below) - "at least 1" is the only
+    # sound claim on the raw total.
+    assert result.engines_processed >= 1
     assert (_ENGINE, "v1") in result.accuracy_snapshots
 
 
@@ -99,14 +108,23 @@ def test_run_once_computes_every_rolling_window(scheduler_setup):
 def test_run_once_produces_a_drift_signal_per_engine(scheduler_setup):
     scheduler, repo, _ = scheduler_setup
     result = scheduler.run_once(now=datetime.now(timezone.utc))
-    assert len(result.drift_signals) == 1
-    assert result.drift_signals[0].engine_name == _ENGINE
+    # The real, shared Postgres instance has other engines' own drift
+    # signals produced by this same run (e.g. TechnicalEngine,
+    # NewsEngine, FundamentalEngine already have matured samples sitting
+    # in the table) - scope down to this test's own engine rather than
+    # asserting the cycle produced exactly one signal in total.
+    own_signals = [s for s in result.drift_signals if s.engine_name == _ENGINE]
+    assert len(own_signals) == 1
+    assert own_signals[0].engine_name == _ENGINE
 
 
 def test_run_once_produces_a_weight_update_per_engine(scheduler_setup):
     scheduler, repo, feature_store = scheduler_setup
     result = scheduler.run_once(now=datetime.now(timezone.utc))
-    assert len(result.weight_updates) == 1
+    # Same real-data-accumulation scoping as the drift-signal test above:
+    # other real engines also get a weight update from this same run.
+    own_updates = [u for u in result.weight_updates if u.engine_name == _ENGINE]
+    assert len(own_updates) == 1
     record = feature_store.get_latest_feature(_ENGINE, "engine_accuracy_score")
     assert record is not None
 

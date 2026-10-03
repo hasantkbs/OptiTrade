@@ -28,6 +28,16 @@ def test_from_env_reads_the_configured_test_environment(monkeypatch):
 
 
 def test_from_env_defaults_when_unset(monkeypatch):
+    # FeatureStoreConfig.from_env() calls bare load_dotenv() (no
+    # override), which re-reads backend/.env from disk and would
+    # repopulate FEATURE_STORE_POSTGRES_PORT (and friends) with this
+    # host's real configured values right after this test's own
+    # monkeypatch.delenv() removed them - defeating this "unset" test.
+    # Same guard as test_users_config_jwt_secret.py's
+    # _reset_ephemeral_secret_cache fixture uses for users.config.
+    import feature_store.config as feature_store_config
+    monkeypatch.setattr(feature_store_config, "load_dotenv", lambda *args, **kwargs: None)
+
     for key in (
         "FEATURE_STORE_POSTGRES_HOST", "FEATURE_STORE_POSTGRES_PORT",
         "FEATURE_STORE_POSTGRES_DB", "FEATURE_STORE_POSTGRES_USER",
