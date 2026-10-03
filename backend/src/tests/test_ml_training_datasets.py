@@ -178,6 +178,60 @@ def test_build_multiple_horizons_produces_a_sample_per_horizon(feature_store):
     assert {s.horizon_days for s in samples} == {1, 3, 5}
 
 
+def test_build_adds_derived_features_without_changing_base_feature_values(feature_store):
+    """The single most important test in this plan: with
+    DerivedFeatureBuilder wired in by default, every existing base-
+    feature behavior (sample count, the 17-base-feature value itself)
+    stays byte-for-byte identical to today - only new derived_* keys are
+    ever added, nothing already there is removed or altered."""
+    now = datetime.now(timezone.utc)
+    builder = _builder(feature_store)
+    samples, version = builder.build(
+        [_SYMBOL], DatasetType.TRADER, now - timedelta(days=25), now - timedelta(days=20), step_days=1,
+    )
+
+    # Same sample count as test_build_produces_samples_for_every_symbol_day_horizon
+    assert len(samples) == 6
+    for sample in samples:
+        # The fixture seeds FEATURE_TREND_STRENGTH=3.0 for every one of its
+        # 15 backdated rows - this value must be completely unchanged.
+        assert sample.features[FEATURE_TREND_STRENGTH] == 3.0
+        # Any derived_* key present is an ADDITION, never a replacement of
+        # the base key - the base key must always still be there too.
+        for key in sample.features:
+            assert key == FEATURE_TREND_STRENGTH or key.startswith("derived_")
+
+
+def test_build_derived_feature_builder_is_constructed_by_default():
+    builder = DatasetBuilder()
+    from ml_training.features.derived_builder import DerivedFeatureBuilder
+    assert isinstance(builder.derived_feature_builder, DerivedFeatureBuilder)
+
+
+def test_build_accepts_an_injected_derived_feature_builder(feature_store):
+    """Confirms the injection point works for testability - a builder
+    that always returns {} must leave samples with ONLY the base key,
+    proving the integration point is exactly where this test (and the
+    default-wiring test above) expect it."""
+    class _EmptyDerivedBuilder:
+        def compute(self, symbol, as_of, day_snapshot):
+            return {}
+
+    now = datetime.now(timezone.utc)
+    from ml_training.features.extractor import FeatureExtractor
+    builder = DatasetBuilder(
+        feature_extractor=FeatureExtractor(feature_store=feature_store),
+        config=MLTrainingConfig(trader_horizons_days=[3]),
+        price_fetcher=_rising,
+        derived_feature_builder=_EmptyDerivedBuilder(),
+    )
+    samples, _ = builder.build(
+        [_SYMBOL], DatasetType.TRADER, now - timedelta(days=25), now - timedelta(days=20), step_days=1,
+    )
+    for sample in samples:
+        assert set(sample.features.keys()) == {FEATURE_TREND_STRENGTH}
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # service.py (real Postgres)
 # ─────────────────────────────────────────────────────────────────────────

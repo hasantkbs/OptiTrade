@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from core.structured_logging import STATUS_SUCCESS, log_event
 from data.fetcher import fetch_price_history_range
 from ml_training.config import MLTrainingConfig
+from ml_training.features.derived_builder import DerivedFeatureBuilder
 from ml_training.features.extractor import FeatureExtractor
 from ml_training.labels.generator import PriceFetcher, generate_labels
 from ml_training.models import DatasetType, DatasetVersion, LabelName, TrainingSample
@@ -39,10 +40,14 @@ class DatasetBuilder:
         feature_extractor: Optional[FeatureExtractor] = None,
         config: Optional[MLTrainingConfig] = None,
         price_fetcher: Optional[PriceFetcher] = None,
+        derived_feature_builder: Optional[DerivedFeatureBuilder] = None,
     ) -> None:
         self.config = config or MLTrainingConfig.from_env()
         self.feature_extractor = feature_extractor or FeatureExtractor()
         self.price_fetcher: PriceFetcher = price_fetcher or fetch_price_history_range
+        self.derived_feature_builder = derived_feature_builder or DerivedFeatureBuilder(
+            feature_store=self.feature_extractor.feature_store, price_fetcher=self.price_fetcher,
+        )
 
     def build(
         self,
@@ -63,26 +68,31 @@ class DatasetBuilder:
 
         cursor = start
         while cursor <= end:
+            day_vectors: Dict[str, Dict[str, float]] = {}
             for symbol in symbols:
                 # respect_ingestion_time=True: this is the one production
                 # path that turns a historical as_of into training data, so
                 # it must not be fed a feature value backfilled/recomputed
                 # after the fact - see FeatureExtractor.extract's docstring.
                 vector = self.feature_extractor.extract(symbol, cursor, respect_ingestion_time=True)
-                if not vector.values:
-                    continue
-                feature_names_seen.update(vector.values.keys())
+                if vector.values:
+                    day_vectors[symbol] = vector.values
+
+            for symbol, base_values in day_vectors.items():
+                derived_values = self.derived_feature_builder.compute(symbol, cursor, day_vectors)
+                combined_values = {**base_values, **derived_values}
+                feature_names_seen.update(combined_values.keys())
 
                 for horizon_days in horizons:
                     label_set = generate_labels(
-                        symbol, cursor, horizon_days, vector.values, self.config, self.price_fetcher,
+                        symbol, cursor, horizon_days, combined_values, self.config, self.price_fetcher,
                     )
                     if label_set is None:
                         continue
                     samples.append(
                         TrainingSample(
                             symbol=symbol, as_of=cursor, horizon_days=horizon_days,
-                            features=vector.values, labels=label_set,
+                            features=combined_values, labels=label_set,
                         )
                     )
             cursor += timedelta(days=step_days)
