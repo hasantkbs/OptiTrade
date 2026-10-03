@@ -58,9 +58,36 @@ from decision_engine.service import get_default_decision_engine
 # ml_training.service._samples_to_arrays, for the same reason: duplicated
 # logic risks the two copies silently drifting.
 from research.ml_trainer import extract_features
+from research.train_v2 import extract_v2_features
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+
+_V2_FEATURE_NAMES = ["ema_dist", "vwap_dist", "rsi", "velocity", "range"]
+
+
+def _extract_v2_features_for_window(window):
+    """Adapts research.train_v2.extract_v2_features (which operates on
+    a whole multi-row DataFrame and returns one row per surviving date)
+    to walk_forward_evaluate's per-window, single-feature-vector-for-
+    the-last-bar calling convention - mirrors exactly what the real live
+    predictor (v2/ml/predictor.py::MLPredictorV2.predict()) does with
+    this same function's output, so this evaluation exercises the same
+    feature pipeline the live model actually sees, not a re-derivation
+    that could itself silently drift (the same reasoning this script
+    already applies to reusing research.ml_trainer.extract_features for
+    the other models)."""
+    try:
+        feats_df = extract_v2_features(window.copy())
+        if feats_df.empty:
+            return None
+        last_row = feats_df[_V2_FEATURE_NAMES].iloc[-1]
+        if last_row.isnull().any():
+            return None
+        return last_row.tolist()
+    except Exception:
+        return None
+
 
 LOOKBACK = 60
 FORWARD_DAYS = 5
@@ -75,7 +102,8 @@ SYMBOL_BASKET = [
 ]
 
 
-def walk_forward_evaluate(model_path: str, model_name: str) -> dict:
+def walk_forward_evaluate(model_path: str, model_name: str, symbol_basket=None, feature_extractor=extract_features) -> dict:
+    basket = symbol_basket if symbol_basket is not None else SYMBOL_BASKET
     package = joblib.load(model_path)
     model = package["model"]
     train_end_date_str: Optional[str] = package.get("train_end_date")
@@ -85,7 +113,7 @@ def walk_forward_evaluate(model_path: str, model_name: str) -> dict:
     is_out_of_sample = train_end_date is not None
 
     y_true, y_pred = [], []
-    for symbol in SYMBOL_BASKET:
+    for symbol in basket:
         try:
             if train_end_date is not None:
                 # fetch_history's period-only interface can't express a
@@ -117,7 +145,7 @@ def walk_forward_evaluate(model_path: str, model_name: str) -> dict:
             if train_end_date is not None and hist.index[i].date() <= train_end_date:
                 continue  # this bar (or an earlier one the model could have trained on) - skip
             window = hist.iloc[i - LOOKBACK: i + 1]
-            feats = extract_features(window)
+            feats = feature_extractor(window)
             if feats is None:
                 continue
             current_p = float(hist["Close"].iloc[i])
@@ -164,17 +192,32 @@ def main() -> None:
     # predict()-time failure for one model must not prevent reporting real
     # results for the other - same per-item fault isolation already used
     # below in decision_engine_snapshot().
+    # v2_xgb_model gets its own feature extractor (it has a different,
+    # 5-feature schema - see _extract_v2_features_for_window above) and
+    # its own symbol basket: it was trained on a single-symbol (BTC)
+    # dataset, so evaluating it against the full multi-asset basket
+    # (which includes BIST equities it was never trained on) wouldn't be
+    # a fair test of its actual skill.
+    #
+    # Path note: this model's artifact lives at
+    # ../model_artifacts/v2_xgb_model.joblib in this checkout (moved
+    # there, along with xgb_signal_model.joblib, by the backend/models/
+    # -> backend/model_artifacts/ source/artifact split). Verified
+    # byte-identical (md5 a423420f...) to the file the currently-running
+    # production container actually loads from (its own, pre-that-split
+    # /app/models/v2_xgb_model.joblib) - same model, just relocated by a
+    # later commit than the one the running container was built from.
     model_specs = [
-        ("../model_artifacts/xgb_signal_model.joblib", "xgb_signal_model"),
-        ("../model_artifacts/v2_xgb_model.joblib", "v2_xgb_model"),
+        ("../model_artifacts/xgb_signal_model.joblib", "xgb_signal_model", None, extract_features),
+        ("../model_artifacts/v2_xgb_model.joblib", "v2_xgb_model", ["BTC-USD"], _extract_v2_features_for_window),
     ]
     oos_path = "../model_artifacts/xgb_signal_model_oos_test.joblib"
     if os.path.exists(oos_path):
-        model_specs.append((oos_path, "xgb_signal_model_oos_test"))
+        model_specs.append((oos_path, "xgb_signal_model_oos_test", None, extract_features))
     results = []
-    for path, name in model_specs:
+    for path, name, basket, extractor in model_specs:
         try:
-            results.append(walk_forward_evaluate(path, name))
+            results.append(walk_forward_evaluate(path, name, symbol_basket=basket, feature_extractor=extractor))
         except Exception as exc:
             logger.warning("%s: walk-forward evaluation failed: %s", name, exc)
             results.append({"model": name, "n_samples": 0, "error": str(exc)})
