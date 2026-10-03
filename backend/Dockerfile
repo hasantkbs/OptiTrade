@@ -45,17 +45,31 @@ RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 # request-handling process shouldn't be able to rewrite it.
 COPY . .
 
-# model_artifacts/ is the one directory the app legitimately writes to at
-# runtime (Continuous Learning's model retrain replaces
-# xgb_signal_model.joblib in place - see research/ml_trainer.py). A
-# plain `COPY . .` leaves it root-owned with whatever mode bits the
-# build context's files happened to have (verified in SERVER STEP 2's
-# live Docker check: on this host that was `600`, unreadable by
-# appuser at all - `/ml/status` reported `available: false`, and the
-# in-container retrain's own write failed with EACCES). chown (not
-# chmod 777, not USER root) makes ownership deterministic regardless
-# of what the build context's host permissions happen to be.
-RUN chown -R appuser:appgroup model_artifacts
+# model_artifacts/ and src/data/ are the two directories the app
+# legitimately writes to at runtime: model_artifacts/ for Continuous
+# Learning's model retrain (research/ml_trainer.py, replaces
+# xgb_signal_model.joblib in place); src/data/ for core/monitoring.py's
+# SQLite self-evaluation prediction tracking (monitoring.db). A plain
+# `COPY . .` leaves both root-owned with whatever mode bits the build
+# context's files happened to have (verified in SERVER STEP 2's live
+# Docker check for model_artifacts/: on this host that was `600`,
+# unreadable by appuser at all; monitoring.db had the identical
+# problem, confirmed directly against the running container on
+# 2026-10-02 - root:root ownership meant every call to
+# purge_old_predictions()/validate_predictions() failed with "attempt
+# to write a readonly database". NOTE: that live check was against a
+# pre-src-layout image, where monitoring.py's own math
+# (DB_PATH = dirname(dirname(__file__))/data/monitoring.db) resolved to
+# /app/data. The "move backend into a src/ layout" refactor
+# (e62c71a) relocated monitoring.py to src/core/monitoring.py without
+# updating that literal, so the identical unchanged code now resolves
+# one level deeper, to /app/src/data/monitoring.db (confirmed: a plain
+# `data` target here doesn't exist in this build context at all and
+# fails the chown outright - `backend/src/data/` does, alongside the
+# existing data-fetcher module it already holds). chown (not chmod
+# 777, not USER root) makes ownership deterministic regardless of what
+# the build context's host permissions happen to be.
+RUN chown -R appuser:appgroup model_artifacts src/data
 
 USER appuser
 
