@@ -43,7 +43,7 @@ class FakeFeatureAdapter:
             values=values, from_cache=from_cache or [], computed_fresh=computed_fresh or list(values),
         )
 
-    def get_features(self, symbol: str) -> FeatureResolution:
+    def get_features(self, symbol: str, as_of=None) -> FeatureResolution:
         return self._resolution
 
 
@@ -133,6 +133,37 @@ def test_vote_adapts_analysis_into_a_valid_engine_vote():
     assert vote.prediction == Prediction.BUY
     assert vote.volatility == pytest.approx(1.5)
     assert validate_vote(vote).is_valid is True
+
+
+def test_vote_with_as_of_passes_it_through_to_get_features():
+    captured = {}
+
+    class _FakeAdapter:
+        def get_features(self, symbol, as_of=None):
+            captured["symbol"] = symbol
+            captured["as_of"] = as_of
+            return FeatureResolution(values={}, from_cache=[], computed_fresh=[])
+
+    engine = TechnicalEngine(feature_adapter=_FakeAdapter())
+    as_of = datetime(2025, 6, 15, 23, 59, 59, tzinfo=timezone.utc)
+    engine.vote("THYAO.IS", as_of=as_of)
+
+    assert captured["as_of"] == as_of
+
+
+def test_vote_without_as_of_still_calls_get_features_with_none():
+    """Regression test."""
+    captured = {}
+
+    class _FakeAdapter:
+        def get_features(self, symbol, as_of=None):
+            captured["as_of"] = as_of
+            return FeatureResolution(values={}, from_cache=[], computed_fresh=[])
+
+    engine = TechnicalEngine(feature_adapter=_FakeAdapter())
+    engine.vote("THYAO.IS")
+
+    assert captured["as_of"] is None
 
 
 def test_engine_name_and_version_reflect_config():

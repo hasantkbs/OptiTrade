@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -176,7 +177,16 @@ class TechnicalFeatureAdapter:
         self.feature_store = feature_store or get_default_feature_store_service()
         self.config = config or TechnicalEngineConfig.from_env()
 
-    def get_features(self, symbol: str) -> FeatureResolution:
+    def get_features(self, symbol: str, as_of: Optional[datetime] = None) -> FeatureResolution:
+        if as_of is not None:
+            resolution = self._resolve_as_of(symbol, as_of)
+            log_event(
+                logger, component="technical_engine", module="engines.technical.feature_adapter",
+                operation="get_features", status=STATUS_SUCCESS, symbol=symbol,
+                as_of=as_of.isoformat(), features_found=len(resolution.values),
+            )
+            return resolution
+
         resolution = resolve_features(
             self.feature_store, symbol, ALL_FEATURE_NAMES, self.config.max_feature_age_seconds, self._compute_all,
         )
@@ -186,6 +196,22 @@ class TechnicalFeatureAdapter:
             features_from_cache=len(resolution.from_cache),
             features_computed_fresh=len(resolution.computed_fresh),
         )
+        return resolution
+
+    def _resolve_as_of(self, symbol: str, as_of: datetime) -> FeatureResolution:
+        """Point-in-time resolution for historical replay (decision_engine
+        backtesting) - queries ONLY the already-backfilled historical
+        Feature Store via get_feature_as_of(respect_ingestion_time=True),
+        with no live-compute fallback: "freshly computing" a historical
+        date's RSI from today's live OHLCV would be meaningless. A
+        feature with no backfilled row for this exact date stays
+        missing, honestly - it is never silently filled in."""
+        resolution = FeatureResolution()
+        for name in ALL_FEATURE_NAMES:
+            record = self.feature_store.get_feature_as_of(symbol, name, as_of, respect_ingestion_time=True)
+            if record is not None:
+                resolution.values[name] = record.value
+                resolution.from_cache.append(name)
         return resolution
 
     def _compute_all(self, symbol: str) -> Dict[str, float]:

@@ -184,6 +184,92 @@ def test_get_features_returns_empty_when_symbol_has_no_data_at_all(adapter, symb
     assert resolution.computed_fresh == []
 
 
+def test_get_features_without_as_of_still_uses_the_live_path_unchanged(adapter, symbol, monkeypatch):
+    """Regression test: confirm the existing live resolve_features()
+    code path is still reached when as_of is omitted. The two tests
+    directly above already exercise this (caching + no-data), so this
+    is one more explicit, narrowly-scoped confirmation that the
+    fetch_history/resolve_features path - not _resolve_as_of - is what
+    runs when as_of is None."""
+    monkeypatch.setattr(
+        "engines.technical.feature_adapter.fetch_history", lambda *a, **k: _synthetic_ohlcv()
+    )
+    resolution = adapter.get_features(symbol, as_of=None)
+    assert FEATURE_RSI in resolution.values
+    assert FEATURE_RSI in resolution.computed_fresh
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# get_features — point-in-time (as_of) resolution for historical replay
+# ─────────────────────────────────────────────────────────────────────────
+
+def test_get_features_with_as_of_queries_point_in_time_with_ingestion_guard(monkeypatch):
+    calls = []
+
+    class _FakeFeatureStore:
+        def get_feature_as_of(self, symbol, feature_name, as_of, respect_ingestion_time=False):
+            calls.append((symbol, feature_name, as_of, respect_ingestion_time))
+            return None  # nothing found - the "all missing" case, tested separately below
+
+        def get_latest_feature(self, symbol, feature_name):
+            raise AssertionError("get_latest_feature must never be called when as_of is given")
+
+    adapter = TechnicalFeatureAdapter(feature_store=_FakeFeatureStore(), config=TechnicalEngineConfig.from_env())
+    as_of = datetime(2025, 6, 15, 23, 59, 59, tzinfo=timezone.utc)
+
+    adapter.get_features("THYAO.IS", as_of=as_of)
+
+    assert len(calls) == len(ALL_FEATURE_NAMES)
+    for symbol, feature_name, called_as_of, respect_ingestion_time in calls:
+        assert symbol == "THYAO.IS"
+        assert called_as_of == as_of
+        assert respect_ingestion_time is True
+    assert {name for _, name, _, _ in calls} == set(ALL_FEATURE_NAMES)
+
+
+def test_get_features_with_as_of_returns_only_found_values():
+    as_of = datetime(2025, 6, 15, 23, 59, 59, tzinfo=timezone.utc)
+    found_name = ALL_FEATURE_NAMES[0]
+
+    class _FakeRecord:
+        def __init__(self, value):
+            self.value = value
+
+    class _FakeFeatureStore:
+        def get_feature_as_of(self, symbol, feature_name, as_of, respect_ingestion_time=False):
+            return _FakeRecord(42.0) if feature_name == found_name else None
+
+        def get_latest_feature(self, symbol, feature_name):
+            raise AssertionError("must not be called")
+
+    adapter = TechnicalFeatureAdapter(feature_store=_FakeFeatureStore(), config=TechnicalEngineConfig.from_env())
+    resolution = adapter.get_features("THYAO.IS", as_of=as_of)
+
+    assert resolution.values == {found_name: 42.0}
+    assert found_name in resolution.from_cache
+
+
+def test_get_features_with_as_of_all_missing_returns_empty_resolution():
+    """Review Focus: a historical date with zero backfilled data must
+    produce an honestly-empty resolution (and therefore, downstream,
+    confidence=0.0/HOLD), never a confident-looking result."""
+    as_of = datetime(2020, 1, 1, tzinfo=timezone.utc)  # before any real history exists
+
+    class _FakeFeatureStore:
+        def get_feature_as_of(self, symbol, feature_name, as_of, respect_ingestion_time=False):
+            return None
+
+        def get_latest_feature(self, symbol, feature_name):
+            raise AssertionError("must not be called")
+
+    adapter = TechnicalFeatureAdapter(feature_store=_FakeFeatureStore(), config=TechnicalEngineConfig.from_env())
+    resolution = adapter.get_features("THYAO.IS", as_of=as_of)
+
+    assert resolution.values == {}
+    assert resolution.from_cache == []
+    assert resolution.computed_fresh == []
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # Real, live end-to-end (network + Postgres + Redis)
 # ─────────────────────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from core.structured_logging import STATUS_SUCCESS, log_event
@@ -54,9 +55,9 @@ class TechnicalEngine:
             self._feature_adapter = TechnicalFeatureAdapter(config=self.config)
         return self._feature_adapter
 
-    def analyze(self, symbol: str) -> TechnicalAnalysisResult:
+    def analyze(self, symbol: str, as_of: Optional[datetime] = None) -> TechnicalAnalysisResult:
         started_at = time.perf_counter()
-        resolution = self.feature_adapter.get_features(symbol)
+        resolution = self.feature_adapter.get_features(symbol, as_of=as_of)
         features = resolution.values
 
         results: List[AnalyzerResult] = []
@@ -101,8 +102,8 @@ class TechnicalEngine:
         )
         return analysis
 
-    def vote(self, symbol: str) -> EngineVote:
-        analysis = self.analyze(symbol)
+    def vote(self, symbol: str, as_of: Optional[datetime] = None) -> EngineVote:
+        analysis = self.analyze(symbol, as_of=as_of)
         return EngineVote(
             engine_name=self.engine_name,
             engine_version=self.engine_version,
