@@ -2,14 +2,13 @@ import { useState, type FormEvent } from 'react'
 import { Button } from '../../components/ui/Button'
 import { Card, CardHeader, CardSubtitle, CardTitle } from '../../components/ui/Card'
 import { Input } from '../../components/ui/Input'
-import { usePortfolioList } from '../dashboard/hooks'
 import { useCreateAlert } from './hooks'
 import { ALERT_CATEGORY_LABEL, alertTypesForCategory, type AlertTypeConfig } from './alertTypes'
 import { apiErrorMessage } from '../../api/client'
 import type { AlertCategory, AlertType } from '../../api/types'
 import styles from './CreateAlertForm.module.css'
 
-const CATEGORIES: AlertCategory[] = ['price', 'technical', 'decision', 'news', 'portfolio']
+const CATEGORIES: AlertCategory[] = ['price', 'technical', 'decision', 'news']
 
 function firstType(category: AlertCategory): AlertType {
   return alertTypesForCategory(category)[0].type
@@ -29,11 +28,9 @@ export function CreateAlertForm() {
   const [category, setCategory] = useState<AlertCategory>('price')
   const [type, setType] = useState<AlertType>(firstType('price'))
   const [symbol, setSymbol] = useState('')
-  const [portfolioId, setPortfolioId] = useState('')
   const [paramValues, setParamValues] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  const portfolios = usePortfolioList()
   const createAlert = useCreateAlert()
 
   const typeConfig = alertTypesForCategory(category).find((config) => config.type === type) as AlertTypeConfig
@@ -58,9 +55,6 @@ export function CreateAlertForm() {
 
     if (typeConfig.symbol === 'required' && !symbol.trim()) {
       nextErrors.symbol = 'Symbol is required for this alert type.'
-    }
-    if (typeConfig.requiresPortfolio && !portfolioId) {
-      nextErrors.portfolio = 'Select a portfolio for this alert type.'
     }
     for (const field of typeConfig.parameters) {
       const raw = paramValues[field.key]?.trim()
@@ -91,7 +85,6 @@ export function CreateAlertForm() {
         alert_type: typeConfig.type,
         parameters,
         symbol: typeConfig.symbol !== 'none' && symbol.trim() ? symbol.trim().toUpperCase() : undefined,
-        portfolio_id: typeConfig.requiresPortfolio && portfolioId ? Number(portfolioId) : undefined,
       },
       {
         onSuccess: () => {
@@ -151,23 +144,6 @@ export function CreateAlertForm() {
             placeholder="e.g. AAPL"
             error={errors.symbol}
           />
-        ) : null}
-
-        {typeConfig.requiresPortfolio ? (
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor="alert-portfolio">
-              Portfolio
-            </label>
-            <select id="alert-portfolio" className={styles.select} value={portfolioId} onChange={(event) => setPortfolioId(event.target.value)}>
-              <option value="">Select a portfolio…</option>
-              {(portfolios.data ?? []).map((portfolio) => (
-                <option key={portfolio.id} value={portfolio.id ?? ''}>
-                  {portfolio.name}
-                </option>
-              ))}
-            </select>
-            {errors.portfolio ? <p className={styles.error}>{errors.portfolio}</p> : null}
-          </div>
         ) : null}
 
         {typeConfig.parameters.map((field) => (

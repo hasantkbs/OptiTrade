@@ -3,24 +3,22 @@ import { ALERT_TYPE_CONFIG, alertTypeConfig, alertTypesForCategory, formatAlertT
 import type { AlertCategory } from '../../api/types'
 
 describe('alertTypes', () => {
-  it('covers every category the backend defines', () => {
+  it('covers every selectable category - price, technical, decision, news', () => {
     const categories = new Set(ALERT_TYPE_CONFIG.map((c) => c.category))
-    const expected: AlertCategory[] = ['price', 'technical', 'decision', 'news', 'portfolio']
+    const expected: AlertCategory[] = ['price', 'technical', 'decision', 'news']
     for (const category of expected) {
       expect(categories.has(category)).toBe(true)
       expect(alertTypesForCategory(category).length).toBeGreaterThan(0)
     }
   })
 
+  it('no longer offers the portfolio category for creating a new alert - Portfolio was removed from the app', () => {
+    expect(alertTypesForCategory('portfolio')).toHaveLength(0)
+  })
+
   it('formats a raw backend alert_type into a friendly label without changing the underlying value', () => {
     expect(formatAlertType('price_above')).toBe('Price Above')
     expect(alertTypeConfig('price_above')?.type).toBe('price_above')
-  })
-
-  it('marks portfolio alert types as requiring a portfolio and never a plain symbol select for VaR/drawdown/concentration', () => {
-    const varConfig = alertTypeConfig('portfolio_var_exceeded')
-    expect(varConfig?.requiresPortfolio).toBe(true)
-    expect(varConfig?.symbol).toBe('none')
   })
 
   it('marks price_above/price_below thresholds as required, matching the backend raising an error without one', () => {

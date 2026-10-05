@@ -18,7 +18,6 @@ export interface AlertTypeConfig {
   category: AlertCategory
   label: string
   symbol: 'required' | 'optional' | 'none'
-  requiresPortfolio: boolean
   parameters: AlertParameterField[]
 }
 
@@ -41,7 +40,6 @@ export const ALERT_TYPE_CONFIG: AlertTypeConfig[] = [
     category: 'price',
     label: 'Price Above',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [{ key: 'threshold', label: 'Threshold price', required: true }],
   },
   {
@@ -49,7 +47,6 @@ export const ALERT_TYPE_CONFIG: AlertTypeConfig[] = [
     category: 'price',
     label: 'Price Below',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [{ key: 'threshold', label: 'Threshold price', required: true }],
   },
   {
@@ -57,7 +54,6 @@ export const ALERT_TYPE_CONFIG: AlertTypeConfig[] = [
     category: 'price',
     label: 'Price % Move',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [{ key: 'threshold_pct', label: 'Move threshold (%)', hint: 'Backend default: 5%' }],
   },
   {
@@ -65,7 +61,6 @@ export const ALERT_TYPE_CONFIG: AlertTypeConfig[] = [
     category: 'price',
     label: 'Price Gap',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [{ key: 'threshold_pct', label: 'Gap threshold (%)', hint: 'Backend default: 3%' }],
   },
   {
@@ -73,20 +68,18 @@ export const ALERT_TYPE_CONFIG: AlertTypeConfig[] = [
     category: 'technical',
     label: 'RSI Threshold',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [
       { key: 'overbought', label: 'Overbought level', hint: 'Backend default: 70' },
       { key: 'oversold', label: 'Oversold level', hint: 'Backend default: 30' },
     ],
   },
-  { type: 'macd_crossover', category: 'technical', label: 'MACD Crossover', symbol: 'required', requiresPortfolio: false, parameters: [] },
-  { type: 'ema_crossover', category: 'technical', label: 'EMA Crossover', symbol: 'required', requiresPortfolio: false, parameters: [] },
+  { type: 'macd_crossover', category: 'technical', label: 'MACD Crossover', symbol: 'required', parameters: [] },
+  { type: 'ema_crossover', category: 'technical', label: 'EMA Crossover', symbol: 'required', parameters: [] },
   {
     type: 'bollinger_breakout',
     category: 'technical',
     label: 'Bollinger Breakout',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [
       { key: 'upper_percent_b', label: 'Upper %B', hint: 'Backend default: 1.0' },
       { key: 'lower_percent_b', label: 'Lower %B', hint: 'Backend default: 0.0' },
@@ -97,7 +90,6 @@ export const ALERT_TYPE_CONFIG: AlertTypeConfig[] = [
     category: 'technical',
     label: 'Volume Spike',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [{ key: 'spike_ratio', label: 'Spike ratio', hint: 'Backend default: 2.0x' }],
   },
   {
@@ -105,17 +97,15 @@ export const ALERT_TYPE_CONFIG: AlertTypeConfig[] = [
     category: 'technical',
     label: 'ATR Expansion',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [{ key: 'expansion_ratio', label: 'Expansion ratio', hint: 'Backend default: 1.5x' }],
   },
-  { type: 'decision_buy', category: 'decision', label: 'Decision: BUY appears', symbol: 'required', requiresPortfolio: false, parameters: [] },
-  { type: 'decision_sell', category: 'decision', label: 'Decision: SELL appears', symbol: 'required', requiresPortfolio: false, parameters: [] },
+  { type: 'decision_buy', category: 'decision', label: 'Decision: BUY appears', symbol: 'required', parameters: [] },
+  { type: 'decision_sell', category: 'decision', label: 'Decision: SELL appears', symbol: 'required', parameters: [] },
   {
     type: 'confidence_change',
     category: 'decision',
     label: 'Confidence Change',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [{ key: 'threshold', label: 'Change threshold', hint: 'Backend default: 0.15' }],
   },
   {
@@ -123,7 +113,6 @@ export const ALERT_TYPE_CONFIG: AlertTypeConfig[] = [
     category: 'decision',
     label: 'Expected Return Change',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [{ key: 'threshold', label: 'Change threshold (%)', hint: 'Backend default: 3%' }],
   },
   {
@@ -131,7 +120,6 @@ export const ALERT_TYPE_CONFIG: AlertTypeConfig[] = [
     category: 'decision',
     label: 'Risk Change',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [{ key: 'threshold', label: 'Change threshold (%)', hint: 'Backend default: 5%' }],
   },
   {
@@ -139,7 +127,6 @@ export const ALERT_TYPE_CONFIG: AlertTypeConfig[] = [
     category: 'news',
     label: 'News: High Impact',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [{ key: 'threshold', label: 'Impact threshold', hint: 'Backend default: 0.6' }],
   },
   {
@@ -147,7 +134,6 @@ export const ALERT_TYPE_CONFIG: AlertTypeConfig[] = [
     category: 'news',
     label: 'News: Sector Impact',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [{ key: 'threshold', label: 'Impact threshold', hint: 'Backend default: 0.5' }],
   },
   {
@@ -155,40 +141,7 @@ export const ALERT_TYPE_CONFIG: AlertTypeConfig[] = [
     category: 'news',
     label: 'News: Breaking',
     symbol: 'required',
-    requiresPortfolio: false,
     parameters: [{ key: 'max_age_minutes', label: 'Max age (minutes)', hint: 'Backend default: 120' }],
-  },
-  {
-    type: 'portfolio_allocation_exceeded',
-    category: 'portfolio',
-    label: 'Portfolio Allocation Exceeded',
-    symbol: 'optional',
-    requiresPortfolio: true,
-    parameters: [{ key: 'threshold_pct', label: 'Allocation threshold (%)', hint: 'Backend default: 25%' }],
-  },
-  {
-    type: 'portfolio_var_exceeded',
-    category: 'portfolio',
-    label: 'Portfolio VaR Exceeded',
-    symbol: 'none',
-    requiresPortfolio: true,
-    parameters: [{ key: 'threshold', label: 'VaR threshold (%)', hint: 'Backend default: -5%' }],
-  },
-  {
-    type: 'portfolio_drawdown_exceeded',
-    category: 'portfolio',
-    label: 'Portfolio Drawdown Exceeded',
-    symbol: 'none',
-    requiresPortfolio: true,
-    parameters: [{ key: 'threshold', label: 'Drawdown threshold (%)', hint: 'Backend default: -15%' }],
-  },
-  {
-    type: 'portfolio_concentration',
-    category: 'portfolio',
-    label: 'Portfolio Concentration',
-    symbol: 'none',
-    requiresPortfolio: true,
-    parameters: [{ key: 'threshold', label: 'Concentration threshold', hint: 'Backend default: 0.5' }],
   },
 ]
 

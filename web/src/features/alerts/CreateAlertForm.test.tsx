@@ -3,15 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CreateAlertForm } from './CreateAlertForm'
-import { alertsApi, portfolioApi } from '../../api/endpoints'
+import { alertsApi } from '../../api/endpoints'
 
 vi.mock('../../api/endpoints', () => ({
   alertsApi: { create: vi.fn() },
-  portfolioApi: { list: vi.fn() },
 }))
 
 const mockedAlertsApi = vi.mocked(alertsApi)
-const mockedPortfolioApi = vi.mocked(portfolioApi)
 
 function renderForm() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -24,7 +22,6 @@ function renderForm() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockedPortfolioApi.list.mockResolvedValue([{ id: 1, owner: 'user-1', name: 'Core', base_currency: 'USD', created_at: '2026-01-01T00:00:00Z' }])
 })
 
 describe('CreateAlertForm', () => {
@@ -84,7 +81,6 @@ describe('CreateAlertForm', () => {
       alert_type: 'price_above',
       parameters: { threshold: 200 },
       symbol: 'AAPL',
-      portfolio_id: undefined,
     })
   })
 
@@ -96,16 +92,6 @@ describe('CreateAlertForm', () => {
     await user.type(screen.getByLabelText('Threshold price'), '200')
     await user.click(screen.getByRole('button', { name: 'Create alert' }))
     await waitFor(() => expect(screen.getByText('Something went wrong. Please try again.')).toBeInTheDocument())
-  })
-
-  it('switching to a portfolio alert type requires a real portfolio selection instead of a symbol', async () => {
-    const user = userEvent.setup()
-    renderForm()
-    await user.selectOptions(screen.getByLabelText('Category'), 'portfolio')
-    expect(screen.queryByLabelText('Symbol')).not.toBeInTheDocument()
-    expect(await screen.findByLabelText('Portfolio')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Create alert' }))
-    expect(screen.getByText('Select a portfolio for this alert type.')).toBeInTheDocument()
   })
 
   it('a parameterless alert type (e.g. Decision: BUY appears) shows no parameter fields', async () => {
