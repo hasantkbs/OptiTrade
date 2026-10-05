@@ -5,6 +5,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from typing import Any, Dict, List, Optional, Union
+from datetime import datetime, timezone
 import logging
 import os
 import asyncio
@@ -49,7 +50,7 @@ _validate_production_config()
 
 from models.schemas import (
     AnalysisRequest, AnalysisResult, ScanRequest, ScanResult,
-    ChartResponse, ChartPoint,
+    ChartResponse, ChartPoint, MarketSnapshotResponse,
     EnhancedAnalysisRequest, MonteCarloResult, RecommendationResult,
     PortfolioOptRequest, PortfolioOptResult,
     SessionInfo,
@@ -71,6 +72,7 @@ from core.sector_intelligence import (
     SECTOR_DEFINITIONS,
 )
 from data.fetcher import fetch_history
+from providers.coingecko_provider import get_btc_dominance
 from v2.api.router import router as v2_router
 from api.v1.router import api_v1_router
 from core.rate_limiter import limiter
@@ -1903,17 +1905,14 @@ def get_crypto_symbols() -> List[str]: return CRYPTO_SYMBOLS
 
 # ── Chart ──────────────────────────────────────────────────────────────────────
 
-@app.get("/chart/{symbol}", response_model=ChartResponse)
-@limiter.limit("30/minute")
-def get_chart(
-    request: Request,
-    symbol: str,
-    period: str = Query(default="3mo", pattern="^(1mo|3mo|6mo|1y)$"),
-) -> ChartResponse:
+def _build_chart_response(symbol: str, period: str) -> Optional[ChartResponse]:
+    """Extracted from get_chart's own body (zero behavior change) so
+    GET /market/snapshot can reuse the exact same chart-building logic
+    for its two index series, rather than a parallel reimplementation."""
     import numpy as np
     hist = fetch_history(symbol.upper(), period=period)
     if hist is None or hist.empty:
-        raise HTTPException(status_code=404, detail=f"{symbol} icin grafik verisi bulunamadi.")
+        return None
 
     prices = hist["Close"]
     rsi_series = None
@@ -1948,6 +1947,30 @@ def get_chart(
         change_pct=round(change_pct, 2),
         high=round(float(hist["High"].max()), 4),
         low=round(float(hist["Low"].min()),  4),
+    )
+
+
+@app.get("/chart/{symbol}", response_model=ChartResponse)
+@limiter.limit("30/minute")
+def get_chart(
+    request: Request,
+    symbol: str,
+    period: str = Query(default="3mo", pattern="^(1mo|3mo|6mo|1y)$"),
+) -> ChartResponse:
+    chart = _build_chart_response(symbol, period)
+    if chart is None:
+        raise HTTPException(status_code=404, detail=f"{symbol} icin grafik verisi bulunamadi.")
+    return chart
+
+
+@app.get("/market/snapshot", response_model=MarketSnapshotResponse)
+@limiter.limit("30/minute")
+def get_market_snapshot(request: Request) -> MarketSnapshotResponse:
+    return MarketSnapshotResponse(
+        bist100=_build_chart_response("XU100.IS", "3mo"),
+        btc=_build_chart_response("BTC-USD", "3mo"),
+        btc_dominance_pct=get_btc_dominance(),
+        generated_at=datetime.now(timezone.utc).isoformat(),
     )
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -106,6 +106,13 @@ class ChartResponse(BaseModel):
     low: float
 
 
+class MarketSnapshotResponse(BaseModel):
+    bist100: Optional[ChartResponse] = None
+    btc: Optional[ChartResponse] = None
+    btc_dominance_pct: Optional[float] = None
+    generated_at: str
+
+
 # ── Portfolio Optimization ────────────────────────────────────────────────────
 
 class PortfolioOptRequest(BaseModel):
