@@ -5,19 +5,21 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { AxiosError } from 'axios'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AssetDetailPage } from './AssetDetailPage'
-import { chartApi, priceApi, quantApi, watchlistApi } from '../api/endpoints'
+import { chartApi, priceApi, quantApi, watchlistApi, newsApi } from '../api/endpoints'
 
 vi.mock('../api/endpoints', () => ({
   priceApi: { get: vi.fn() },
   chartApi: { get: vi.fn() },
   quantApi: { analyze: vi.fn() },
   watchlistApi: { list: vi.fn(), items: vi.fn(), addItem: vi.fn(), removeItem: vi.fn() },
+  newsApi: { get: vi.fn() },
 }))
 
 const mockedPriceApi = vi.mocked(priceApi)
 const mockedChartApi = vi.mocked(chartApi)
 const mockedQuantApi = vi.mocked(quantApi)
 const mockedWatchlistApi = vi.mocked(watchlistApi)
+const mockedNewsApi = vi.mocked(newsApi)
 
 function renderPage(initialPath = '/assets/AAPL') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -62,6 +64,12 @@ const pipelineResponse = {
   },
 }
 const watchlist = { id: 1, owner: 'user-1', name: 'Core', created_at: '2026-01-01T00:00:00Z' }
+const newsResponse = {
+  symbol: 'AAPL', sector: 'Technology', market: 'US', total_news: 0, analyzed_news: 0,
+  sentiment_score: 0, sentiment_label: 'Neutral', score_delta: 0, positive_count: 0,
+  negative_count: 0, neutral_count: 0, signals: [], top_positive_title: null, top_negative_title: null,
+  fetched_at: '2026-01-01T00:00:00Z', headlines: [], error: null,
+}
 
 function notFound() {
   const error = new AxiosError('Not Found')
@@ -75,6 +83,7 @@ beforeEach(() => {
   mockedQuantApi.analyze.mockResolvedValue(pipelineResponse)
   mockedWatchlistApi.list.mockResolvedValue([watchlist])
   mockedWatchlistApi.items.mockResolvedValue([])
+  mockedNewsApi.get.mockResolvedValue(newsResponse)
 })
 
 describe('AssetDetailPage', () => {

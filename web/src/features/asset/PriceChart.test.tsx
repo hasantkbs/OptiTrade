@@ -54,4 +54,18 @@ describe('PriceChart', () => {
     renderChart({ isError: true, errorMessage: 'network down' })
     expect(screen.getByText('network down')).toBeInTheDocument()
   })
+
+  it('renders a volume sub-chart from the real chart data', () => {
+    const chart = {
+      symbol: 'AAPL', period: '3mo', change_pct: 1.5, high: 200, low: 150,
+      points: [
+        { date: '2026-01-01', close: 180, volume: 1_200_000, rsi: null },
+        { date: '2026-01-02', close: 182, volume: 1_500_000, rsi: null },
+      ],
+    }
+    render(
+      <PriceChart chart={chart} isLoading={false} isError={false} onRetry={vi.fn()} period="3mo" onPeriodChange={vi.fn()} />,
+    )
+    expect(screen.getByLabelText('AAPL volume, 3mo')).toBeInTheDocument()
+  })
 })

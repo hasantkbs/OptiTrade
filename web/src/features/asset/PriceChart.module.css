@@ -4,6 +4,10 @@
   border-top: 1px solid var(--color-border);
 }
 
+.volumeSection {
+  margin-top: 12px;
+}
+
 .rsiLabel {
   display: block;
   font-size: var(--text-xs);
