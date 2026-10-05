@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { chartApi, priceApi, quantApi, watchlistApi } from '../../api/endpoints'
+import { chartApi, newsApi, priceApi, quantApi, watchlistApi } from '../../api/endpoints'
 import type { AddWatchlistItemRequest, ChartPeriod } from '../../api/types'
 import { useWatchlistItems, useWatchlists } from '../dashboard/hooks'
 
@@ -16,6 +16,7 @@ import { useWatchlistItems, useWatchlists } from '../dashboard/hooks'
 
 const PRICE_STALE_MS = 20_000
 const CHART_STALE_MS = 5 * 60_000
+const NEWS_STALE_MS = 5 * 60_000
 
 export function usePrice(symbol: string) {
   return useQuery({
@@ -36,6 +37,14 @@ export function useChart(symbol: string, period: ChartPeriod) {
 export function useQuantAnalyze(symbol: string) {
   return useMutation({
     mutationFn: () => quantApi.analyze(symbol),
+  })
+}
+
+export function useAssetNews(symbol: string) {
+  return useQuery({
+    queryKey: ['asset', symbol, 'news'],
+    queryFn: () => newsApi.get(symbol),
+    staleTime: NEWS_STALE_MS,
   })
 }
 

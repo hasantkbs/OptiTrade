@@ -566,3 +566,43 @@ export interface PipelineResponse {
 export interface ApiErrorBody {
   detail: string | { msg: string; [key: string]: unknown }[]
 }
+
+// ── Market Snapshot (GET /market/snapshot) ─────────────────────────────
+
+export interface MarketSnapshotResponse {
+  bist100: ChartResponse | null
+  btc: ChartResponse | null
+  btc_dominance_pct: number | null
+  generated_at: string
+}
+
+// ── News (GET /news/{symbol}) ───────────────────────────────────────────
+
+export interface NewsHeadline {
+  title: string
+  sentiment: string
+  score: number
+  age_weight: number
+  keywords: string[]
+  published_at: string
+}
+
+export interface NewsSummaryResponse {
+  symbol: string
+  sector: string
+  market: string
+  total_news: number
+  analyzed_news: number
+  sentiment_score: number
+  sentiment_label: string
+  score_delta: number
+  positive_count: number
+  negative_count: number
+  neutral_count: number
+  signals: string[]
+  top_positive_title: string | null
+  top_negative_title: string | null
+  fetched_at: string
+  headlines: NewsHeadline[]
+  error: string | null
+}

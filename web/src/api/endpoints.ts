@@ -13,6 +13,8 @@ import type {
   LearningDashboardView,
   LoginRequest,
   MarketDashboardView,
+  MarketSnapshotResponse,
+  NewsSummaryResponse,
   OverviewMetrics,
   PipelineResponse,
   Portfolio,
@@ -149,4 +151,14 @@ export const quantApi = {
    */
   analyze: (symbol: string, assetType = 'stock') =>
     apiClient.post<PipelineResponse>('/quant/analyze', { symbol, asset_type: assetType }).then((r) => r.data),
+}
+
+// ── Market Snapshot & News ───────────────────────────────────────────────
+
+export const marketApi = {
+  snapshot: () => apiClient.get<MarketSnapshotResponse>('/market/snapshot').then((r) => r.data),
+}
+
+export const newsApi = {
+  get: (symbol: string) => apiClient.get<NewsSummaryResponse>(`/news/${encodeURIComponent(symbol)}`).then((r) => r.data),
 }

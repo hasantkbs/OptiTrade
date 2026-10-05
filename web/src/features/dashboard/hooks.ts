@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { alertsApi, dashboardApi, portfolioApi, watchlistApi } from '../../api/endpoints'
+import { alertsApi, dashboardApi, marketApi, portfolioApi, watchlistApi } from '../../api/endpoints'
 
 /**
  * One hook per dashboard data need, each a thin wrapper over the
@@ -98,6 +98,10 @@ export function useWatchlistItems(watchlistId: number | undefined) {
 
 export function useAlerts() {
   return useQuery({ queryKey: ['alerts'], queryFn: alertsApi.list, staleTime: STALE.alerts })
+}
+
+export function useMarketSnapshot() {
+  return useQuery({ queryKey: ['dashboard', 'market-snapshot'], queryFn: marketApi.snapshot, staleTime: STALE.scheduled })
 }
 
 /**
