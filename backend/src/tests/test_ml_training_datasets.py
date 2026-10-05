@@ -179,13 +179,20 @@ def test_build_multiple_horizons_produces_a_sample_per_horizon(feature_store):
 
 
 def test_build_adds_derived_features_without_changing_base_feature_values(feature_store):
-    """The single most important test in this plan: with
-    DerivedFeatureBuilder wired in by default, every existing base-
+    """The single most important test in this plan: with a
+    DerivedFeatureBuilder explicitly opted in, every existing base-
     feature behavior (sample count, the 17-base-feature value itself)
-    stays byte-for-byte identical to today - only new derived_* keys are
-    ever added, nothing already there is removed or altered."""
+    stays byte-for-byte identical to today, AND at least one new
+    derived_* key is actually added - this test must fail if compute()
+    is ever skipped or its result silently dropped."""
     now = datetime.now(timezone.utc)
-    builder = _builder(feature_store)
+    from ml_training.features.derived_builder import DerivedFeatureBuilder
+    builder = DatasetBuilder(
+        feature_extractor=FeatureExtractor(feature_store=feature_store),
+        config=MLTrainingConfig(trader_horizons_days=[3]),
+        price_fetcher=_rising,
+        derived_feature_builder=DerivedFeatureBuilder(feature_store=feature_store, price_fetcher=_rising),
+    )
     samples, version = builder.build(
         [_SYMBOL], DatasetType.TRADER, now - timedelta(days=25), now - timedelta(days=20), step_days=1,
     )
@@ -200,12 +207,23 @@ def test_build_adds_derived_features_without_changing_base_feature_values(featur
         # the base key - the base key must always still be there too.
         for key in sample.features:
             assert key == FEATURE_TREND_STRENGTH or key.startswith("derived_")
+    # The point of this test: at least one derived_* key must actually be
+    # present - the fixture's 15-day history clears the lag/rolling floor
+    # of 3, so this specific key is guaranteed computable.
+    assert any("derived_roll5_mean_trend_strength_pct" in sample.features for sample in samples)
 
 
-def test_build_derived_feature_builder_is_constructed_by_default():
+def test_build_derived_feature_builder_is_opt_in_not_default():
+    """DatasetBuilder must NOT auto-construct a DerivedFeatureBuilder -
+    only train_ml_candidate.py explicitly opts in. Every OTHER caller
+    (DatasetService(), MLTrainingService(), calibration, shadow
+    deployment prep, etc.) must keep getting exactly the 17 base
+    features it always has - a model trained with more features than
+    the live serving path (ml_training.shadow.adapter
+    .MLModelVotingEngineAdapter.vote) can extract would fail
+    InsufficientFeatureCoverageError on every vote."""
     builder = DatasetBuilder()
-    from ml_training.features.derived_builder import DerivedFeatureBuilder
-    assert isinstance(builder.derived_feature_builder, DerivedFeatureBuilder)
+    assert builder.derived_feature_builder is None
 
 
 def test_build_accepts_an_injected_derived_feature_builder(feature_store):

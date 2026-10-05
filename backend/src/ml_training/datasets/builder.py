@@ -45,9 +45,7 @@ class DatasetBuilder:
         self.config = config or MLTrainingConfig.from_env()
         self.feature_extractor = feature_extractor or FeatureExtractor()
         self.price_fetcher: PriceFetcher = price_fetcher or fetch_price_history_range
-        self.derived_feature_builder = derived_feature_builder or DerivedFeatureBuilder(
-            feature_store=self.feature_extractor.feature_store, price_fetcher=self.price_fetcher,
-        )
+        self.derived_feature_builder = derived_feature_builder
 
     def build(
         self,
@@ -79,7 +77,10 @@ class DatasetBuilder:
                     day_vectors[symbol] = vector.values
 
             for symbol, base_values in day_vectors.items():
-                derived_values = self.derived_feature_builder.compute(symbol, cursor, day_vectors)
+                derived_values = (
+                    self.derived_feature_builder.compute(symbol, cursor, day_vectors)
+                    if self.derived_feature_builder is not None else {}
+                )
                 combined_values = {**base_values, **derived_values}
                 feature_names_seen.update(combined_values.keys())
 

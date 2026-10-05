@@ -45,6 +45,7 @@ from ml_training.config import MLTrainingConfig
 from ml_training.datasets.builder import DatasetBuilder
 from ml_training.datasets.service import DatasetService
 from ml_training.evaluation.evaluator import ModelEvaluator
+from ml_training.features.derived_builder import DerivedFeatureBuilder
 from ml_training.features.extractor import FeatureExtractor
 from ml_training.models import DatasetType, LabelName, ModelAlgorithm
 # _samples_to_arrays is underscore-prefixed (module-private by convention)
@@ -162,7 +163,10 @@ def main() -> None:
     price_fetcher = CachingPriceFetcher(SYMBOLS, train_start, now)
 
     dataset_service = DatasetService(
-        builder=DatasetBuilder(feature_extractor=FeatureExtractor(), config=config, price_fetcher=price_fetcher),
+        builder=DatasetBuilder(
+            feature_extractor=FeatureExtractor(), config=config, price_fetcher=price_fetcher,
+            derived_feature_builder=DerivedFeatureBuilder(price_fetcher=price_fetcher),
+        ),
         config=config,
     )
     service = MLTrainingService(datasets=dataset_service, config=config)
@@ -186,7 +190,10 @@ def main() -> None:
     # not just a cosmetic off-by-one. +1 day makes the held-out window
     # genuinely, not just nominally, strictly after the training cutoff.
     held_out_start = train_end_date + timedelta(days=1)
-    held_out_builder = DatasetBuilder(feature_extractor=FeatureExtractor(), config=config, price_fetcher=price_fetcher)
+    held_out_builder = DatasetBuilder(
+        feature_extractor=FeatureExtractor(), config=config, price_fetcher=price_fetcher,
+        derived_feature_builder=DerivedFeatureBuilder(price_fetcher=price_fetcher),
+    )
     held_out_samples, held_out_version = held_out_builder.build(
         SYMBOLS, DatasetType.TRADER, start=held_out_start, end=now, horizons_days=[HORIZON_DAYS],
     )
