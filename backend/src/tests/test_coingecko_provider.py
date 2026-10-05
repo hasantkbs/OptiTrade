@@ -1,8 +1,16 @@
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 
+import providers.coingecko_provider as coingecko_provider
 from providers.coingecko_provider import get_btc_dominance
+
+
+@pytest.fixture(autouse=True)
+def _reset_cache():
+    coingecko_provider._cached_value = None
+    coingecko_provider._cached_at = 0.0
 
 
 def test_get_btc_dominance_returns_value_on_success():

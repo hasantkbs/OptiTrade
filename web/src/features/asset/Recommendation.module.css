@@ -1,5 +1,5 @@
 .prompt {
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   padding: 16px 0;
 }
 
@@ -20,7 +20,7 @@
 }
 
 .confidence {
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   font-size: 13px;
 }
 
@@ -30,7 +30,7 @@
 }
 
 .staleNote {
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   font-size: 12px;
   margin: 0;
 }

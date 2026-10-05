@@ -5,12 +5,17 @@ import { useChartColors } from '../../components/ui/useChartColors'
 import type { ChartResponse } from '../../api/types'
 import styles from './IndexChart.module.css'
 
+function slugify(value: string): string {
+  return value.replace(/[^a-zA-Z0-9]/g, '-')
+}
+
 interface IndexChartProps {
   title: string
   chart: ChartResponse | null
   isLoading: boolean
   isError: boolean
   errorMessage?: string
+  onRetry: () => void
 }
 
 /**
@@ -21,7 +26,7 @@ interface IndexChartProps {
  * since this is a fixed-period context chart, not the full asset
  * price history view.
  */
-export function IndexChart({ title, chart, isLoading, isError, errorMessage }: IndexChartProps) {
+export function IndexChart({ title, chart, isLoading, isError, errorMessage, onRetry }: IndexChartProps) {
   const colors = useChartColors()
   const points = chart?.points ?? []
 
@@ -44,14 +49,14 @@ export function IndexChart({ title, chart, isLoading, isError, errorMessage }: I
         height={160}
         isLoading={isLoading}
         error={isError ? errorMessage ?? 'unavailable' : null}
-        onRetry={() => undefined}
+        onRetry={onRetry}
         isEmpty={!isLoading && !isError && points.length === 0}
         emptyTitle="unavailable"
         emptyDescription="This chart isn't available right now."
       >
         <AreaChart data={points}>
           <defs>
-            <linearGradient id={`indexFill-${title}`} x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={`indexFill-${slugify(title)}`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={colors.accent} stopOpacity={0.25} />
               <stop offset="100%" stopColor={colors.accent} stopOpacity={0} />
             </linearGradient>
@@ -62,7 +67,7 @@ export function IndexChart({ title, chart, isLoading, isError, errorMessage }: I
             contentStyle={{ background: colors.border, border: 'none', borderRadius: 6, fontSize: 12 }}
             formatter={(value) => [Number(value).toLocaleString(), 'Close']}
           />
-          <Area type="monotone" dataKey="close" stroke={colors.accent} strokeWidth={2} fill={`url(#indexFill-${title})`} />
+          <Area type="monotone" dataKey="close" stroke={colors.accent} strokeWidth={2} fill={`url(#indexFill-${slugify(title)})`} />
         </AreaChart>
       </ChartContainer>
     </Card>

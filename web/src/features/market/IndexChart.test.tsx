@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { IndexChart } from './IndexChart'
 import type { ChartResponse } from '../../api/types'
 
@@ -13,23 +13,23 @@ const chart: ChartResponse = {
 
 describe('IndexChart', () => {
   it('shows a loading state', () => {
-    render(<IndexChart title="Bitcoin" chart={null} isLoading isError={false} />)
+    render(<IndexChart title="Bitcoin" chart={null} isLoading isError={false} onRetry={vi.fn()} />)
     expect(screen.getByText('Bitcoin')).toBeInTheDocument()
   })
 
   it('shows an error state with the given message', () => {
-    render(<IndexChart title="Bitcoin" chart={null} isLoading={false} isError errorMessage="network error" />)
+    render(<IndexChart title="Bitcoin" chart={null} isLoading={false} isError errorMessage="network error" onRetry={vi.fn()} />)
     expect(screen.getByText('network error')).toBeInTheDocument()
   })
 
   it('renders the real chart data, including the change percentage', () => {
-    render(<IndexChart title="Bitcoin" chart={chart} isLoading={false} isError={false} />)
+    render(<IndexChart title="Bitcoin" chart={chart} isLoading={false} isError={false} onRetry={vi.fn()} />)
     expect(screen.getByText('Bitcoin')).toBeInTheDocument()
     expect(screen.getByText('+5.20%')).toBeInTheDocument()
   })
 
   it('shows an unavailable state when chart is null and not loading/error', () => {
-    render(<IndexChart title="Bitcoin" chart={null} isLoading={false} isError={false} />)
+    render(<IndexChart title="Bitcoin" chart={null} isLoading={false} isError={false} onRetry={vi.fn()} />)
     expect(screen.getByText('unavailable')).toBeInTheDocument()
   })
 })

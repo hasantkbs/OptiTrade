@@ -17,6 +17,7 @@ export function MarketSnapshotPage() {
           isLoading={snapshot.isLoading}
           isError={snapshot.isError}
           errorMessage={snapshot.isError ? apiErrorMessage(snapshot.error) : undefined}
+          onRetry={() => void snapshot.refetch()}
         />
         <IndexChart
           title="Bitcoin"
@@ -24,6 +25,7 @@ export function MarketSnapshotPage() {
           isLoading={snapshot.isLoading}
           isError={snapshot.isError}
           errorMessage={snapshot.isError ? apiErrorMessage(snapshot.error) : undefined}
+          onRetry={() => void snapshot.refetch()}
         />
         <DominanceFigure value={snapshot.data?.btc_dominance_pct ?? null} isLoading={snapshot.isLoading} />
       </div>

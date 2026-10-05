@@ -98,20 +98,22 @@ export function PriceChart({ chart, isLoading, isError, errorMessage, onRetry, p
         </div>
       ) : null}
 
-      <div className={styles.volumeSection}>
-        <span className={styles.rsiLabel}>Volume</span>
-        <ChartContainer label={`${chart?.symbol ?? ''} volume, ${period}`} height={90} isEmpty={false}>
-          <BarChart data={points}>
-            <XAxis dataKey="date" hide />
-            <YAxis hide />
-            <RechartsTooltip
-              contentStyle={{ background: colors.border, border: 'none', borderRadius: 6, fontSize: 12 }}
-              formatter={(value) => [Number(value).toLocaleString(), 'Volume']}
-            />
-            <Bar dataKey="volume" fill={colors.textSecondary} radius={[2, 2, 0, 0]} />
-          </BarChart>
-        </ChartContainer>
-      </div>
+      {points.length > 0 ? (
+        <div className={styles.volumeSection}>
+          <span className={styles.rsiLabel}>Volume</span>
+          <ChartContainer label={`${chart?.symbol ?? ''} volume, ${period}`} height={90} isEmpty={false}>
+            <BarChart data={points}>
+              <XAxis dataKey="date" hide />
+              <YAxis hide />
+              <RechartsTooltip
+                contentStyle={{ background: colors.border, border: 'none', borderRadius: 6, fontSize: 12 }}
+                formatter={(value) => [Number(value).toLocaleString(), 'Volume']}
+              />
+              <Bar dataKey="volume" fill={colors.textSecondary} radius={[2, 2, 0, 0]} />
+            </BarChart>
+          </ChartContainer>
+        </div>
+      ) : null}
     </Card>
   )
 }

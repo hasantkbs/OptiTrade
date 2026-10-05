@@ -73,9 +73,9 @@ describe('AlertList', () => {
     expect(screen.getByRole('link', { name: 'AAPL' })).toHaveAttribute('href', '/assets/AAPL')
   })
 
-  it('links a decision-category alert to Decision Intelligence', () => {
+  it('links a decision-category alert to its asset recommendation', () => {
     renderList([decisionAlert])
-    expect(screen.getByRole('link', { name: /View decision/ })).toHaveAttribute('href', '/decisions')
+    expect(screen.getByRole('link', { name: /View recommendation/ })).toHaveAttribute('href', '/assets/AAPL')
     expect(screen.getByText('2/1/2026, 12:00:00 AM')).toBeInTheDocument()
   })
 

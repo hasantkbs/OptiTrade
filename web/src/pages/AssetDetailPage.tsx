@@ -96,6 +96,7 @@ export function AssetDetailPage() {
             isLoading={news.isLoading}
             isError={news.isError}
             errorMessage={news.isError ? apiErrorMessage(news.error) : undefined}
+            onRetry={() => void news.refetch()}
           />
         </div>
       </div>

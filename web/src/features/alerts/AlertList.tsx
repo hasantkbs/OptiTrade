@@ -110,9 +110,9 @@ export function AlertList({ alerts }: AlertListProps) {
                 </TableCell>
                 <TableCell align="right">
                   <div className={styles.actions}>
-                    {alert.category === 'decision' ? (
-                      <Link to="/decisions" className={styles.decisionLink}>
-                        View decision →
+                    {alert.category === 'decision' && alert.symbol ? (
+                      <Link to={`/assets/${alert.symbol}`} className={styles.decisionLink}>
+                        View recommendation →
                       </Link>
                     ) : null}
                     <Button size="sm" variant="danger" onClick={() => setPendingDelete(alert)}>

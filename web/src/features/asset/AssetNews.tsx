@@ -12,11 +12,24 @@ function sentimentTone(label: string): 'positive' | 'negative' | 'neutral' {
   return 'neutral'
 }
 
+const SENTIMENT_LABELS: Record<string, string> = {
+  POSITIVE: 'Positive',
+  SLIGHTLY_POSITIVE: 'Slightly positive',
+  NEUTRAL: 'Neutral',
+  SLIGHTLY_NEGATIVE: 'Slightly negative',
+  NEGATIVE: 'Negative',
+}
+
+function sentimentLabel(label: string): string {
+  return SENTIMENT_LABELS[label] ?? label
+}
+
 interface AssetNewsProps {
   news?: NewsSummaryResponse
   isLoading: boolean
   isError: boolean
   errorMessage?: string
+  onRetry: () => void
 }
 
 /**
@@ -26,7 +39,7 @@ interface AssetNewsProps {
  * their real sentiment label; raw score/age_weight/keywords fields
  * are not displayed.
  */
-export function AssetNews({ news, isLoading, isError, errorMessage }: AssetNewsProps) {
+export function AssetNews({ news, isLoading, isError, errorMessage, onRetry }: AssetNewsProps) {
   const headlines = news?.headlines.slice(0, 5) ?? []
 
   return (
@@ -36,7 +49,7 @@ export function AssetNews({ news, isLoading, isError, errorMessage }: AssetNewsP
       </CardHeader>
 
       {isLoading ? <SkeletonCard /> : null}
-      {isError ? <ErrorState message={errorMessage ?? "Couldn't load news"} onRetry={() => undefined} /> : null}
+      {isError ? <ErrorState message={errorMessage ?? "Couldn't load news"} onRetry={onRetry} /> : null}
 
       {!isLoading && !isError && headlines.length === 0 ? (
         <p className={styles.empty}>No recent news for this symbol.</p>
@@ -47,7 +60,7 @@ export function AssetNews({ news, isLoading, isError, errorMessage }: AssetNewsP
           {headlines.map((item, index) => (
             <li key={index} className={styles.row}>
               <span className={styles.title}>{item.title}</span>
-              <Badge tone={sentimentTone(item.sentiment)}>{item.sentiment}</Badge>
+              <Badge tone={sentimentTone(item.sentiment)}>{sentimentLabel(item.sentiment)}</Badge>
             </li>
           ))}
         </ul>
