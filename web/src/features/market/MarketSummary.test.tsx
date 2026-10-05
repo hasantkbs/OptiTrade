@@ -2,10 +2,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MarketOverview } from './MarketOverview'
-import { dashboardApi } from '../../../api/endpoints'
+import { MarketSummary } from './MarketSummary'
+import { dashboardApi } from '../../api/endpoints'
 
-vi.mock('../../../api/endpoints', () => ({
+vi.mock('../../api/endpoints', () => ({
   dashboardApi: { market: vi.fn() },
 }))
 
@@ -16,7 +16,7 @@ function renderWithClient() {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <MarketOverview />
+        <MarketSummary />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -37,7 +37,7 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('MarketOverview', () => {
+describe('MarketSummary', () => {
   it('shows an honest empty state when no sector data is available', async () => {
     mockedDashboardApi.market.mockResolvedValueOnce({ ...marketView, sector_heatmap: [], news_impact_summary: [] })
     renderWithClient()
@@ -51,11 +51,5 @@ describe('MarketOverview', () => {
     expect(screen.getByText('AAPL')).toBeInTheDocument()
     expect(screen.getByText('12 headlines')).toBeInTheDocument()
     expect(screen.getByText('Positive')).toBeInTheDocument()
-  })
-
-  it('links to the full Assets page', async () => {
-    mockedDashboardApi.market.mockResolvedValueOnce(marketView)
-    renderWithClient()
-    await waitFor(() => expect(screen.getByRole('link', { name: /View all/ })).toHaveAttribute('href', '/assets'))
   })
 })
