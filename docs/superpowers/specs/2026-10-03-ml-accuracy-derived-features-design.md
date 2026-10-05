@@ -111,8 +111,8 @@ weekends/holidays):
 
 Resample the already-cached daily OHLCV (same `CachingPriceFetcher` pattern
 `scripts/train_ml_candidate.py` already uses) to weekly closes
-(`pandas.Series.resample("W").last()`) over the trailing 8 weeks ending at
-`as_of`, then call the real production indicator functions
+(`pandas.Series.resample("W").last()`) over the trailing **30 weeks** ending
+at `as_of`, then call the real production indicator functions
 `core.indicators.calculate_rsi(weekly_closes, period=14)` and
 `core.indicators.calculate_trend_strength(weekly_closes, period=20)` —
 reusing the exact math `TechnicalFeatureAdapter._compute_all` already uses
@@ -120,8 +120,15 @@ for the daily versions, not a reimplementation:
 
 - `derived_weekly_rsi_14`, `derived_weekly_trend_strength_pct`
 
-If fewer than 4 weekly closes are available (insufficient OHLCV history this
-early in the backfill window), omit both.
+**Correctness note:** both functions return `None` below their own period
+floor — `calculate_rsi` needs `len(prices) >= period + 1` (15 for the
+default `period=14`); `calculate_trend_strength` needs
+`len(prices) >= period` (20 for the default `period=20`). A 30-week window
+leaves comfortable margin above the binding constraint (20). If fewer than
+**20** weekly closes are available after resampling (insufficient OHLCV
+history this early in the backfill window — roughly the first ~5 months of
+a symbol's coverage), omit both rather than calling either function on too
+short a series.
 
 ### Cross-sectional (3 features)
 
@@ -187,7 +194,7 @@ already use throughout this project. Concretely:
   `FeatureRecord` lists / OHLCV `DataFrame`s with known expected outputs —
   lag/rolling arithmetic, weekly-resample-then-indicator-call, percentile
   rank, z-score — plus one test per category's own omission floor (e.g.
-  fewer than 3 history records → lag/rolling keys absent; fewer than 4
+  fewer than 3 history records → lag/rolling keys absent; fewer than 20
   weekly closes → multi-timeframe keys absent; fewer than 3 symbols in the
   basket → rank keys absent; zero std → volregime keys absent).
 - **`DerivedFeatureBuilder` tests** with a fake `FeatureStoreService` and
