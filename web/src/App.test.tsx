@@ -42,7 +42,7 @@ describe('App routing', () => {
   })
 
   it('redirects an unauthenticated visitor from a protected route to /login', async () => {
-    renderAppAt('/portfolio')
+    renderAppAt('/watchlist')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument())
   })
 

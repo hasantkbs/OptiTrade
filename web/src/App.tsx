@@ -7,20 +7,14 @@ import { FullPageSpinner } from './components/ui/FullPageSpinner'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
 
-// Route-level code splitting: DashboardPage (and its chart sections)
-// pulls in recharts, by far the heaviest dependency in this app - no
-// reason to make /login pay for it. Every other authenticated page
-// splits the same way for consistency.
-const DashboardPage = lazy(() => import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })))
-const PortfolioPage = lazy(() => import('./pages/PortfolioPage').then((m) => ({ default: m.PortfolioPage })))
+// Route-level code splitting: MarketSnapshotPage pulls in recharts, by
+// far the heaviest dependency in this app - no reason to make /login
+// pay for it. Every other authenticated page splits the same way.
+const MarketSnapshotPage = lazy(() => import('./pages/MarketSnapshotPage').then((m) => ({ default: m.MarketSnapshotPage })))
 const WatchlistPage = lazy(() => import('./pages/WatchlistPage').then((m) => ({ default: m.WatchlistPage })))
 const AssetsPage = lazy(() => import('./pages/AssetsPage').then((m) => ({ default: m.AssetsPage })))
 const AssetDetailPage = lazy(() => import('./pages/AssetDetailPage').then((m) => ({ default: m.AssetDetailPage })))
-const DecisionsPage = lazy(() => import('./pages/DecisionsPage').then((m) => ({ default: m.DecisionsPage })))
 const AlertsPage = lazy(() => import('./pages/AlertsPage').then((m) => ({ default: m.AlertsPage })))
-const AnalystPage = lazy(() => import('./pages/AnalystPage').then((m) => ({ default: m.AnalystPage })))
-const LearningPage = lazy(() => import('./pages/LearningPage').then((m) => ({ default: m.LearningPage })))
-const ResearchPage = lazy(() => import('./pages/ResearchPage').then((m) => ({ default: m.ResearchPage })))
 
 function Shell({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -42,16 +36,8 @@ export function App() {
         <Route
           path="/"
           element={
-            <Shell title="Dashboard">
-              <DashboardPage />
-            </Shell>
-          }
-        />
-        <Route
-          path="/portfolio"
-          element={
-            <Shell title="Portfolio">
-              <PortfolioPage />
+            <Shell title="Market">
+              <MarketSnapshotPage />
             </Shell>
           }
         />
@@ -80,42 +66,10 @@ export function App() {
           }
         />
         <Route
-          path="/decisions"
-          element={
-            <Shell title="Decisions">
-              <DecisionsPage />
-            </Shell>
-          }
-        />
-        <Route
           path="/alerts"
           element={
             <Shell title="Alerts">
               <AlertsPage />
-            </Shell>
-          }
-        />
-        <Route
-          path="/ai-analyst"
-          element={
-            <Shell title="AI Analyst">
-              <AnalystPage />
-            </Shell>
-          }
-        />
-        <Route
-          path="/learning"
-          element={
-            <Shell title="Learning">
-              <LearningPage />
-            </Shell>
-          }
-        />
-        <Route
-          path="/research"
-          element={
-            <Shell title="Research">
-              <ResearchPage />
             </Shell>
           }
         />
