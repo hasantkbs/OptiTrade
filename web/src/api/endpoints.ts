@@ -14,6 +14,7 @@ import type {
   LoginRequest,
   MarketDashboardView,
   MarketSnapshotResponse,
+  MarketWatchlistResponse,
   NewsSummaryResponse,
   OverviewMetrics,
   PipelineResponse,
@@ -160,6 +161,8 @@ export const quantApi = {
 
 export const marketApi = {
   snapshot: () => apiClient.get<MarketSnapshotResponse>('/market/snapshot').then((r) => r.data),
+  watchlist: (market: string) =>
+    apiClient.get<MarketWatchlistResponse>(`/market/watchlist/${encodeURIComponent(market)}`).then((r) => r.data),
 }
 
 export const newsApi = {

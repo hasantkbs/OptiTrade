@@ -21,3 +21,21 @@ export function useCreateWatchlist() {
     },
   })
 }
+
+/**
+ * POST /watchlists/{id}/items (watchlist/models.py::AddWatchlistItemRequest)
+ * - only `symbol` is required. Invalidates the same two query keys
+ * `useAssetWatchlistState` (features/asset/hooks.ts) invalidates after
+ * its own add, so the Watchlist page's "+ Add symbol" and the Asset
+ * Detail page's "Add to watchlist" stay consistent with each other.
+ */
+export function useAddWatchlistItem(watchlistId: number | undefined) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (symbol: string) => watchlistApi.addItem(watchlistId as number, { symbol }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['watchlists', watchlistId, 'items'] })
+      void queryClient.invalidateQueries({ queryKey: ['dashboard', 'watchlists'] })
+    },
+  })
+}

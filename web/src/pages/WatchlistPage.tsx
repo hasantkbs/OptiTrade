@@ -8,6 +8,7 @@ import { ErrorState } from '../components/ui/ErrorState'
 import { SkeletonCard } from '../components/ui/Skeleton'
 import { Table, TableCell, TableHeadCell } from '../components/ui/Table'
 import { useWatchlistItems, useWatchlists } from '../features/dashboard/hooks'
+import { AddSymbolDialog } from '../features/watchlist/AddSymbolDialog'
 import { CreateWatchlistDialog } from '../features/watchlist/CreateWatchlistDialog'
 import { apiErrorMessage } from '../api/client'
 
@@ -26,6 +27,7 @@ import { apiErrorMessage } from '../api/client'
  */
 export function WatchlistPage() {
   const [createOpen, setCreateOpen] = useState(false)
+  const [addSymbolOpen, setAddSymbolOpen] = useState(false)
   const watchlists = useWatchlists()
   const first = watchlists.data?.[0]
   const items = useWatchlistItems(first?.id ?? undefined)
@@ -73,6 +75,9 @@ export function WatchlistPage() {
             <CardTitle>{first?.name}</CardTitle>
             <CardSubtitle>Tracked symbols</CardSubtitle>
           </div>
+          <Button size="sm" onClick={() => setAddSymbolOpen(true)}>
+            + Add symbol
+          </Button>
         </CardHeader>
       </div>
 
@@ -116,6 +121,8 @@ export function WatchlistPage() {
           </tbody>
         </Table>
       )}
+
+      <AddSymbolDialog open={addSymbolOpen} watchlistId={first?.id ?? undefined} onClose={() => setAddSymbolOpen(false)} />
     </Card>
   )
 }

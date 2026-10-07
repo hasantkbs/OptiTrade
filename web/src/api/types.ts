@@ -576,6 +576,28 @@ export interface MarketSnapshotResponse {
   generated_at: string
 }
 
+// ── Market symbol lookup (GET /market/watchlist/{market}, core/market_config.py) ──
+
+export interface MarketInfo {
+  name: string
+  flag: string
+  currency: string
+  timezone: string
+  session_open: string
+  session_close: string
+  index_symbol: string
+  index_name: string
+  description: string
+}
+
+export interface MarketWatchlistResponse {
+  market: string
+  info: MarketInfo
+  watchlist: string[]
+  /** symbol -> display name, already correctly suffixed per market (e.g. "GARAN.IS" for TR) */
+  symbols: Record<string, string>
+}
+
 // ── News (GET /news/{symbol}) ───────────────────────────────────────────
 
 export interface NewsHeadline {

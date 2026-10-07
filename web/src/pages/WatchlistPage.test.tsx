@@ -4,13 +4,20 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { WatchlistPage } from './WatchlistPage'
-import { watchlistApi } from '../api/endpoints'
+import { marketApi, watchlistApi } from '../api/endpoints'
 
 vi.mock('../api/endpoints', () => ({
-  watchlistApi: { list: vi.fn(), items: vi.fn(), create: vi.fn() },
+  watchlistApi: { list: vi.fn(), items: vi.fn(), create: vi.fn(), addItem: vi.fn() },
+  marketApi: { watchlist: vi.fn() },
 }))
 
 const mockedWatchlistApi = vi.mocked(watchlistApi)
+const mockedMarketApi = vi.mocked(marketApi)
+
+const marketInfo = {
+  name: 'x', flag: 'x', currency: 'x', timezone: 'x', session_open: 'x', session_close: 'x',
+  index_symbol: 'x', index_name: 'x', description: 'x',
+}
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -27,6 +34,14 @@ const watchlistA = { id: 1, owner: 'user-1', name: 'Core Holdings', created_at: 
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockedMarketApi.watchlist.mockImplementation((market: string) =>
+    Promise.resolve({
+      market,
+      info: marketInfo,
+      watchlist: [],
+      symbols: (market === 'US' ? { MSFT: 'Microsoft' } : {}) as Record<string, string>,
+    }),
+  )
 })
 
 describe('WatchlistPage', () => {
@@ -146,5 +161,30 @@ describe('WatchlistPage', () => {
     renderPage()
     await waitFor(() => expect(screen.getByText('No symbols yet')).toBeInTheDocument())
     expect(screen.getByRole('link', { name: 'Browse assets' })).toHaveAttribute('href', '/assets')
+  })
+
+  it('opens the Add symbol dialog and adds a picked symbol without a manual refresh', async () => {
+    const user = userEvent.setup()
+    let items: { id: number; watchlist_id: number; symbol: string; is_favorite: boolean; folder: string | null; tags: string[]; notes: string; added_at: string }[] = []
+    mockedWatchlistApi.list.mockResolvedValue([watchlistA])
+    mockedWatchlistApi.items.mockImplementation(() => Promise.resolve(items))
+    mockedWatchlistApi.addItem.mockImplementationOnce(async (_watchlistId, body) => {
+      const added = {
+        id: 1, watchlist_id: 1, symbol: body.symbol, is_favorite: false, folder: null, tags: [], notes: '',
+        added_at: '2026-01-01T00:00:00Z',
+      }
+      items = [added]
+      return added
+    })
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: '+ Add symbol' }))
+    const dialog = screen.getByRole('dialog')
+    await user.type(within(dialog).getByLabelText('Search stocks or crypto'), 'MSFT')
+    await user.click(await within(dialog).findByRole('button', { name: /MSFT/ }))
+
+    await waitFor(() => expect(mockedWatchlistApi.addItem).toHaveBeenCalledWith(1, { symbol: 'MSFT' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(await screen.findByRole('link', { name: 'MSFT' })).toBeInTheDocument()
   })
 })
