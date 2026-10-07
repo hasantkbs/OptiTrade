@@ -2000,6 +2000,25 @@ def auth_login(request: Request, body: LoginRequest) -> TokenPairResponse:
     except UserPlatformError as e:
         raise _map_users_error(e)
 
+_GUEST_EMAIL = os.getenv("GUEST_EMAIL", "guest@optitrade.app")
+_GUEST_PASSWORD = os.getenv("GUEST_PASSWORD", "")
+
+@app.post("/auth/guest", response_model=TokenPairResponse)
+@limiter.limit("30/minute")
+def auth_guest(request: Request) -> TokenPairResponse:
+    """Public, unauthenticated entry point for the single shared guest
+    account (web simplification: login removed from the UI - every
+    visitor is silently authenticated as this one fixed account
+    server-side; the frontend never sees or sends a credential, so the
+    guest password never has to be baked into the public frontend
+    bundle - see web/Dockerfile's own "no secrets in this image" rule)."""
+    _require_users_service()
+    try:
+        tokens = _users_authentication.login(_GUEST_EMAIL, _GUEST_PASSWORD, _device_from_request(request))
+        return TokenPairResponse.model_validate(tokens)
+    except UserPlatformError as e:
+        raise _map_users_error(e)
+
 @app.post("/auth/refresh", response_model=TokenPairResponse)
 @limiter.limit("60/minute")
 def auth_refresh(request: Request, body: RefreshRequest) -> TokenPairResponse:

@@ -12,6 +12,7 @@ vi.mock('../api/endpoints', () => ({
     logout: vi.fn(),
     me: vi.fn(),
     register: vi.fn(),
+    guest: vi.fn(),
   },
 }))
 
@@ -26,6 +27,18 @@ const user = {
   created_at: '2026-01-01T00:00:00Z',
   last_login_at: null,
 }
+
+const guestUser = {
+  id: 603,
+  email: 'guest@optitrade.app',
+  display_name: 'Guest',
+  is_email_verified: false,
+  is_active: true,
+  created_at: '2026-01-01T00:00:00Z',
+  last_login_at: null,
+}
+
+const guestTokens = { access_token: 'guest-access', refresh_token: 'guest-refresh', token_type: 'bearer', expires_in: 900 }
 
 function Probe() {
   const { status, user: currentUser, login, logout, loginError } = useAuth()
@@ -70,9 +83,15 @@ beforeEach(() => {
 })
 
 describe('AuthProvider', () => {
-  it('starts unauthenticated when no stored session exists', async () => {
+  it('auto-authenticates as the shared guest account when no stored session exists - no login screen in the normal path', async () => {
+    mockedAuthApi.guest.mockResolvedValueOnce(guestTokens)
+    mockedAuthApi.me.mockResolvedValueOnce(guestUser)
+
     renderAuth()
-    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'))
+
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
+    expect(screen.getByTestId('user')).toHaveTextContent('guest@optitrade.app')
+    expect(mockedAuthApi.login).not.toHaveBeenCalled()
   })
 
   it('restores an authenticated session when a stored token is still valid', async () => {
@@ -83,19 +102,29 @@ describe('AuthProvider', () => {
 
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
     expect(screen.getByTestId('user')).toHaveTextContent('trader@optitrade.io')
+    expect(mockedAuthApi.guest).not.toHaveBeenCalled()
   })
 
-  it('clears a stored token that the backend no longer accepts', async () => {
+  it('falls through to a fresh guest auto-login when a stored token is rejected by the backend', async () => {
     tokenStorage.setTokens({ access_token: 'stale', refresh_token: 'stale' })
     mockedAuthApi.me.mockRejectedValueOnce(new Error('401'))
+    mockedAuthApi.guest.mockResolvedValueOnce(guestTokens)
+    mockedAuthApi.me.mockResolvedValueOnce(guestUser)
 
     renderAuth()
 
-    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'))
-    expect(tokenStorage.getAccessToken()).toBeNull()
+    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
+    expect(screen.getByTestId('user')).toHaveTextContent('guest@optitrade.app')
+    expect(tokenStorage.getAccessToken()).toBe('guest-access')
   })
 
-  it('logs in successfully and stores the new token pair', async () => {
+  it('logs in successfully over the guest session and stores the new token pair', async () => {
+    mockedAuthApi.guest.mockResolvedValueOnce(guestTokens)
+    mockedAuthApi.me.mockResolvedValueOnce(guestUser)
+
+    renderAuth()
+    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('guest@optitrade.app'))
+
     mockedAuthApi.login.mockResolvedValueOnce({
       access_token: 'new-access',
       refresh_token: 'new-refresh',
@@ -104,35 +133,39 @@ describe('AuthProvider', () => {
     })
     mockedAuthApi.me.mockResolvedValueOnce(user)
 
+    await act(async () => {
+      await userEvent.click(screen.getByText('login'))
+    })
+
+    expect(screen.getByTestId('status')).toHaveTextContent('authenticated')
+    expect(screen.getByTestId('user')).toHaveTextContent('trader@optitrade.io')
+    expect(tokenStorage.getAccessToken()).toBe('new-access')
+  })
+
+  it('surfaces a login error without leaking credentials, leaving the guest session active', async () => {
+    mockedAuthApi.guest.mockResolvedValueOnce(guestTokens)
+    mockedAuthApi.me.mockResolvedValueOnce(guestUser)
+
     renderAuth()
-    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'))
+    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('guest@optitrade.app'))
+
+    mockedAuthApi.login.mockRejectedValueOnce(new Error('invalid email or password'))
 
     await act(async () => {
       await userEvent.click(screen.getByText('login'))
     })
 
     expect(screen.getByTestId('status')).toHaveTextContent('authenticated')
-    expect(tokenStorage.getAccessToken()).toBe('new-access')
-  })
-
-  it('surfaces a login error without leaking credentials and stays unauthenticated', async () => {
-    mockedAuthApi.login.mockRejectedValueOnce(new Error('invalid email or password'))
-
-    renderAuth()
-    await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated'))
-
-    await act(async () => {
-      await userEvent.click(screen.getByText('login'))
-    })
-
-    expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated')
+    expect(screen.getByTestId('user')).toHaveTextContent('guest@optitrade.app')
     expect(screen.getByTestId('error')).not.toHaveTextContent('none')
   })
 
-  it('logs out and clears the stored session even if the network call fails', async () => {
+  it('logs out and silently re-authenticates as a fresh guest session, never stranding the visitor on /login', async () => {
     tokenStorage.setTokens({ access_token: 'a', refresh_token: 'b' })
     mockedAuthApi.me.mockResolvedValueOnce(user)
     mockedAuthApi.logout.mockRejectedValueOnce(new Error('network error'))
+    mockedAuthApi.guest.mockResolvedValueOnce(guestTokens)
+    mockedAuthApi.me.mockResolvedValueOnce(guestUser)
 
     renderAuth()
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))
@@ -141,14 +174,16 @@ describe('AuthProvider', () => {
       await userEvent.click(screen.getByText('logout'))
     })
 
-    expect(screen.getByTestId('status')).toHaveTextContent('unauthenticated')
-    expect(tokenStorage.getAccessToken()).toBeNull()
+    await waitFor(() => expect(screen.getByTestId('user')).toHaveTextContent('guest@optitrade.app'))
+    expect(tokenStorage.getAccessToken()).toBe('guest-access')
   })
 
   it('clears the TanStack Query cache on logout, so a previous session\'s data can never leak into the next one', async () => {
     tokenStorage.setTokens({ access_token: 'a', refresh_token: 'b' })
     mockedAuthApi.me.mockResolvedValueOnce(user)
     mockedAuthApi.logout.mockResolvedValueOnce({ status: 'ok' })
+    mockedAuthApi.guest.mockResolvedValueOnce(guestTokens)
+    mockedAuthApi.me.mockResolvedValueOnce(guestUser)
 
     const { client } = renderAuth()
     await waitFor(() => expect(screen.getByTestId('status')).toHaveTextContent('authenticated'))

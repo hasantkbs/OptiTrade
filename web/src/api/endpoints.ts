@@ -43,6 +43,9 @@ import type {
 export const authApi = {
   register: (body: RegisterRequest) => apiClient.post<UserResponse>('/auth/register', body).then((r) => r.data),
   login: (body: LoginRequest) => apiClient.post<TokenPairResponse>('/auth/login', body).then((r) => r.data),
+  /** No credential sent or stored here - the shared guest account is
+   * looked up entirely server-side (see main.py::auth_guest). */
+  guest: () => apiClient.post<TokenPairResponse>('/auth/guest').then((r) => r.data),
   logout: (refreshToken: string) =>
     apiClient.post<{ status: string }>('/auth/logout', { refresh_token: refreshToken }).then((r) => r.data),
   me: () => apiClient.get<UserResponse>('/users/me').then((r) => r.data),

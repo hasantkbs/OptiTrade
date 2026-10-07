@@ -38,15 +38,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear()
   }, [queryClient])
 
+  // Login is removed from the UI (web simplification): every visitor
+  // is silently authenticated as one shared guest account, via a
+  // dedicated unauthenticated endpoint (POST /auth/guest) that needs
+  // no credential from the frontend at all - see api/endpoints.ts and
+  // main.py::auth_guest. The /login screen is NOT deleted - it stays
+  // as an automatic fallback only, reachable if guest auto-login
+  // itself fails (e.g. a backend outage), never part of the normal path.
+  const guestLogin = useCallback(async () => {
+    try {
+      const tokens = await authApi.guest()
+      tokenStorage.setTokens(tokens)
+      const me = await authApi.me()
+      setUser(me)
+      setStatus('authenticated')
+    } catch {
+      setStatus('unauthenticated')
+    }
+  }, [])
+
   // Session persistence: on load, if a token pair already exists (a
   // previous browser session), verify it against the backend rather
-  // than trusting it blindly - an expired/revoked token surfaces as a
-  // clean redirect to /login instead of a broken authenticated shell.
+  // than trusting it blindly - an invalid/revoked token falls through
+  // to a fresh guest auto-login rather than a broken authenticated shell.
   useEffect(() => {
     let cancelled = false
     async function restoreSession() {
       if (!tokenStorage.getAccessToken()) {
-        setStatus('unauthenticated')
+        await guestLogin()
         return
       }
       try {
@@ -56,14 +75,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setStatus('authenticated')
         }
       } catch {
-        if (!cancelled) clearSession()
+        if (!cancelled) await guestLogin()
       }
     }
     void restoreSession()
     return () => {
       cancelled = true
     }
-  }, [clearSession])
+  }, [guestLogin])
+
+  // Safety net: any later transition to 'unauthenticated' (a failed
+  // token refresh, an explicit logout) silently re-authenticates as
+  // the guest account rather than stranding the visitor on /login.
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      void guestLogin()
+    }
+  }, [status, guestLogin])
 
   // The API client layer (src/api/client.ts) has no knowledge of
   // routing/state - it just calls this when a refresh attempt itself

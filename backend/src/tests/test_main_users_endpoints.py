@@ -2,6 +2,8 @@
 wired into main.py. Uses the shared `client` fixture (real main.app,
 real startup, self-evolution loop stubbed out - see conftest.py). Real
 PostgreSQL/Redis throughout."""
+from unittest.mock import patch
+
 import pytest
 
 from users.repository import UsersRepository
@@ -76,6 +78,27 @@ def test_login_wrong_password_returns_401(client, cleanup):
     client.post("/auth/register", json={"email": _email("wrongpw"), "password": "MyPassw0rd1", "display_name": "WP"})
     r = client.post("/auth/login", json={"email": _email("wrongpw"), "password": "WrongPassword1"})
     assert r.status_code == 401
+
+
+def test_guest_endpoint_issues_real_tokens_for_the_configured_account_with_no_credential(client, cleanup):
+    """POST /auth/guest needs no request body at all - the frontend
+    sends nothing, matching web/Dockerfile's "no secrets in this
+    image" rule. Patches the module-level _GUEST_EMAIL/_GUEST_PASSWORD
+    main.py reads at import time, pointing them at a real test account
+    rather than the real production guest account."""
+    client.post(
+        "/auth/register",
+        json={"email": _email("guest"), "password": "MyPassw0rd1", "display_name": "Guest"},
+    )
+    with patch("main._GUEST_EMAIL", _email("guest")), patch("main._GUEST_PASSWORD", "MyPassw0rd1"):
+        r = client.post("/auth/guest")
+    assert r.status_code == 200, r.text
+    tokens = r.json()
+    assert "access_token" in tokens
+
+    me = client.get("/users/me", headers={"Authorization": f"Bearer {tokens['access_token']}"})
+    assert me.status_code == 200
+    assert me.json()["email"] == _email("guest")
 
 
 def test_me_requires_authentication(client, cleanup):
