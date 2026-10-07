@@ -134,6 +134,7 @@ async def test_dashboard_cache_refresh_loop_calls_the_scheduler_without_blocking
 
     monkeypatch.setattr(main_module, "_dashboard_scheduler", _FakeScheduler())
     monkeypatch.setattr(main_module, "_DASHBOARD_MARKET_REFRESH_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(main_module, "get_sector_overview", lambda market: calls.append(f"get_sector_overview:{market}"))
 
     tick_times = []
 
@@ -152,9 +153,51 @@ async def test_dashboard_cache_refresh_loop_calls_the_scheduler_without_blocking
         pass
 
     assert calls, "refresh_market_cache() was never called"
-    assert set(calls) == {"refresh_market_cache"}
+    assert set(calls) == {"refresh_market_cache", "get_sector_overview:TR"}
     gaps = [b - a for a, b in zip([start] + tick_times[:-1], tick_times)]
     assert gaps and max(gaps) < 0.15, f"event loop was blocked for {max(gaps):.3f}s during refresh_market_cache()"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_cache_refresh_loop_warms_tr_sectors_even_when_the_us_refresh_fails(monkeypatch):
+    """The two refreshes are independent - BIST warming has no cached
+    view of its own to fall back on, and the US dashboard cache must not
+    go stale just because the TR warming pass had a bad network day."""
+    calls = []
+
+    class _FailingScheduler:
+        def refresh_market_cache(self):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(main_module, "_dashboard_scheduler", _FailingScheduler())
+    monkeypatch.setattr(main_module, "_DASHBOARD_MARKET_REFRESH_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(main_module, "get_sector_overview", lambda market: calls.append(market))
+
+    await _run_one_cycle(main_module.dashboard_cache_refresh_loop, timeout=0.2)
+
+    assert calls, "TR warming must still run after the US refresh raises"
+    assert set(calls) == {"TR"}
+
+
+@pytest.mark.asyncio
+async def test_dashboard_cache_refresh_loop_tolerates_a_tr_warming_failure(monkeypatch):
+    calls = []
+
+    class _FakeScheduler:
+        def refresh_market_cache(self):
+            calls.append("refresh_market_cache")
+
+    def _failing_get_sector_overview(market):
+        raise RuntimeError("yfinance unreachable")
+
+    monkeypatch.setattr(main_module, "_dashboard_scheduler", _FakeScheduler())
+    monkeypatch.setattr(main_module, "_DASHBOARD_MARKET_REFRESH_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(main_module, "get_sector_overview", _failing_get_sector_overview)
+
+    await _run_one_cycle(main_module.dashboard_cache_refresh_loop, timeout=0.2)  # must not raise
+
+    assert calls, "refresh_market_cache() was never called"
+    assert set(calls) == {"refresh_market_cache"}
 
 
 @pytest.mark.asyncio

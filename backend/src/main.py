@@ -66,6 +66,7 @@ from research.ml_trainer import train as train_model
 from core.advanced_analysis import run_monte_carlo, optimize_portfolio, compute_recommendation
 from core.session_analysis import compute_session_score, get_current_session, SESSIONS
 from core.news_analyzer import get_news_summary, analyze_news
+from core.cache_manager import TTLCache
 from core.sector_intelligence import (
     analyze_sector, get_sector_overview,
     sector_overview_to_dict, sector_detail_to_dict,
@@ -489,7 +490,19 @@ async def dashboard_cache_refresh_loop() -> None:
     AlertScheduler), so every request computed the view live from
     sector/news/regime scans spanning dozens of symbols and could 504
     under nginx's 30s proxy_read_timeout. The endpoint (dashboard_market
-    below) now reads this cache first for the default symbol set."""
+    below) now reads this cache first for the default symbol set.
+
+    As a side effect, refresh_market_cache's own US sector scan
+    (core.sector_intelligence.get_sector_overview) warms the Fundamental
+    engine's Feature Store cache (24h TTL) for every US sector symbol -
+    which is what /quant/analyze (the per-symbol Recommendation feature)
+    also reads from, so those symbols stay fast there too. That scan only
+    ever covers market="US" though, so BIST (TR) symbols never got this
+    warming and stayed cold every time - the second call below exists
+    purely for that same side effect on the TR sector universe; its
+    result isn't cached anywhere (nothing reads a TR dashboard view yet),
+    so a failure here is independent of, and must never block, the real
+    US cache refresh above."""
     while True:
         await asyncio.sleep(_DASHBOARD_MARKET_REFRESH_INTERVAL_SECONDS)
         if _dashboard_scheduler is None:
@@ -498,6 +511,10 @@ async def dashboard_cache_refresh_loop() -> None:
             await _run_in_executor(_dashboard_scheduler.refresh_market_cache)
         except Exception as e:
             logger.error(f"Dashboard market cache yenileme döngüsünde hata: {e}")
+        try:
+            await _run_in_executor(get_sector_overview, "TR")
+        except Exception as e:
+            logger.error(f"BIST sektör ısıtma döngüsünde hata: {e}")
 
 
 _RETENTION_PURGE_INTERVAL_SECONDS = 86400  # once a day, matching self_evolution_loop's cadence
@@ -1381,6 +1398,19 @@ def analyze_enhanced(request: Request, body: EnhancedAnalysisRequest,
 
 # ── Quant Research Platform ─────────────────────────────────────────────────────
 
+# A cold symbol's Fundamental engine call alone has been observed taking
+# 20-38s (live yfinance .info() miss) - comfortably past both this app's
+# own 20s frontend request timeout and nginx's 30s proxy_read_timeout, so
+# the first request for a symbol outside the periodically-warmed universe
+# (dashboard_cache_refresh_loop) can fail even though the executor call
+# below keeps running to completion server-side regardless of whether the
+# client is still listening. This short cache means the "Please try
+# again" a client sees on that timeout actually works: a retry (or any
+# other request for the same symbol) within the TTL gets the result that
+# finished in the background, instead of recomputing from scratch.
+_QUANT_ANALYZE_CACHE: TTLCache = TTLCache(ttl_seconds=180)
+
+
 @app.post("/quant/analyze", response_model=PipelineResponse)
 @limiter.limit("10/minute")
 async def quant_analyze(
@@ -1394,9 +1424,15 @@ async def quant_analyze(
     for the backward-compatibility guarantee this one does not carry."""
     if _pipeline_service is None:
         raise HTTPException(status_code=503, detail="Quant pipeline henüz hazır değil.")
+    symbol = body.symbol.upper()
+    cached = _QUANT_ANALYZE_CACHE.get(symbol)
+    if cached is not None:
+        return cached
     loop = asyncio.get_event_loop()
     try:
-        return await loop.run_in_executor(_executor, _pipeline_service.run, body.symbol.upper())
+        result = await loop.run_in_executor(_executor, _pipeline_service.run, symbol)
+        _QUANT_ANALYZE_CACHE.set(symbol, result)
+        return result
     except Exception as e:
         logger.error(f"Quant pipeline hatasi ({body.symbol}): {e}")
         raise HTTPException(status_code=500, detail=f"{body.symbol} icin analiz calistirilamadi.")

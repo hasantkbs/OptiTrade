@@ -3,11 +3,31 @@ Tests for the new /quant/analyze endpoint - the Quant Research
 Platform's entry point into main.py. Real PostgreSQL/Redis/network/Groq,
 matching this project's established testing philosophy.
 """
+import pytest
+
 from decision_engine.repository import PostgresExecutionRepository
 from feature_store.config import FeatureStoreConfig
 from learning.persistence import LearningRepository
 
 _SYMBOL = "AAPL"
+
+
+@pytest.fixture(autouse=True)
+def _clear_quant_analyze_cache():
+    """_QUANT_ANALYZE_CACHE is a module-level singleton (main.py) shared
+    across every test in the process, not per-client-fixture state - left
+    uncleared, a cache entry from one test would silently turn every
+    later test in this file into a cache-hit passthrough that never
+    exercises the real pipeline, defeating what these tests are actually
+    meant to check (and leaving _cleanup() below with nothing to delete).
+    The dedicated caching tests further down clear it themselves at the
+    point they need an empty cache, same as this fixture does for every
+    other test."""
+    import main
+
+    main._QUANT_ANALYZE_CACHE.clear()
+    yield
+    main._QUANT_ANALYZE_CACHE.clear()
 
 
 def _cleanup(symbol: str) -> None:
@@ -97,3 +117,73 @@ def test_quant_analyze_default_asset_type_is_stock(client):
     response = client.post("/quant/analyze", json={"symbol": _SYMBOL})
     assert response.status_code == 200
     _cleanup(_SYMBOL)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# _QUANT_ANALYZE_CACHE (performance fix): a cold symbol's Fundamental
+# engine call alone has been observed taking 20-38s, well past both the
+# frontend's own request timeout and nginx's 30s proxy_read_timeout -
+# this cache means a retry (or any other request for the same symbol
+# shortly after) gets the result that kept computing server-side instead
+# of recomputing from scratch. `main._pipeline_service` is swapped for a
+# fake here (same technique test_quant_analyze_returns_503_when_pipeline_
+# not_ready above already uses) because these tests are about main.py's
+# own caching logic, not the real pipeline's substance.
+# ─────────────────────────────────────────────────────────────────────────
+
+def _fake_pipeline_response(symbol: str) -> dict:
+    return {
+        "symbol": symbol, "decision": "HOLD", "confidence": 0.5,
+        "expected_return": 0.0, "expected_volatility": 0.1,
+        "engine_breakdown": [], "evidence": [],
+        "risk": {"risk_level": "MEDIUM", "expected_volatility": 0.1, "data_sufficiency": 0.5},
+        "explanation": "fake", "metadata": {
+            "pipeline_version": "test", "total_duration_ms": 1.0, "stage_durations_ms": {},
+            "engines_available": 3, "engines_succeeded": 3, "degraded": False,
+            "timestamp": "2026-01-01T00:00:00Z",
+        },
+    }
+
+
+def test_quant_analyze_caches_a_successful_result_and_skips_a_second_pipeline_run(client):
+    import main
+
+    calls = []
+
+    class _FakePipelineService:
+        def run(self, symbol):
+            calls.append(symbol)
+            return _fake_pipeline_response(symbol)
+
+    original = main._pipeline_service
+    main._pipeline_service = _FakePipelineService()
+    try:
+        first = client.post("/quant/analyze", json={"symbol": "ZZZZ"})
+        second = client.post("/quant/analyze", json={"symbol": "ZZZZ"})
+    finally:
+        main._pipeline_service = original
+
+    assert first.status_code == 200 and second.status_code == 200
+    assert calls == ["ZZZZ"]  # second call was a cache hit, not a second pipeline run
+    assert first.json() == second.json()
+
+
+def test_quant_analyze_cache_is_keyed_per_symbol(client):
+    import main
+
+    calls = []
+
+    class _FakePipelineService:
+        def run(self, symbol):
+            calls.append(symbol)
+            return _fake_pipeline_response(symbol)
+
+    original = main._pipeline_service
+    main._pipeline_service = _FakePipelineService()
+    try:
+        client.post("/quant/analyze", json={"symbol": "YYYY"})
+        client.post("/quant/analyze", json={"symbol": "XXXX"})
+    finally:
+        main._pipeline_service = original
+
+    assert calls == ["YYYY", "XXXX"]

@@ -38,7 +38,12 @@ export const tokenStorage = {
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
-  timeout: 20_000,
+  // Just under nginx's own 30s proxy_read_timeout on this deployment (see
+  // deployment_topology memory / algorixstudio's /optitrade/api/ location) -
+  // nginx is the real ceiling for any slow backend call (e.g. a cold
+  // Recommendation analysis), so timing out any earlier here only threw
+  // away requests nginx would have let finish.
+  timeout: 28_000,
 })
 
 apiClient.interceptors.request.use((config) => {
