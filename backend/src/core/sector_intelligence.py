@@ -232,7 +232,7 @@ def analyze_sector(
     with ThreadPoolExecutor(max_workers=min(max_workers, len(symbols))) as pool:
         futures = {pool.submit(_analyze_symbol_fast, sym, market): sym
                    for sym in symbols}
-        for f in as_completed(futures, timeout=45):  # a single cold yfinance call has been observed to take 35s+
+        for f in as_completed(futures, timeout=60):  # a single cold yfinance call has been observed to take 35s+; this only gates the background refresh, never an HTTP request, so generous headroom costs nothing
             try:
                 snapshots.append(f.result())
             except Exception as e:
