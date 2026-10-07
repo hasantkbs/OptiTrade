@@ -232,7 +232,7 @@ def analyze_sector(
     with ThreadPoolExecutor(max_workers=min(max_workers, len(symbols))) as pool:
         futures = {pool.submit(_analyze_symbol_fast, sym, market): sym
                    for sym in symbols}
-        for f in as_completed(futures, timeout=25):
+        for f in as_completed(futures, timeout=45):  # a single cold yfinance call has been observed to take 35s+
             try:
                 snapshots.append(f.result())
             except Exception as e:
@@ -401,7 +401,7 @@ def get_sector_overview(
     market: str = "US",
     max_workers: int = 6,
     use_cache: bool = True,
-    max_sector_workers: int = 4,
+    max_sector_workers: int = 2,
 ) -> List[SectorResult]:
     """
     Piyasadaki tüm sektörleri analiz et, fırsat skoruna göre sırala.
