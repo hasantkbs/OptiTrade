@@ -401,10 +401,17 @@ def get_sector_overview(
     market: str = "US",
     max_workers: int = 6,
     use_cache: bool = True,
+    max_sector_workers: int = 4,
 ) -> List[SectorResult]:
     """
     Piyasadaki tüm sektörleri analiz et, fırsat skoruna göre sırala.
     Yüksek fırsat → ilk sırada.
+
+    Sektörler kendi aralarında paralel çalışır (her biri zaten kendi
+    sembolleri için bir thread pool açıyor - analyze_sector); seri
+    çalıştırmak toplam süreyi sektör sayısıyla çarpıyordu (her sektör
+    I/O-bound yfinance çağrıları bekliyor, CPU değil), bu da
+    /dashboard/market'ı güvenilmez şekilde 504'e sürüklüyordu.
     """
     # Sembolü olan sektörleri filtrele
     sym_key = "tr_symbols" if market == "TR" else "us_symbols"
@@ -414,13 +421,17 @@ def get_sector_overview(
     ]
 
     results: List[SectorResult] = []
-    for sector_key in active_sectors:
-        try:
-            r = analyze_sector(sector_key, market=market,
-                               max_workers=max_workers, use_cache=use_cache)
-            results.append(r)
-        except Exception as e:
-            logger.warning(f"Sektör analiz hatası {sector_key}: {e}")
+    with ThreadPoolExecutor(max_workers=min(max_sector_workers, len(active_sectors) or 1)) as pool:
+        futures = {
+            pool.submit(analyze_sector, sector_key, market=market, max_workers=max_workers, use_cache=use_cache): sector_key
+            for sector_key in active_sectors
+        }
+        for f in as_completed(futures):
+            sector_key = futures[f]
+            try:
+                results.append(f.result())
+            except Exception as e:
+                logger.warning(f"Sektör analiz hatası {sector_key}: {e}")
 
     # Fırsat skoruna göre sırala (yüksek = önce)
     results.sort(key=lambda x: x.opportunity_score, reverse=True)

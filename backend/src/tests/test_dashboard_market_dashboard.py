@@ -100,3 +100,47 @@ def test_build_excludes_only_the_symbol_whose_feature_store_lookup_fails():
 
     assert view.volatility_map == {"AAPL": 7.5}
     assert "MSFT" not in view.volatility_map
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# news_impact_summary runs its per-symbol lookups concurrently (performance
+# fix: this loop was serial, and a single cold get_news_summary() call can
+# take 20-30s+ against live yfinance, making /dashboard/market's latency
+# scale with symbol count on top of that per-symbol cost).
+# ─────────────────────────────────────────────────────────────────────────
+
+def test_build_isolates_a_single_news_lookup_failure_under_concurrent_execution(monkeypatch):
+    def _fake_get_news_summary(symbol):
+        if symbol == "MSFT":
+            raise RuntimeError("yfinance unreachable for this symbol")
+        return {"sentiment_score": 1.0, "sentiment_label": "positive", "headlines": [{"title": "x"}]}
+
+    monkeypatch.setattr("dashboard.market_dashboard.get_news_summary", _fake_get_news_summary)
+
+    service = MarketDashboardService(regime_scanner=_FakeRegimeScanner())
+    view = service.build(symbols=["AAPL", "MSFT", "GOOGL"])
+
+    returned_symbols = {snap.symbol for snap in view.news_impact_summary}
+    assert returned_symbols == {"AAPL", "GOOGL"}
+    assert "MSFT" not in returned_symbols
+
+
+def test_build_runs_news_lookups_concurrently_not_serially(monkeypatch):
+    import time as _time
+
+    def _slow_fake_get_news_summary(symbol):
+        _time.sleep(0.2)
+        return {"sentiment_score": 0.0, "sentiment_label": "neutral", "headlines": []}
+
+    monkeypatch.setattr("dashboard.market_dashboard.get_news_summary", _slow_fake_get_news_summary)
+
+    service = MarketDashboardService(regime_scanner=_FakeRegimeScanner())
+    symbols = ["AAPL", "MSFT", "GOOGL", "AMZN"]
+
+    started = _time.monotonic()
+    service.build(symbols=symbols)
+    elapsed = _time.monotonic() - started
+
+    assert elapsed < 0.2 * len(symbols), (
+        f"took {elapsed:.2f}s for {len(symbols)} symbols at 0.2s each - looks serial"
+    )

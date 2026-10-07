@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional
 
 from core.news_analyzer import get_news_summary
@@ -60,23 +61,25 @@ class MarketDashboardService:
             for result in get_sector_overview(market=market)
         ]
 
-        news_impact_summary = []
-        for symbol in symbols:
-            try:
-                summary = get_news_summary(symbol)
-            except Exception as exc:
-                log_event(
-                    logger, component=_COMPONENT, module=_MODULE, operation="get_news_summary", status=STATUS_ERROR,
-                    error_type=type(exc).__name__, symbol=symbol, level=logging.WARNING,
-                )
-                continue
-            news_impact_summary.append(
-                NewsImpactSnapshot(
+        snapshots_by_symbol = {}
+        with ThreadPoolExecutor(max_workers=min(len(symbols), 7) or 1) as pool:
+            futures = {pool.submit(get_news_summary, symbol): symbol for symbol in symbols}
+            for f in as_completed(futures):
+                symbol = futures[f]
+                try:
+                    summary = f.result()
+                except Exception as exc:
+                    log_event(
+                        logger, component=_COMPONENT, module=_MODULE, operation="get_news_summary", status=STATUS_ERROR,
+                        error_type=type(exc).__name__, symbol=symbol, level=logging.WARNING,
+                    )
+                    continue
+                snapshots_by_symbol[symbol] = NewsImpactSnapshot(
                     symbol=symbol, sentiment_score=summary.get("sentiment_score", 0.0),
                     sentiment_label=summary.get("sentiment_label", "neutral"),
                     headline_count=len(summary.get("headlines", [])),
                 )
-            )
+        news_impact_summary = [snapshots_by_symbol[s] for s in symbols if s in snapshots_by_symbol]
 
         view = MarketDashboardView(
             regime_distribution=regime_distribution, volatility_map=volatility_map, sector_heatmap=sector_heatmap,

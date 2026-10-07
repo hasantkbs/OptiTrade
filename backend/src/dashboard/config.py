@@ -13,15 +13,20 @@ from core.infra_config import postgres_settings_from_env, redis_settings_from_en
 class DashboardConfig:
     """Runtime settings for the Analytics & Dashboard Platform."""
 
-    # Redis cache (each dashboard view is cached under its own TTL - these
-    # are intentionally short since every view is cheap to recompute from
-    # already-persisted data; the cache exists to protect against
-    # request bursts, not to serve stale data for long.)
+    # Redis cache (each dashboard view is cached under its own TTL).
+    # overview is cheap to recompute from already-persisted data, so its
+    # TTL stays short - it just protects against request bursts. market/
+    # engine rebuild live from yfinance (sector scans, news, regime) and
+    # can take well over a minute cold; their TTL has to outlast
+    # dashboard_cache_refresh_loop's own refresh interval (main.py) with
+    # margin, or a slow/failed refresh cycle would expire the last good
+    # cache and send /dashboard/market back onto the slow synchronous
+    # path it was added to avoid.
     redis_host: str = "localhost"
     redis_port: int = 6379
     redis_db: int = 0
     overview_cache_ttl_seconds: int = 30
-    dashboard_cache_ttl_seconds: int = 30
+    dashboard_cache_ttl_seconds: int = 300
 
     # Postgres
     postgres_host: str = "localhost"
@@ -46,7 +51,7 @@ class DashboardConfig:
             redis_port=redis_port,
             redis_db=redis_db,
             overview_cache_ttl_seconds=int(os.getenv("DASHBOARD_OVERVIEW_CACHE_TTL_SECONDS", "30")),
-            dashboard_cache_ttl_seconds=int(os.getenv("DASHBOARD_CACHE_TTL_SECONDS", "30")),
+            dashboard_cache_ttl_seconds=int(os.getenv("DASHBOARD_CACHE_TTL_SECONDS", "300")),
             postgres_host=postgres_host,
             postgres_port=postgres_port,
             postgres_db=postgres_db,

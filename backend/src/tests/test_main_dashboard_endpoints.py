@@ -129,6 +129,39 @@ def test_market_endpoint(client, cleanup):
     assert isinstance(r.json()["regime_distribution"], dict)
 
 
+def test_market_endpoint_serves_the_background_refresh_loop_cache_for_the_default_request(client, cleanup, monkeypatch):
+    """A default (no symbols, market=US) request must read
+    dashboard_cache_refresh_loop's cache instead of recomputing live -
+    this is the whole point of the cache (see main.py's dashboard_market
+    endpoint and dashboard_cache_refresh_loop)."""
+    import main as main_module
+
+    class _FakeScheduler:
+        def get_cached_market(self):
+            return '{"regime_distribution": {"TRENDING_BULL": 7}, "volatility_map": {}, "sector_heatmap": [], "news_impact_summary": []}'
+
+    monkeypatch.setattr(main_module, "_dashboard_scheduler", _FakeScheduler())
+
+    headers = _register_and_login(client, "market-cached")
+    r = client.get("/dashboard/market", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["regime_distribution"] == {"TRENDING_BULL": 7}
+
+
+def test_market_endpoint_with_explicit_symbols_bypasses_the_cache(client, cleanup, monkeypatch):
+    import main as main_module
+
+    class _FakeScheduler:
+        def get_cached_market(self):
+            raise AssertionError("get_cached_market() must not be called for a non-default request")
+
+    monkeypatch.setattr(main_module, "_dashboard_scheduler", _FakeScheduler())
+
+    headers = _register_and_login(client, "market-bypass")
+    r = client.get("/dashboard/market?symbols=AAPL&market=US", headers=headers)
+    assert r.status_code == 200, r.text
+
+
 def test_reports_endpoint_json_and_csv(client, cleanup):
     headers = _register_and_login(client, "reports")
     r = client.get("/dashboard/reports/monthly", headers=headers)

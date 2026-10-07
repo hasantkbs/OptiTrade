@@ -2,12 +2,15 @@
 Regression tests proving `alert_scan_loop` (production audit: "An entire
 advertised platform (Watchlist & Alerts) is unreachable... AlertScheduler
 is never instantiated in main.py, never wired to a cron/background
-task") and `paper_trading_fill_loop` (production audit: "Paper Trading's
+task"), `paper_trading_fill_loop` (production audit: "Paper Trading's
 resting orders silently never fill... scan_pending_orders() is never
-invoked by anything") actually call their respective schedulers, and do
-so through the executor thread pool rather than blocking the event loop
-(same reasoning/technique as test_main_self_evolution_loop.py for
-self_evolution_loop).
+invoked by anything"), and `dashboard_cache_refresh_loop` (the same dead-
+scheduler pattern found a third time: DashboardScheduler was constructed
+at startup but never invoked, so /dashboard/market always computed its
+view live and could 504 under nginx's 30s proxy_read_timeout) actually
+call their respective schedulers, and do so through the executor thread
+pool rather than blocking the event loop (same reasoning/technique as
+test_main_self_evolution_loop.py for self_evolution_loop).
 """
 import asyncio
 import time
@@ -118,3 +121,44 @@ async def test_paper_trading_fill_loop_tolerates_no_scheduler_configured(monkeyp
     monkeypatch.setattr(main_module, "_paper_trading_scheduler", None)
     monkeypatch.setattr(main_module, "_PAPER_TRADING_FILL_SCAN_INTERVAL_SECONDS", 0.01)
     await _run_one_cycle(main_module.paper_trading_fill_loop, timeout=0.2)  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_dashboard_cache_refresh_loop_calls_the_scheduler_without_blocking_the_event_loop(monkeypatch):
+    calls = []
+
+    class _FakeScheduler:
+        def refresh_market_cache(self):
+            calls.append("refresh_market_cache")
+            time.sleep(0.3)
+
+    monkeypatch.setattr(main_module, "_dashboard_scheduler", _FakeScheduler())
+    monkeypatch.setattr(main_module, "_DASHBOARD_MARKET_REFRESH_INTERVAL_SECONDS", 0.01)
+
+    tick_times = []
+
+    async def ticker() -> None:
+        while True:
+            await asyncio.sleep(0.01)
+            tick_times.append(time.monotonic())
+
+    ticker_task = asyncio.create_task(ticker())
+    start = time.monotonic()
+    await _run_one_cycle(main_module.dashboard_cache_refresh_loop)
+    ticker_task.cancel()
+    try:
+        await ticker_task
+    except (asyncio.CancelledError, Exception):
+        pass
+
+    assert calls, "refresh_market_cache() was never called"
+    assert set(calls) == {"refresh_market_cache"}
+    gaps = [b - a for a, b in zip([start] + tick_times[:-1], tick_times)]
+    assert gaps and max(gaps) < 0.15, f"event loop was blocked for {max(gaps):.3f}s during refresh_market_cache()"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_cache_refresh_loop_tolerates_no_scheduler_configured(monkeypatch):
+    monkeypatch.setattr(main_module, "_dashboard_scheduler", None)
+    monkeypatch.setattr(main_module, "_DASHBOARD_MARKET_REFRESH_INTERVAL_SECONDS", 0.01)
+    await _run_one_cycle(main_module.dashboard_cache_refresh_loop, timeout=0.2)  # must not raise

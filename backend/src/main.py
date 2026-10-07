@@ -477,6 +477,29 @@ async def background_intelligence_scan_loop() -> None:
             logger.error(f"Background intelligence scan döngüsünde hata: {e}")
 
 
+_DASHBOARD_MARKET_REFRESH_INTERVAL_SECONDS = 120
+
+
+async def dashboard_cache_refresh_loop() -> None:
+    """Periodically recomputes /dashboard/market's view and pushes it
+    into Redis via `DashboardScheduler.refresh_market_cache()`
+    (dashboard/scheduler.py) - previously instantiated at startup but
+    never invoked by anything (the same dead-scheduler pattern
+    alert_scan_loop's own docstring already documents for
+    AlertScheduler), so every request computed the view live from
+    sector/news/regime scans spanning dozens of symbols and could 504
+    under nginx's 30s proxy_read_timeout. The endpoint (dashboard_market
+    below) now reads this cache first for the default symbol set."""
+    while True:
+        await asyncio.sleep(_DASHBOARD_MARKET_REFRESH_INTERVAL_SECONDS)
+        if _dashboard_scheduler is None:
+            continue
+        try:
+            await _run_in_executor(_dashboard_scheduler.refresh_market_cache)
+        except Exception as e:
+            logger.error(f"Dashboard market cache yenileme döngüsünde hata: {e}")
+
+
 _RETENTION_PURGE_INTERVAL_SECONDS = 86400  # once a day, matching self_evolution_loop's cadence
 
 
@@ -668,6 +691,7 @@ async def startup_event() -> None:
             asyncio.create_task(paper_trading_fill_loop()),
             asyncio.create_task(retention_purge_loop()),
             asyncio.create_task(background_intelligence_scan_loop()),
+            asyncio.create_task(dashboard_cache_refresh_loop()),
         ]
     else:
         logger.info(
@@ -2691,6 +2715,13 @@ async def dashboard_market(
     user: UsersUser = Depends(_get_current_user),
 ) -> MarketDashboardView:
     _require_dashboard_service()
+    # The background dashboard_cache_refresh_loop only ever refreshes the
+    # default symbol set/market - a non-default request always falls
+    # through to the live path below, same as before this cache existed.
+    if symbols is None and market == "US" and _dashboard_scheduler is not None:
+        cached = await _run_in_executor(_dashboard_scheduler.get_cached_market)
+        if cached is not None:
+            return MarketDashboardView.model_validate_json(cached)
     try:
         return await _run_in_executor(_dashboard_service.get_market_dashboard, symbols, market)
     except DashboardError as e:
