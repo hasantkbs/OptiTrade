@@ -36,3 +36,21 @@ export function useMarketSymbols() {
     staleTime: 10 * 60_000,
   })
 }
+
+/**
+ * Backed by GET /market/opportunities/{market} (intelligence.
+ * opportunity_ranking - Phase C scan + Phase D ranking) - the backend's
+ * own market_opportunities_refresh_loop recomputes this every 5 minutes,
+ * so refetchInterval here matches that cadence rather than polling
+ * faster than the data could ever actually change. A cold cache (no
+ * scan has completed yet, e.g. right after a deploy) is a 503, not an
+ * error to retry aggressively for - the default retry count is enough.
+ */
+export function useMarketOpportunities(market: SearchableMarket) {
+  return useQuery({
+    queryKey: ['market', 'opportunities', market],
+    queryFn: () => marketApi.opportunities(market),
+    refetchInterval: 5 * 60_000,
+    staleTime: 4 * 60_000,
+  })
+}

@@ -204,6 +204,34 @@ class OpportunityRankingResult(BaseModel):
     total_scanned_count: int = Field(..., ge=0)
 
 
+# ── Market Opportunities (GET /market/opportunities/{market}) ───────────
+#
+# A trimmed, UI-facing view of OpportunityRankingResult for a whole
+# market's curated symbol universe (core.market_config.get_symbols_for_
+# market) - every field here already exists on RankedOpportunity.
+# assessment; this only drops the embedded full PipelineResponse (engine
+# breakdown/explanation/evidence), which a UI list doesn't need and which
+# is already reachable per-symbol via /quant/analyze.
+
+class MarketOpportunityItem(BaseModel):
+    rank: int = Field(..., ge=1)
+    symbol: str
+    decision: Prediction
+    label: OpportunityLabel
+    confidence: float
+    expected_return: float
+    expected_volatility: float
+    risk_bucket: RiskBucket
+
+
+class MarketOpportunitiesResponse(BaseModel):
+    market: str
+    opportunities: List[MarketOpportunityItem] = Field(default_factory=list)
+    total_scanned_count: int = Field(..., ge=0)
+    failed_count: int = Field(..., ge=0)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # ── Portfolio Intelligence (change-detection over an existing portfolio) ─
 
 

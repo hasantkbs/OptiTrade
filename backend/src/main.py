@@ -79,7 +79,13 @@ from api.v1.router import api_v1_router
 from core.rate_limiter import limiter
 from pipeline import PipelineResponse, PipelineService, QuantAnalysisRequest
 from intelligence.background_intelligence import BackgroundIntelligenceOrchestrator
-from intelligence.models import BackgroundScanStatus
+from intelligence.models import (
+    BackgroundScanStatus,
+    MarketOpportunitiesResponse,
+    MarketOpportunityItem,
+)
+from intelligence.opportunities_cache import OpportunitiesCache
+from intelligence.opportunity_ranking import scan_and_rank
 from model_serving import MLPredictionRequest, MLPredictionResult, ServingHealthReport
 from model_serving.exceptions import InsufficientFeatureDataError, ModelServingError, NoActiveModelError
 from portfolio import (
@@ -545,6 +551,80 @@ async def dashboard_cache_refresh_loop() -> None:
                 logger.error(f"BIST sektör ısıtma döngüsünde hata: {e}")
 
 
+_MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS = 300
+_MARKET_OPPORTUNITIES_MAX_RESULTS = 15
+
+
+def _refresh_market_opportunities(market: str) -> None:
+    """Synchronous (runs in the executor): scans `market`'s whole
+    curated symbol universe (core.market_config.get_symbols_for_market)
+    through the real Technical/Fundamental/News pipeline and ranks it
+    (intelligence.opportunity_ranking.scan_and_rank - Phase C scan +
+    Phase D ranking, both already built and tested, nothing new scored
+    or invented here), then caches the top
+    _MARKET_OPPORTUNITIES_MAX_RESULTS for GET /market/opportunities/
+    {market} to read. Raises on failure - the caller (market_
+    opportunities_refresh_loop) decides what a failure means for this
+    market's cache, not this function."""
+    from core.market_config import get_symbols_for_market
+    from intelligence.market_scanner import MarketScanner
+
+    symbols = list(get_symbols_for_market(market).keys())
+    scanner = MarketScanner(pipeline_service=_pipeline_service)
+    result = scan_and_rank(scanner, symbols)
+
+    response = MarketOpportunitiesResponse(
+        market=market,
+        opportunities=[
+            MarketOpportunityItem(
+                rank=r.rank, symbol=r.symbol, decision=r.assessment.decision,
+                label=r.assessment.classification, confidence=r.assessment.confidence,
+                expected_return=r.assessment.expected_return,
+                expected_volatility=r.assessment.expected_volatility,
+                risk_bucket=r.assessment.risk_bucket,
+            )
+            for r in result.ranked[:_MARKET_OPPORTUNITIES_MAX_RESULTS]
+        ],
+        total_scanned_count=result.total_scanned_count,
+        failed_count=len(result.failed_symbols),
+    )
+    _opportunities_cache.set(market, response.model_dump_json())
+
+
+async def market_opportunities_refresh_loop() -> None:
+    """Periodically refreshes GET /market/opportunities/{market}'s cache
+    for every supported market (TR/US/CRYPTO) - user-facing (the Market
+    page's "top opportunities" picker), but still sleeps first like
+    every other loop in this file: the `client` test fixture boots this
+    same startup path for real (only self_evolution_loop/alert_scan_loop/
+    paper_trading_fill_loop are stubbed - see tests/conftest.py), and an
+    immediate first pass here was observed firing a real, ~80-symbol live
+    pipeline scan (one call alone took 47s) during what should be a fast,
+    isolated test run. The feature being empty for one interval after a
+    deploy is a smaller cost than that.
+
+    Shares _HEAVY_BACKGROUND_SCAN_LOCK with dashboard_cache_refresh_loop
+    and background_intelligence_scan_loop - scanning three whole markets
+    (up to ~80 symbols total) is exactly the same kind of heavy,
+    concurrent Technical/Fundamental/News pipeline work that caused
+    those two to starve each other in production (2026-10-12); this
+    loop skips its tick entirely under the same rule rather than adding
+    a third, independently-contending heavy scan."""
+    while True:
+        await asyncio.sleep(_MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS)
+        if _pipeline_service is None:
+            continue
+        if _HEAVY_BACKGROUND_SCAN_LOCK.locked():
+            logger.info("Piyasa fırsatları yenileme: başka bir tarama devam ediyor, bu tur atlanıyor.")
+            continue
+        async with _HEAVY_BACKGROUND_SCAN_LOCK:
+            for market in ("TR", "US", "CRYPTO"):
+                try:
+                    await _run_in_executor(_refresh_market_opportunities, market)
+                except Exception as e:
+                    logger.error(f"Piyasa fırsatları yenileme hatası ({market}): {e}")
+
+
 _RETENTION_PURGE_INTERVAL_SECONDS = 86400  # once a day, matching self_evolution_loop's cadence
 
 
@@ -737,6 +817,7 @@ async def startup_event() -> None:
             asyncio.create_task(retention_purge_loop()),
             asyncio.create_task(background_intelligence_scan_loop()),
             asyncio.create_task(dashboard_cache_refresh_loop()),
+            asyncio.create_task(market_opportunities_refresh_loop()),
         ]
     else:
         logger.info(
@@ -798,6 +879,11 @@ SELL_CODES = {"STRONG_SELL", "SELL"}
 
 # Thread pool for parallel yfinance calls
 _executor = ThreadPoolExecutor(max_workers=16)
+
+# GET /market/opportunities/{market} - no dependency on _pipeline_service
+# at construction time (only market_opportunities_refresh_loop's actual
+# scan does), so this is safe to build eagerly like _executor above.
+_opportunities_cache = OpportunitiesCache()
 
 # This worker's own leader-only background loops (self-evolution/
 # alert-scan/paper-trading-fill/retention-purge) - empty on every
@@ -1197,6 +1283,29 @@ def market_list() -> Dict[str, Any]:
     """Desteklenen piyasaları listele."""
     from core.market_config import MARKETS
     return {"markets": MARKETS}
+
+_SUPPORTED_OPPORTUNITY_MARKETS = ("TR", "US", "CRYPTO")
+
+@app.get("/market/opportunities/{market}", response_model=MarketOpportunitiesResponse)
+@limiter.limit("30/minute")
+def market_opportunities(
+    request: Request,
+    market: str,
+    user: UsersUser = Depends(_get_current_user),
+) -> MarketOpportunitiesResponse:
+    """Top-ranked potential opportunities for a whole market, from
+    market_opportunities_refresh_loop's cache - scanning a market's full
+    symbol universe live, inside one request, would take far longer than
+    any client should wait, so there is deliberately no live fallback
+    here (unlike /dashboard/market): a cold cache means genuinely not
+    ready yet, not slow."""
+    market = market.upper()
+    if market not in _SUPPORTED_OPPORTUNITY_MARKETS:
+        raise HTTPException(status_code=400, detail=f"Desteklenen piyasalar: {list(_SUPPORTED_OPPORTUNITY_MARKETS)}")
+    cached = _opportunities_cache.get(market)
+    if cached is None:
+        raise HTTPException(status_code=503, detail="Piyasa analizi henüz hazır değil, kısa süre sonra tekrar deneyin.")
+    return MarketOpportunitiesResponse.model_validate_json(cached)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MARK: - Sector Intelligence Endpoints

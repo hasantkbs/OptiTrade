@@ -598,6 +598,30 @@ export interface MarketWatchlistResponse {
   symbols: Record<string, string>
 }
 
+// ── Market Opportunities (GET /market/opportunities/{market}) ──────────
+
+export type OpportunityLabel = 'STRONG_BUY_BIAS' | 'BUY_BIAS' | 'HOLD' | 'WATCH' | 'RISK_DETERIORATING'
+export type RiskBucket = 'LOW' | 'MEDIUM' | 'HIGH'
+
+export interface MarketOpportunityItem {
+  rank: number
+  symbol: string
+  decision: 'BUY' | 'HOLD' | 'SELL'
+  label: OpportunityLabel
+  confidence: number
+  expected_return: number
+  expected_volatility: number
+  risk_bucket: RiskBucket
+}
+
+export interface MarketOpportunitiesResponse {
+  market: string
+  opportunities: MarketOpportunityItem[]
+  total_scanned_count: number
+  failed_count: number
+  generated_at: string
+}
+
 // ── News (GET /news/{symbol}) ───────────────────────────────────────────
 
 export interface NewsHeadline {

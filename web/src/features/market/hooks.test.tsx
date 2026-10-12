@@ -1,12 +1,12 @@
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { useMarketSymbols } from './hooks'
+import { useMarketOpportunities, useMarketSymbols } from './hooks'
 import { marketApi } from '../../api/endpoints'
 
 vi.mock('../../api/endpoints', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/endpoints')>()
-  return { ...actual, marketApi: { ...actual.marketApi, watchlist: vi.fn() } }
+  return { ...actual, marketApi: { ...actual.marketApi, watchlist: vi.fn(), opportunities: vi.fn() } }
 })
 
 const mockedMarketApi = vi.mocked(marketApi)
@@ -52,5 +52,25 @@ describe('useMarketSymbols', () => {
         { symbol: 'BTC-USD', name: 'Bitcoin', market: 'CRYPTO' },
       ]),
     )
+  })
+})
+
+describe('useMarketOpportunities', () => {
+  it('fetches the ranked opportunities for the given market', async () => {
+    mockedMarketApi.opportunities.mockResolvedValueOnce({
+      market: 'US',
+      opportunities: [
+        {
+          rank: 1, symbol: 'AAPL', decision: 'BUY', label: 'BUY_BIAS', confidence: 0.7,
+          expected_return: 0.03, expected_volatility: 0.15, risk_bucket: 'MEDIUM',
+        },
+      ],
+      total_scanned_count: 28, failed_count: 0, generated_at: '2026-01-01T00:00:00Z',
+    })
+
+    const { result } = renderHook(() => useMarketOpportunities('US'), { wrapper })
+
+    await waitFor(() => expect(result.current.data?.opportunities).toHaveLength(1))
+    expect(mockedMarketApi.opportunities).toHaveBeenCalledWith('US')
   })
 })

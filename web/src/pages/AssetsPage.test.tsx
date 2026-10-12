@@ -8,7 +8,7 @@ import { dashboardApi, marketApi } from '../api/endpoints'
 
 vi.mock('../api/endpoints', () => ({
   dashboardApi: { market: vi.fn() },
-  marketApi: { watchlist: vi.fn() },
+  marketApi: { watchlist: vi.fn(), opportunities: vi.fn() },
 }))
 
 const mockedDashboardApi = vi.mocked(dashboardApi)
@@ -48,6 +48,12 @@ beforeEach(() => {
       symbols: (market === 'TR' ? { 'GARAN.IS': 'Garanti BBVA' } : {}) as Record<string, string>,
     }),
   )
+  mockedMarketApi.opportunities.mockImplementation((market: string) =>
+    Promise.resolve({
+      market, opportunities: [], total_scanned_count: 0, failed_count: 0,
+      generated_at: '2026-01-01T00:00:00Z',
+    }),
+  )
 })
 
 describe('AssetsPage', () => {
@@ -75,5 +81,18 @@ describe('AssetsPage', () => {
     await user.click(await screen.findByRole('button', { name: /GARAN.IS/ }))
 
     await waitFor(() => expect(screen.getByText('Asset detail for GARAN.IS')).toBeInTheDocument())
+  })
+
+  it('shows the Top opportunities section with a market tab for each supported market', async () => {
+    mockedDashboardApi.market.mockResolvedValueOnce({
+      regime_distribution: {}, volatility_map: {}, sector_heatmap: [], news_impact_summary: [],
+      generated_at: '2026-01-01T00:00:00Z',
+    })
+    renderPage()
+
+    expect(await screen.findByText('Top opportunities')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'BIST (TR)' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'US' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Crypto' })).toBeInTheDocument()
   })
 })

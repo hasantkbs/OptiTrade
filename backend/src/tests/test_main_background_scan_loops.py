@@ -255,3 +255,71 @@ async def test_dashboard_cache_refresh_loop_tolerates_no_scheduler_configured(mo
     monkeypatch.setattr(main_module, "_dashboard_scheduler", None)
     monkeypatch.setattr(main_module, "_DASHBOARD_MARKET_REFRESH_INTERVAL_SECONDS", 0.01)
     await _run_one_cycle(main_module.dashboard_cache_refresh_loop, timeout=0.2)  # must not raise
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# market_opportunities_refresh_loop (GET /market/opportunities/{market} -
+# the Market page's "top opportunities" picker). _refresh_market_
+# opportunities itself (the real scan_and_rank call) is exercised live in
+# test_main_market_opportunities_endpoint.py; these tests are only about
+# the loop's own orchestration - which markets it covers, how it shares
+# _HEAVY_BACKGROUND_SCAN_LOCK, and that one market's failure never stops
+# the others.
+# ─────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_market_opportunities_refresh_loop_refreshes_every_supported_market(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main_module, "_pipeline_service", object())
+    monkeypatch.setattr(main_module, "_MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(main_module, "_refresh_market_opportunities", lambda market: calls.append(market))
+
+    await _run_one_cycle(main_module.market_opportunities_refresh_loop, timeout=0.2)
+
+    assert set(calls) == {"TR", "US", "CRYPTO"}
+
+
+@pytest.mark.asyncio
+async def test_market_opportunities_refresh_loop_tolerates_no_pipeline_service(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main_module, "_pipeline_service", None)
+    monkeypatch.setattr(main_module, "_MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(main_module, "_refresh_market_opportunities", lambda market: calls.append(market))
+
+    await _run_one_cycle(main_module.market_opportunities_refresh_loop, timeout=0.2)  # must not raise
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_market_opportunities_refresh_loop_one_market_failing_does_not_stop_the_others(monkeypatch):
+    calls = []
+
+    def _refresh(market):
+        calls.append(market)
+        if market == "US":
+            raise RuntimeError("yfinance unreachable")
+
+    monkeypatch.setattr(main_module, "_pipeline_service", object())
+    monkeypatch.setattr(main_module, "_MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(main_module, "_refresh_market_opportunities", _refresh)
+
+    await _run_one_cycle(main_module.market_opportunities_refresh_loop, timeout=0.2)  # must not raise
+
+    assert set(calls) == {"TR", "US", "CRYPTO"}
+
+
+@pytest.mark.asyncio
+async def test_market_opportunities_refresh_loop_skips_a_tick_while_another_scan_holds_the_lock(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main_module, "_pipeline_service", object())
+    monkeypatch.setattr(main_module, "_MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(main_module, "_refresh_market_opportunities", lambda market: calls.append(market))
+
+    await main_module._HEAVY_BACKGROUND_SCAN_LOCK.acquire()
+    try:
+        await _run_one_cycle(main_module.market_opportunities_refresh_loop, timeout=0.2)
+    finally:
+        main_module._HEAVY_BACKGROUND_SCAN_LOCK.release()
+
+    assert calls == [], "the loop must skip its heavy work entirely while the lock is held elsewhere"
