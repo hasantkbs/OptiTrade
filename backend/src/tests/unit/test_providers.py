@@ -148,3 +148,82 @@ class TestYFinanceProviderStructure:
     def test_instantiation_no_args(self):
         provider = YFinanceProvider()
         assert provider is not None
+
+
+# ── YFinanceProvider hard deadline (no live network calls - a fake Ticker
+# simulates the hang) ──────────────────────────────────────────────────────
+
+class TestYFinanceProviderTimeoutHandling:
+    """A hung yfinance call (observed live: an invalid/delisted symbol via
+    /price/{symbol} took 30s+ despite yfinance's own internal per-request
+    timeout default, because its retry/backoff compounds across several
+    requests) must not block the caller past _FETCH_TIMEOUT_SECONDS - see
+    providers/yfinance_provider.py's own module comment."""
+
+    def test_fetch_ohlcv_returns_none_instead_of_blocking_past_the_deadline(self, monkeypatch):
+        import time
+        import providers.yfinance_provider as yfp
+
+        monkeypatch.setattr(yfp, "_FETCH_TIMEOUT_SECONDS", 0.1)
+
+        class _HangingTicker:
+            def history(self, period):
+                time.sleep(1.0)
+                return pd.DataFrame()
+
+        monkeypatch.setattr(yfp.yf, "Ticker", lambda symbol: _HangingTicker())
+
+        provider = YFinanceProvider()
+        start = time.monotonic()
+        result = provider.fetch_ohlcv("SLOW", period="1mo")
+        elapsed = time.monotonic() - start
+
+        assert result is None
+        assert elapsed < 0.5, f"fetch_ohlcv blocked for {elapsed:.2f}s past its own 0.1s deadline"
+
+    def test_fetch_info_returns_empty_dict_instead_of_blocking_past_the_deadline(self, monkeypatch):
+        import time
+        import providers.yfinance_provider as yfp
+
+        monkeypatch.setattr(yfp, "_FETCH_TIMEOUT_SECONDS", 0.1)
+
+        class _HangingTicker:
+            @property
+            def info(self):
+                time.sleep(1.0)
+                return {}
+
+        monkeypatch.setattr(yfp.yf, "Ticker", lambda symbol: _HangingTicker())
+
+        provider = YFinanceProvider()
+        start = time.monotonic()
+        result = provider.fetch_info("SLOW")
+        elapsed = time.monotonic() - start
+
+        assert result == {}
+        assert elapsed < 0.5, f"fetch_info blocked for {elapsed:.2f}s past its own 0.1s deadline"
+
+    def test_fetch_ohlcv_still_returns_real_data_on_a_fast_call(self, monkeypatch):
+        import providers.yfinance_provider as yfp
+
+        class _FastTicker:
+            def history(self, period):
+                return pd.DataFrame({"Close": [1.0, 2.0]})
+
+        monkeypatch.setattr(yfp.yf, "Ticker", lambda symbol: _FastTicker())
+
+        provider = YFinanceProvider()
+        result = provider.fetch_ohlcv("AAPL", period="1mo")
+        assert result is not None and not result.empty
+
+    def test_fetch_info_still_returns_real_data_on_a_fast_call(self, monkeypatch):
+        import providers.yfinance_provider as yfp
+
+        class _FastTicker:
+            info = {"forwardEps": 2.0}
+
+        monkeypatch.setattr(yfp.yf, "Ticker", lambda symbol: _FastTicker())
+
+        provider = YFinanceProvider()
+        result = provider.fetch_info("AAPL")
+        assert result == {"forwardEps": 2.0}
