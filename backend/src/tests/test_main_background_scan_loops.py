@@ -180,6 +180,56 @@ async def test_dashboard_cache_refresh_loop_warms_tr_sectors_even_when_the_us_re
 
 
 @pytest.mark.asyncio
+async def test_dashboard_cache_refresh_loop_skips_a_tick_while_background_intelligence_holds_the_lock(monkeypatch):
+    """Live production evidence (2026-10-12): the two loops' heavy work
+    overlapping produced FundamentalEngine/NewsEngine TimeoutErrors on
+    both sides - this lock exists so whichever loop's timer fires first
+    gets the shared resources (engine executors, Feature Store pool,
+    yfinance) to itself, and the other skips that one tick entirely."""
+    calls = []
+
+    class _FakeScheduler:
+        def refresh_market_cache(self):
+            calls.append("refresh_market_cache")
+
+    monkeypatch.setattr(main_module, "_dashboard_scheduler", _FakeScheduler())
+    monkeypatch.setattr(main_module, "_DASHBOARD_MARKET_REFRESH_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(main_module, "get_sector_overview", lambda market: calls.append(market))
+
+    await main_module._HEAVY_BACKGROUND_SCAN_LOCK.acquire()
+    try:
+        await _run_one_cycle(main_module.dashboard_cache_refresh_loop, timeout=0.2)
+    finally:
+        main_module._HEAVY_BACKGROUND_SCAN_LOCK.release()
+
+    assert calls == [], "the loop must skip its heavy work entirely while the lock is held elsewhere"
+
+
+@pytest.mark.asyncio
+async def test_background_intelligence_scan_loop_skips_a_tick_while_dashboard_refresh_holds_the_lock(monkeypatch):
+    calls = []
+
+    class _FakeConfig:
+        scan_interval_seconds = 0.01
+
+    class _FakeOrchestrator:
+        config = _FakeConfig()
+
+        def run_once(self):
+            calls.append("run_once")
+
+    monkeypatch.setattr(main_module, "_background_intelligence", _FakeOrchestrator())
+
+    await main_module._HEAVY_BACKGROUND_SCAN_LOCK.acquire()
+    try:
+        await _run_one_cycle(main_module.background_intelligence_scan_loop, timeout=0.2)
+    finally:
+        main_module._HEAVY_BACKGROUND_SCAN_LOCK.release()
+
+    assert calls == [], "the loop must skip its heavy work entirely while the lock is held elsewhere"
+
+
+@pytest.mark.asyncio
 async def test_dashboard_cache_refresh_loop_tolerates_a_tr_warming_failure(monkeypatch):
     calls = []
 

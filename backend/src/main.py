@@ -448,6 +448,23 @@ async def paper_trading_fill_loop() -> None:
             logger.error(f"Paper trading dolum döngüsünde hata: {e}")
 
 
+# Both loops below make many concurrent PipelineService.run()/engine
+# calls against the same shared resources (engine executors, the
+# Feature Store's connection pool, live yfinance calls) - run together,
+# each one starves the other's calls into timing out (observed live:
+# background_intelligence_scan_loop's US_SYMBOLS batch and
+# dashboard_cache_refresh_loop's sector scan overlapping produced
+# FundamentalEngine/NewsEngine TimeoutErrors on both sides that neither
+# loop sees in isolation). Neither loop's own work is harmed by waiting
+# for the other to finish first - they're both best-effort cache warmers
+# with no caller blocked on a specific tick - so a simple non-blocking
+# mutex (skip this tick rather than queue behind the other, matching
+# AlertScheduler._in_flight's "skip rather than run twice" convention
+# already used elsewhere in this file) is enough: whichever loop's timer
+# fires first gets the resources to itself.
+_HEAVY_BACKGROUND_SCAN_LOCK = asyncio.Lock()
+
+
 async def background_intelligence_scan_loop() -> None:
     """Periodically runs one bounded batch through
     `BackgroundIntelligenceOrchestrator.run_once` (intelligence/
@@ -459,23 +476,28 @@ async def background_intelligence_scan_loop() -> None:
     blocking call in this file - the loop never fires the next tick
     until the current one's executor call returns, which is itself
     already sufficient to prevent overlapping scans without any extra
-    coordination here."""
+    coordination here. See _HEAVY_BACKGROUND_SCAN_LOCK's own comment for
+    why this now also yields to dashboard_cache_refresh_loop."""
     orchestrator = _background_intelligence
     if orchestrator is None:
         return
     interval = orchestrator.config.scan_interval_seconds
     while True:
         await asyncio.sleep(interval)
-        try:
-            result = await _run_in_executor(orchestrator.run_once)
-            if result.status == BackgroundScanStatus.COMPLETED and result.requested_symbols:
-                logger.info(
-                    f"Background intelligence: {len(result.successful_symbols)} basarili, "
-                    f"{len(result.failed_symbols)} basarisiz, {len(result.timeout_symbols)} zaman asimi "
-                    f"({len(result.requested_symbols)} sembol tarandi)."
-                )
-        except Exception as e:
-            logger.error(f"Background intelligence scan döngüsünde hata: {e}")
+        if _HEAVY_BACKGROUND_SCAN_LOCK.locked():
+            logger.info("Background intelligence scan: dashboard cache yenileme devam ediyor, bu tur atlanıyor.")
+            continue
+        async with _HEAVY_BACKGROUND_SCAN_LOCK:
+            try:
+                result = await _run_in_executor(orchestrator.run_once)
+                if result.status == BackgroundScanStatus.COMPLETED and result.requested_symbols:
+                    logger.info(
+                        f"Background intelligence: {len(result.successful_symbols)} basarili, "
+                        f"{len(result.failed_symbols)} basarisiz, {len(result.timeout_symbols)} zaman asimi "
+                        f"({len(result.requested_symbols)} sembol tarandi)."
+                    )
+            except Exception as e:
+                logger.error(f"Background intelligence scan döngüsünde hata: {e}")
 
 
 _DASHBOARD_MARKET_REFRESH_INTERVAL_SECONDS = 120
@@ -502,19 +524,25 @@ async def dashboard_cache_refresh_loop() -> None:
     purely for that same side effect on the TR sector universe; its
     result isn't cached anywhere (nothing reads a TR dashboard view yet),
     so a failure here is independent of, and must never block, the real
-    US cache refresh above."""
+    US cache refresh above. See _HEAVY_BACKGROUND_SCAN_LOCK's own comment
+    for why a tick is skipped entirely (not queued) when
+    background_intelligence_scan_loop is already running."""
     while True:
         await asyncio.sleep(_DASHBOARD_MARKET_REFRESH_INTERVAL_SECONDS)
         if _dashboard_scheduler is None:
             continue
-        try:
-            await _run_in_executor(_dashboard_scheduler.refresh_market_cache)
-        except Exception as e:
-            logger.error(f"Dashboard market cache yenileme döngüsünde hata: {e}")
-        try:
-            await _run_in_executor(get_sector_overview, "TR")
-        except Exception as e:
-            logger.error(f"BIST sektör ısıtma döngüsünde hata: {e}")
+        if _HEAVY_BACKGROUND_SCAN_LOCK.locked():
+            logger.info("Dashboard cache yenileme: background intelligence scan devam ediyor, bu tur atlanıyor.")
+            continue
+        async with _HEAVY_BACKGROUND_SCAN_LOCK:
+            try:
+                await _run_in_executor(_dashboard_scheduler.refresh_market_cache)
+            except Exception as e:
+                logger.error(f"Dashboard market cache yenileme döngüsünde hata: {e}")
+            try:
+                await _run_in_executor(get_sector_overview, "TR")
+            except Exception as e:
+                logger.error(f"BIST sektör ısıtma döngüsünde hata: {e}")
 
 
 _RETENTION_PURGE_INTERVAL_SECONDS = 86400  # once a day, matching self_evolution_loop's cadence
