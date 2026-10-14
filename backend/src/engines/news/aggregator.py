@@ -23,7 +23,7 @@ always produces the same composite signal.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import List
+from typing import List, Optional
 
 from core.news_analyzer import _age_weight as _core_age_weight
 from engines.news import asset_resolver, impact, relevance, sentiment
@@ -39,8 +39,15 @@ def aggregate(
     config: NewsEngineConfig,
     raw_article_count: int,
     articles_after_dedup: int,
+    as_of: Optional[datetime] = None,
 ) -> AggregatedNewsSignal:
-    now = datetime.now(timezone.utc)
+    """`as_of` lets a point-in-time backfill (scripts/backfill_sec_
+    fundamentals.py's News counterpart) score a historical article set
+    exactly as the live engine would have scored it "as of" that past
+    moment - age_weight/cutoff are computed relative to `as_of`, never
+    real "now", when provided. Defaults to real "now" so every existing
+    live caller (engines/news/feature_adapter.py) is unaffected."""
+    now = as_of or datetime.now(timezone.utc)
     cutoff = now - timedelta(days=config.max_age_days)
 
     evidence: List[NewsEvidence] = []

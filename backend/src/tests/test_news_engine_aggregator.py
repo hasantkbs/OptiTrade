@@ -82,3 +82,49 @@ def test_aggregate_preserves_raw_and_dedup_counts_for_telemetry():
     result = aggregator.aggregate("AAPL", articles, NewsEngineConfig(), raw_article_count=10, articles_after_dedup=1)
     assert result.raw_article_count == 10
     assert result.articles_after_dedup == 1
+
+
+# ── as_of (point-in-time backfill support) ──────────────────────────────
+
+def test_aggregate_as_of_scores_relative_to_the_given_moment_not_real_now():
+    """A historical backfill's article - old relative to real "now",
+    but fresh relative to the historical as_of it's being scored for -
+    must not be excluded just because real wall-clock time has moved
+    on. See scripts/backfill_news_features.py, this parameter's only
+    other caller."""
+    historical_as_of = datetime.now(timezone.utc) - timedelta(days=200)
+    article = NormalizedArticle(
+        title="Apple (AAPL) surges to record high on blowout earnings beat",
+        summary="", published_at=historical_as_of - timedelta(hours=1), source="Reuters",
+        text="Apple (AAPL) surges to record high on blowout earnings beat",
+    )
+    result = aggregator.aggregate(
+        "AAPL", [article], NewsEngineConfig(), raw_article_count=1, articles_after_dedup=1,
+        as_of=historical_as_of,
+    )
+    assert result.article_count == 1
+    assert result.signal > 0
+
+
+def test_aggregate_as_of_still_excludes_articles_older_than_max_age_days_relative_to_as_of():
+    historical_as_of = datetime.now(timezone.utc) - timedelta(days=200)
+    config = NewsEngineConfig(max_age_days=7)
+    article = NormalizedArticle(
+        title="Apple (AAPL) surges to record high on blowout earnings beat",
+        summary="", published_at=historical_as_of - timedelta(days=30), source="Reuters",
+        text="Apple (AAPL) surges to record high on blowout earnings beat",
+    )
+    result = aggregator.aggregate(
+        "AAPL", [article], config, raw_article_count=1, articles_after_dedup=1, as_of=historical_as_of,
+    )
+    assert result.article_count == 0
+
+
+def test_aggregate_defaults_as_of_to_real_now_when_omitted():
+    """Zero behavior change for the live caller (engines/news/
+    feature_adapter.py), which never passes as_of."""
+    recent_article = _article("Apple (AAPL) surges to record high on blowout earnings beat", hours_ago=1)
+    result = aggregator.aggregate(
+        "AAPL", [recent_article], NewsEngineConfig(), raw_article_count=1, articles_after_dedup=1,
+    )
+    assert result.article_count == 1
