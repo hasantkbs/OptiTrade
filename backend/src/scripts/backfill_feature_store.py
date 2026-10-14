@@ -43,6 +43,7 @@ from engines.technical.config import TechnicalEngineConfig
 from engines.technical.feature_adapter import compute_technical_features
 from feature_store.models import FeatureRecord
 from feature_store.offline_store import PostgresOfflineStore
+from core.market_config import US_SYMBOLS
 from research.ml_trainer import SYMBOLS
 
 logging.basicConfig(level=logging.WARNING)
@@ -254,21 +255,29 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--start", type=str, default=None, metavar="YYYY-MM-DD")
     parser.add_argument("--end", type=str, default=None, metavar="YYYY-MM-DD")
+    parser.add_argument(
+        "--symbols", choices=["default", "us"], default="default",
+        help="'default' = the original 15 BIST + 7 crypto basket (research.ml_trainer.SYMBOLS); "
+             "'us' = core.market_config.US_SYMBOLS (28 US equities), backfilled separately so the "
+             "SEC EDGAR fundamentals experiment (scripts/backfill_sec_fundamentals.py) has matching "
+             "Technical features to combine with, not fundamentals alone.",
+    )
     args = parser.parse_args()
+    symbols = US_SYMBOLS if args.symbols == "us" else SYMBOLS
 
     end = datetime.strptime(args.end, "%Y-%m-%d").replace(tzinfo=timezone.utc) if args.end else datetime.now(timezone.utc)
     start = datetime.strptime(args.start, "%Y-%m-%d").replace(tzinfo=timezone.utc) if args.start else end - timedelta(days=730)
 
     print("=" * 65)
     print("OptiTrade - Feature Store Backfill")
-    print(f"Range: {start.date().isoformat()} .. {end.date().isoformat()} | Symbols: {len(SYMBOLS)}")
+    print(f"Range: {start.date().isoformat()} .. {end.date().isoformat()} | Symbols: {len(symbols)} ({args.symbols})")
     print("=" * 65)
 
     store = PostgresOfflineStore()
     config = TechnicalEngineConfig.from_env()
 
     total_written = 0
-    for symbol in SYMBOLS:
+    for symbol in symbols:
         print(f"  Backfilling: {symbol}...", end=" ", flush=True)
         try:
             written = backfill_symbol(store, config, symbol, start, end)
