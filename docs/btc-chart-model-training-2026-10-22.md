@@ -625,6 +625,36 @@ discriminating skill exactly where decision_engine's rule-based
 Technical heuristic has none, on a sample far larger than any single
 day's live scan could provide.
 
+**Same check, all three markets.** `backtest_oversold_regime.py` was
+generalized (`--market {BIST,US,CRYPTO}`, reading the market's full
+currently-live chart-AI symbol set from `get_supported_symbols()`
+rather than a hand-picked list) and re-run on US (22 symbols) and
+CRYPTO (8 symbols):
+
+| Market | Pooled n | Actual SELL | Actual NEUTRAL | Actual BUY | Model accuracy | Baseline | p-value |
+|---|---|---|---|---|---|---|---|
+| BIST | 1,290 | 30.8% | 39.6% | 29.6% | 56.1% | 39.6% | 3×10⁻³² |
+| US | 2,630 | 25.6% | 53.7% | 20.7% | **71.8%** | 53.7% | 9.6×10⁻⁸¹ |
+| CRYPTO | 279 | **44.1%** | 36.2% | 19.7% | 50.9% | 44.1% | 1.3×10⁻² |
+
+**The "oversold implies a bounce" assumption fails in every market** -
+actual SELL rate exceeds actual BUY rate in all three, not just BIST.
+The *degree* differs sharply: CRYPTO shows the starkest anti-bounce
+skew (SELL 2.2x more likely than BUY - consistent with crypto's
+reputation for trend continuation over mean reversion), BIST is
+closest to a coin flip, US sits in between with the majority of
+outcomes landing NEUTRAL (lower realized volatility than the other
+two).
+
+**Chart AI's edge over the naive baseline also varies by market**:
+largest and most statistically overwhelming in US (+18.1 points,
+p≈10⁻⁸⁰, also the largest pooled sample), solid in BIST (+16.5
+points, p≈10⁻³²), and real but markedly more marginal in CRYPTO (+6.8
+points) - p=0.013 does clear the conventional 0.05 bar, but by far the
+smallest margin and the smallest sample of the three (n=279), so this
+one is the least strongly established of the three and the first to
+re-check once more CRYPTO price history accumulates.
+
 ## Known follow-up, not fixed here (out of today's scope)
 
 `_try_load_base_model()` / `transfer_train()`'s "continual training"

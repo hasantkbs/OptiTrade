@@ -1,31 +1,36 @@
 """OptiTrade — ground-truth backtest of the "oversold implies a bounce"
 assumption, and of the chart AI model's skill specifically in that
-regime, on BIST symbols.
+regime, per market.
 
 Usage (from backend/src):
-  python -m research.backtest_oversold_regime
+  python -m research.backtest_oversold_regime --market BIST   # default
+  python -m research.backtest_oversold_regime --market US
+  python -m research.backtest_oversold_regime --market CRYPTO
 
 Context: decision_engine's rule-based TechnicalEngine treats an
 oversold reading (RSI<30, or price at/below the lower Bollinger band)
 as evidence a bounce is coming - e.g. it voted BUY on SISE.IS while
 its own evidence showed "bearish trend... MACD below signal...
-oversold... potential bounce zone". Checking a live scan of 26 BIST
-symbols found decision_engine (or the chart AI model) disagreeing with
+oversold... potential bounce zone". A live scan of 26 BIST symbols
+first found decision_engine (or the chart AI model) disagreeing with
 that assumption far more often than agreeing (16 SELL vs 4 BUY out of
-26). This script checks whether that disagreement is backed by real
-history, not just one day's live snapshot - using ONLY each symbol's
-own held-out test split (chart AI's own `train()` used the exact same
-boundaries; this script never re-trains, only re-evaluates), so the
-ground-truth labels and the model's own predictions are both on data
-the model never trained on.
+26 - see docs/btc-chart-model-training-2026-10-22.md). This script
+checks whether that disagreement is backed by real history, not just
+one day's live snapshot, and whether the same pattern holds in US and
+CRYPTO too - using ONLY each symbol's own held-out test split (chart
+AI's own `train()` used the exact same boundaries; this script never
+re-trains, only re-evaluates), so the ground-truth labels and the
+model's own predictions are both on data the model never trained on.
 
-Method: for each symbol, rebuilds the same 60-day feature sequences
+Method: for each symbol in the requested market's currently-live
+chart-AI set (`symbols_for_market()`, read fresh from
+`get_supported_symbols()`), rebuilds the same 60-day feature sequences
 `train()` builds, takes the same chronological test split (last 15%,
 with the same `FORWARD_DAYS` leakage gap), flags samples where the
 LAST day of that 60-day window is "oversold" (raw RSI<30 or raw
 Bollinger %B<0.02 - using the raw, pre-scaling feature values, since
 scaled values lose their absolute RSI/Bollinger meaning), then pools
-across all 26 symbols and reports:
+across every symbol in that market and reports:
 
   1. The GROUND-TRUTH label distribution in that pooled oversold
      subset - what actually happened 5 trading days later, regardless
@@ -51,7 +56,7 @@ import yfinance as yf
 from ml.chart_model import (
     FORWARD_DAYS, N_FEATURES, WINDOW,
     _build_features, _create_sequences, _label_data,
-    check_window_significance, load_model,
+    check_window_significance, get_supported_symbols, load_model,
 )
 
 logging.basicConfig(level=logging.WARNING)
@@ -59,18 +64,27 @@ logger = logging.getLogger(__name__)
 
 LABEL_NAMES = {0: "SELL", 1: "NEUTRAL", 2: "BUY"}
 
-# The 26 BIST symbols a live market-opportunities scan on 2026-10-22
-# flagged as "oversold" in TechnicalEngine's own evidence (any overall
-# decision, not filtered to BUY) - see
-# docs/btc-chart-model-training-2026-10-22.md for the live-scan numbers
-# this backtest was run to check.
-DEFAULT_SYMBOLS = [
-    "VESTL.IS", "SISE.IS", "ALBRK.IS", "VAKBN.IS", "BIMAS.IS", "ULKER.IS",
-    "FROTO.IS", "ARCLK.IS", "PETKM.IS", "ZOREN.IS", "THYAO.IS", "ENKAI.IS",
-    "TTKOM.IS", "AKBNK.IS", "ISCTR.IS", "TOASO.IS",
-    "KRDMD.IS", "HALKB.IS", "TUPRS.IS", "LOGO.IS",
-    "DOHOL.IS", "EREGL.IS", "KCHOL.IS", "MGROS.IS", "PGSUS.IS", "TCELL.IS",
-]
+
+def _market_of(symbol: str) -> str:
+    """Matches core.market_config.get_market_for_symbol's own suffix
+    convention, without importing it (that function expects symbols
+    already in one of its three static tables - every live chart-AI
+    symbol already is, but keeping this standalone avoids a dependency
+    this module otherwise has no reason to carry)."""
+    if symbol.endswith(".IS"):
+        return "BIST"
+    if symbol.endswith("-USD"):
+        return "CRYPTO"
+    return "US"
+
+
+def symbols_for_market(market: str) -> List[str]:
+    """Every currently-LIVE chart-AI symbol in `market` (BIST/US/CRYPTO),
+    read fresh from get_supported_symbols() - not a frozen list, so this
+    always matches whatever's actually live, including after a future
+    weekly retrain promotes or demotes a symbol."""
+    market = market.upper()
+    return [s for s in get_supported_symbols() if _market_of(s) == market]
 
 
 def _symbol_oversold_test_labels(symbol: str) -> "tuple[np.ndarray, np.ndarray] | None":
@@ -122,8 +136,9 @@ def _symbol_oversold_test_labels(symbol: str) -> "tuple[np.ndarray, np.ndarray] 
     return y_test[oversold_mask], y_pred[oversold_mask]
 
 
-def main(symbols: List[str] = None) -> None:
-    symbols = symbols or DEFAULT_SYMBOLS
+def main(symbols: List[str] = None, market: str = "BIST") -> None:
+    symbols = symbols if symbols is not None else symbols_for_market(market)
+    print(f"=== {market.upper()} - {len(symbols)} canlı chart-AI sembolü ===")
     pooled_true: List[int] = []
     pooled_pred: List[int] = []
 
@@ -164,4 +179,10 @@ def main(symbols: List[str] = None) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Oversold-regime ground-truth backtest")
+    parser.add_argument("--market", default="BIST", choices=["BIST", "US", "CRYPTO"])
+    args = parser.parse_args()
+
+    main(market=args.market)
