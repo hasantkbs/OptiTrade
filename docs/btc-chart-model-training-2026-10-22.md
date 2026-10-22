@@ -302,6 +302,59 @@ ml-accuracy research used) but shouldn't be over-read from 10 single-
 window-pair checks alone; the same two-window bar was applied
 uniformly, not relaxed for this batch.
 
+## US equities — the platform's default US watchlist, mixed result
+
+`core/market_config.py::get_default_watchlist("US")` (10 symbols:
+AAPL, MSFT, NVDA, GOOGL, META, TSLA, JPM, V, XOM, HD) were trained and
+validated the same way. Unlike BIST's clean 9-for-9, this basket is
+mixed - the first real failures beyond crypto's single SOL-USD case:
+
+| Symbol | W1 gap | W1 p | W2 gap | W2 p | Status |
+|---|---|---|---|---|---|
+| AAPL | +0.218 | ~0 | +0.130 | ~0 | LIVE |
+| NVDA | +0.144 | ~0 | +0.195 | ~0 | LIVE |
+| META | +0.067 | 0.0012 | +0.084 | 0.0001 | LIVE |
+| TSLA | +0.151 | ~0 | +0.111 | ~0 | LIVE |
+| JPM | +0.169 | ~0 | +0.138 | ~0 | LIVE |
+| XOM | +0.201 | ~0 | +0.120 | ~0 | LIVE |
+| HD | +0.125 | ~0 | +0.039 | 0.0002 | LIVE |
+| MSFT | +0.108 | ~0 | **-0.009** | **0.769** | NOT live |
+| GOOGL | **-0.004** | **0.597** | +0.044 | 0.0065 | NOT live |
+| V | **-0.138** | **1.00** | **-0.057** | **0.999** | NOT live |
+
+7 of 10 clear both windows and go live. 3 fail the same both-windows
+bar every other symbol in this effort had to clear: **MSFT** passes
+window 1 but window 2 is flat-to-negative (p=0.769 - no better than
+chance); **GOOGL** is the reverse, window 1 essentially flat/negative
+(p=0.597) despite a real window 2; **V** fails both windows outright,
+clearly negative each time (p≈1 and p≈0.999) - the most decisive
+failure of any symbol attempted, stronger even than SOL-USD's.
+
+All three excluded symbols' model files exist on disk
+(`msft_chart_model.keras` etc.) but are deliberately left out of
+`SUPPORTED_SYMBOLS`, same treatment as SOL-USD. `SUPPORTED_SYMBOLS`
+now has 21 symbols: the 4 live crypto, all 10 default-BIST, and 7 of
+10 default-US. All 7 going live were re-verified end-to-end with real
+yfinance pulls (`period="6mo"`) before committing.
+
+A stale test caught during this step: `tests/test_main_chart_ai_symbol_gating.py`'s
+"unsupported symbol is skipped" test used `"AAPL"` as its unsupported
+example - which broke the moment AAPL itself went live, since the
+test's premise silently became false. Fixed to use an obviously-fake
+symbol literal instead of a real ticker, so it can't go stale the same
+way again as `SUPPORTED_SYMBOLS` keeps growing.
+
+This basket's lower hit rate (7/10 vs. BIST's 10/10 and crypto's 4/5)
+is worth noting as a real data point rather than averaged away: the
+"BIST does even better than crypto, and this basket does worse" pattern
+could reflect genuine differences in exploitable short-term momentum
+across markets, or could just be basket-specific noise at this sample
+size (3 failures out of 10 isn't a large enough sample to separate
+those two explanations) - the same caution from the ml-accuracy
+research applies here: a single-digit set of symbols, each checked on
+only two windows, is suggestive, not conclusive, about the underlying
+market.
+
 ## Known follow-up, not fixed here (out of today's scope)
 
 `_try_load_base_model()` / `transfer_train()`'s "continual training"

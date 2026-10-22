@@ -73,6 +73,13 @@ def test_chart_ai_runs_for_every_supported_symbol_not_just_the_first(monkeypatch
 
 
 def test_chart_ai_is_skipped_for_an_unsupported_symbol(monkeypatch):
+    # Deliberately NOT a real ticker (e.g. not "AAPL") - SUPPORTED_SYMBOLS
+    # grows over time as more symbols get trained and validated, and a
+    # real ticker used here would silently go stale (and did: this used
+    # "AAPL" until AAPL itself got added to SUPPORTED_SYMBOLS).
+    unsupported_symbol = "NOT-A-REAL-SUPPORTED-SYMBOL"
+    assert unsupported_symbol not in chart_model.SUPPORTED_SYMBOLS
+
     monkeypatch.setattr(chart_model, "is_model_available", lambda symbol: True)
     calls = []
     monkeypatch.setattr(
@@ -80,6 +87,6 @@ def test_chart_ai_is_skipped_for_an_unsupported_symbol(monkeypatch):
         lambda hist, symbol: calls.append(symbol),
     )
 
-    main_module._enrich_result(_analysis_result("AAPL"), None)
+    main_module._enrich_result(_analysis_result(unsupported_symbol), None)
 
     assert calls == []

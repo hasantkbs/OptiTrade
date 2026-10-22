@@ -28,15 +28,16 @@ logger = logging.getLogger(__name__)
 # yeterli değil (kasıtlı: canlıya alma hâlâ açık bir kod değişikliği
 # gerektirsin, sessizce "dosya var, o yüzden aktif" olmasın).
 MODEL_SYMBOL = "BTC-USD"  # geriye dönük uyumluluk için - ilk eğitilen/varsayılan sembol
-# SOL-USD de eğitildi ama BURADA YOK: window 1'de baseline'ın altında kaldı
-# (0.355 vs 0.388, p=0.90 - anlamlı değil) - tutarlı bir sonuç değil, canlıya
-# alınmadı. Dosyası model_artifacts/sol_chart_model.keras'ta duruyor, ileride
-# daha fazla veriyle (SOL-USD'nin yfinance geçmişi diğerlerinden daha kısa,
-# 2292 vs ~3175 sequence) yeniden denenebilir.
+# SOL-USD, MSFT, GOOGL, V de eğitildi ama BURADA YOK - en az bir penceresi
+# baseline'ı anlamlı şekilde geçemedi: SOL W1 p=0.90, MSFT W2 p=0.77, GOOGL
+# W1 p=0.60, V hem W1 hem W2'de açıkça negatif (p=1.00, p=0.999). Dosyaları
+# model_artifacts/'ta duruyor (ör. sol_chart_model.keras), ileride daha
+# fazla veriyle yeniden denenebilir.
 SUPPORTED_SYMBOLS = (
     "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD",
     "THYAO.IS", "GARAN.IS", "EREGL.IS", "ASELS.IS", "KCHOL.IS",
     "AKBNK.IS", "TUPRS.IS", "SISE.IS", "BIMAS.IS", "FROTO.IS",
+    "AAPL", "NVDA", "META", "TSLA", "JPM", "XOM", "HD",
 )
 WINDOW      = 60       # Sliding window (gün)
 FORWARD_DAYS = 5       # Kaç gün sonrası tahmin
