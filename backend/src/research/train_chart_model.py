@@ -75,64 +75,52 @@ def train(
 
     os.makedirs(MODEL_DIR, exist_ok=True)
 
-    # ── 1. Veri çekme (Global Pazar Odaklı) ──────────────────────────────────
-    MARKET_BENCHMARKS = ["^GSPC", "XU100.IS", "^N225", "BTC-USD"]
-    
-    SYMBOLS = [
-        "BTC-USD", "ETH-USD", "BNB-USD", "SOL-USD", # Crypto
-        "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN",    # US Tech
-        "THYAO.IS", "GARAN.IS", "EREGL.IS", "ASELS.IS", "KCHOL.IS", # BIST
-        "7203.T", "9984.T", "8035.T", # Nikkei (Toyota, Softbank, Tokyo Electron)
-        "^GSPC", "^IXIC", "XU100.IS", "^N225" # Indices
-    ]
-    
-    all_X, all_y = [], []
+    # ── 1. Veri çekme (tek sembol - `symbol`) ────────────────────────────────
+    # Daha önce burada 20 farklı sembolün (kripto/ABD/BIST/Nikkei/endeks)
+    # sequence'leri birleştirilip POZİSYONEL olarak bölünüyordu - `symbol`
+    # parametresi sadece meta'ya yazılıyor, gerçek veri her zaman o sabit
+    # listeden geliyordu. Bu hem "{symbol} modeli" iddiasını yalan çıkarıyor
+    # hem de train/val/test bölünmesini zaman-sıralı olmaktan çıkarıyordu
+    # (liste sırasında endeksler sonda olduğu için test seti BTC değil,
+    # büyük ölçüde endeks verisiyle domine oluyordu). Tek sembolün kendi
+    # geçmişini zaman sırasıyla çekip bölmek her iki sorunu da çözüyor.
+    logger.info(f"Veri çekiliyor: {symbol} ({period})")
+    ticker = yf.Ticker(symbol)
+    hist   = ticker.history(period=period)
+    if hist.empty or len(hist) < WINDOW + 100:
+        raise ValueError(f"{symbol} için yetersiz veri (period={period}).")
 
-    # Sürekli eğitim için: Eğer mevcut bir model varsa onu yükle ve üzerine eğit (Transfer Learning)
-    base_model = _try_load_base_model()
-
-    for sym in SYMBOLS:
-        # ... (sembol işleme mantığı - önceki adımla aynı)
-        logger.info(f"Veri çekiliyor: {sym} ({period})")
-        try:
-            ticker = yf.Ticker(sym)
-            hist   = ticker.history(period=period)
-            if hist.empty or len(hist) < WINDOW + 100:
-                logger.warning(f"  {sym} için yetersiz veri, atlanıyor.")
-                continue
-                
-            X_raw = _build_features(hist)
-            y_raw = _label_data(hist["Close"].iloc[: len(X_raw)])
-            
-            if X_raw is not None:
-                X_s, y_s = _create_sequences(X_raw, y_raw)
-                all_X.append(X_s)
-                all_y.append(y_s)
-                logger.info(f"  {sym}: {len(X_s)} örnek eklendi.")
-        except Exception as e:
-            logger.error(f"  {sym} işlenirken hata: {e}")
-
-    if not all_X:
-        raise ValueError("Hiç veri toplanamadı.")
-
-    X_seq = np.concatenate(all_X)
-    y_seq = np.concatenate(all_y)
-    logger.info(f"\nToplam Veri Seti: {len(X_seq)} örnek, {WINDOW} günlük pencere, {N_FEATURES} özellik")
+    X_raw = _build_features(hist)
+    if X_raw is None:
+        raise ValueError(f"{symbol} için özellik çıkarımı başarısız.")
+    y_raw = _label_data(hist["Close"].iloc[: len(X_raw)])
+    X_seq, y_seq = _create_sequences(X_raw, y_raw)
+    logger.info(f"\n{symbol}: {len(X_seq)} örnek, {WINDOW} günlük pencere, {N_FEATURES} özellik")
 
     # Sınıf dağılımı
     unique, counts = np.unique(y_seq, return_counts=True)
     dist = dict(zip(["SELL","NEUTRAL","BUY"], counts.tolist()))
     logger.info(f"  Sınıf dağılımı: {dist}")
 
-    # ── 4. Train / Val / Test bölme ──────────────────────────────────────────
+    # ── 4. Train / Val / Test bölme (zaman-sıralı) ───────────────────────────
+    # Her örneğin etiketi FORWARD_DAYS gün ilerisindeki fiyata bağlı olduğu
+    # için, bölüm sınırındaki bir örneğin etiketi bir sonraki bölümün ilk
+    # günlerini "görebilir" - bu sızıntıyı önlemek için her sınıra
+    # FORWARD_DAYS'lik bir boşluk (gap) bırakılıyor.
     n = len(X_seq)
     n_test = int(n * test_split)
     n_val  = int(n * val_split)
     n_train = n - n_test - n_val
 
-    X_train, y_train = X_seq[:n_train],           y_seq[:n_train]
-    X_val,   y_val   = X_seq[n_train:n_train+n_val], y_seq[n_train:n_train+n_val]
-    X_test,  y_test  = X_seq[n_train+n_val:],     y_seq[n_train+n_val:]
+    X_train, y_train = X_seq[:n_train], y_seq[:n_train]
+    X_val,   y_val   = (
+        X_seq[n_train + FORWARD_DAYS : n_train + n_val],
+        y_seq[n_train + FORWARD_DAYS : n_train + n_val],
+    )
+    X_test,  y_test  = (
+        X_seq[n_train + n_val + FORWARD_DAYS :],
+        y_seq[n_train + n_val + FORWARD_DAYS :],
+    )
 
     # ── 5. Scaler ─────────────────────────────────────────────────────────────
     scaler = StandardScaler()

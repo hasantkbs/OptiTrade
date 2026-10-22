@@ -137,8 +137,13 @@ def _build_features(hist: pd.DataFrame) -> Optional[np.ndarray]:
         minus_dm  = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
         
         alpha = 1/14
-        plus_di  = 100 * (pd.Series(plus_dm).ewm(alpha=alpha).mean() / atr.replace(0, np.nan)).fillna(0)
-        minus_di = 100 * (pd.Series(minus_dm).ewm(alpha=alpha).mean() / atr.replace(0, np.nan)).fillna(0)
+        # `index=high.index` is required here: without it, pd.Series() gets a
+        # default RangeIndex while `atr` keeps the original DatetimeIndex, so
+        # the division below aligns by index (producing the union of both -
+        # roughly double length, mostly NaN) instead of elementwise by
+        # position, and every downstream column_stack call fails.
+        plus_di  = 100 * (pd.Series(plus_dm, index=high.index).ewm(alpha=alpha).mean() / atr.replace(0, np.nan)).fillna(0)
+        minus_di = 100 * (pd.Series(minus_dm, index=high.index).ewm(alpha=alpha).mean() / atr.replace(0, np.nan)).fillna(0)
         dx  = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
         adx = dx.ewm(alpha=alpha).mean().fillna(0)
 

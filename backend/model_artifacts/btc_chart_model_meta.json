@@ -1,0 +1,69 @@
+{
+  "trained_on": "BTC-USD",
+  "training_date": "2026-10-22T10:22:30.147846",
+  "period": "max",
+  "n_train": 3028,
+  "n_val": 648,
+  "n_test": 648,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.5583,
+  "test_loss": 0.9864,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.6208791208791209,
+      "recall": 0.5885416666666666,
+      "f1-score": 0.6042780748663101,
+      "support": 192.0
+    },
+    "NEUTRAL": {
+      "precision": 0.5741324921135647,
+      "recall": 0.5833333333333334,
+      "f1-score": 0.5786963434022258,
+      "support": 312.0
+    },
+    "BUY": {
+      "precision": 0.4444444444444444,
+      "recall": 0.460431654676259,
+      "f1-score": 0.45229681978798586,
+      "support": 139.0
+    },
+    "accuracy": 0.5583203732503889,
+    "macro avg": {
+      "precision": 0.5464853524790433,
+      "recall": 0.5441022182254197,
+      "f1-score": 0.5450904126855073,
+      "support": 643.0
+    },
+    "weighted avg": {
+      "precision": 0.5600558421866271,
+      "recall": 0.5583203732503889,
+      "f1-score": 0.5590107425604293,
+      "support": 643.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      113,
+      71,
+      8
+    ],
+    [
+      58,
+      182,
+      72
+    ],
+    [
+      11,
+      64,
+      64
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 1312,
+    "NEUTRAL": 1596,
+    "BUY": 1416
+  },
+  "best_epoch": 23
+}
