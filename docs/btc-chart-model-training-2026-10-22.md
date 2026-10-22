@@ -561,6 +561,70 @@ explicitly coerces `n`/`k` to plain Python `int` before calling it,
 since `retrain_chart_models.py` sums `classification_report`'s
 numpy-typed `support` values into that argument.
 
+## Live scan check: does chart AI's disagreement with decision_engine hold up?
+
+With 61 live symbols, a natural question is how often chart AI's
+signal actually disagrees with decision_engine's own output, and
+whether any such disagreement reflects something real. A live
+market-opportunities scan on 2026-10-22 (all three markets) found:
+
+- Only **5 of 61** checked symbols genuinely agree in direction (both
+  BUY or both SELL) between decision_engine and chart AI.
+- **11 directly conflict** (one says BUY, the other SELL) - e.g.
+  `SISE.IS`, `ALBRK.IS`, `CRM`, `AMZN`, `ASELS.IS`, `THYAO.IS`,
+  `TTKOM.IS`, `AKBNK.IS`, `ISCTR.IS`, `SAHOL.IS` (chart AI SELL,
+  decision_engine BUY), and `LOGO.IS` (the one reverse case).
+- **21 more** have decision_engine at HOLD while chart AI holds a
+  confident opinion (`>55%`), overwhelmingly SELL (17 of 21).
+
+**Root cause, traced through the three direct-conflict examples with
+the highest chart AI confidence** (`SISE.IS`, `ALBRK.IS`, `CRM`): in
+every case, decision_engine's BUY call is driven almost entirely by
+`FundamentalEngine`'s cheap-valuation thesis. `TechnicalEngine`'s own
+evidence already shows real bearish momentum (`SISE.IS`: "8.4% below
+EMA20 - bearish trend... MACD below signal... oversold") but either
+(a) still votes BUY itself, reading "oversold" as an implicit "bounce
+coming" signal, or (b) votes HOLD without that assumption changing
+decision_engine's overall BUY. Chart AI, trained on actual outcomes
+rather than a hand-coded "oversold → bounce" rule, disagrees with that
+assumption specifically.
+
+**Checking the "oversold → bounce" assumption at scale**: broadening
+beyond the 3 examples to every BIST symbol where `TechnicalEngine`'s
+own evidence says "oversold" (27 symbols, not filtered to any
+particular overall decision) found chart AI calling SELL on 16/26
+(62%) with a live model, BUY on only 4/26 (15%, often lower
+confidence), NEUTRAL on 6/26.
+
+**Then the real test - not what any model predicts live, but what
+actually happened historically**: `research/backtest_oversold_regime.py`
+pools each of those 26 symbols' own held-out test split (never trained
+on, same chronological boundaries `train()` itself uses), flags
+"oversold" days (raw RSI<30 or Bollinger %B≈0, using the model's own
+pre-scaling features), and reports the TRUE 5-day-later outcome -
+1,290 pooled real instances:
+
+| | Rate |
+|---|---|
+| Actually SELL 5 days later | **30.8%** |
+| Actually NEUTRAL | 39.6-39.8% |
+| Actually BUY ("the bounce") | **29.5-29.6%** |
+
+**The "oversold implies a bounce" assumption is not supported by this
+data** - a decline is, if anything, very slightly *more* likely than a
+bounce following an oversold reading in this BIST basket, not less.
+`TechnicalEngine`'s implicit heuristic has no real edge here.
+
+**Chart AI's own accuracy on this exact held-out oversold subset:
+56.1-56.3%**, against a 39.6-39.8% ceiling from the best naive
+strategy (always guess the majority class) - binomial test
+`p≈3-4×10⁻³²` at n=1,290. This is a genuine, statistically solid
+result specific to the hardest/most ambiguous regime (not an easy
+subset where any model would look good by default): chart AI has real
+discriminating skill exactly where decision_engine's rule-based
+Technical heuristic has none, on a sample far larger than any single
+day's live scan could provide.
+
 ## Known follow-up, not fixed here (out of today's scope)
 
 `_try_load_base_model()` / `transfer_train()`'s "continual training"
