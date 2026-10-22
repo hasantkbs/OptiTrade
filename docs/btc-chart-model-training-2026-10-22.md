@@ -474,20 +474,79 @@ materially different risk than every other change in this project,
 which a human (this session) reviewed and pushed individually. Git
 operations stay a deliberate, separate step.
 
-**Not installed as an actual cron/systemd timer by this work** - that
-is a deployment decision for wherever the live app actually serves
-from (per earlier memory, `mayasoftlnx01`), which this session doesn't
-have authorization to modify unprompted. The exact line, for whoever
-sets it up:
+**Installed on `mayasoftlnx01`'s crontab the same day**, once the user
+explicitly confirmed each step (this is the live production host, so
+every step here was deliberate, not something done unprompted):
 
 ```
-0 2 * * 0 cd /path/to/backend/src && /path/to/venv/bin/python -m research.retrain_chart_models >> /var/log/optitrade-retrain.log 2>&1
+0 2 * * 0 cd /home/mayasoft/app/OptiTrade/backend/src && /home/mayasoft/app/OptiTrade/venv/bin/python -m research.retrain_chart_models >> /opt/algorix/logs/optitrade-retrain-cron.log 2>&1
 ```
 
 (Sundays 02:00 server time - weekly, chosen over daily since one
 day's new data barely moves a model trained on years of history, and
 over monthly given the "adapt to current market conditions" framing
-behind this whole feature.)
+behind this whole feature. Points at the main checkout
+`/home/mayasoft/app/OptiTrade`, not the ephemeral worktree this
+session was running in - the worktree can be cleaned up without
+breaking the schedule.)
+
+Getting the cron job to have any real effect required two more fixes,
+both now in place and verified:
+
+1. **The main checkout was ~30+ commits stale** (this session's
+   worktree-isolation sandbox can't run `git pull` in the shared
+   checkout - a known limitation, see the git-worktrees deployment
+   note in memory). The user ran `git pull --ff-only origin main`
+   there directly from their own terminal, bringing it fully current
+   - confirmed after by diffing `main.py` between the worktree and the
+   checkout (identical) and counting `model_artifacts/` (226 files in
+   both).
+
+2. **`model_artifacts/` was never actually live for the running
+   container.** Production runs the `api` service from a Docker image
+   built via `COPY . .` at image-build time - with no volume mount,
+   anything `retrain_chart_models.py` wrote to the host's
+   `backend/model_artifacts/` would never reach the already-running
+   container, contradicting this doc's own "no restart needed" claim.
+   Added a bind mount to `docker-compose.yml`:
+   `./backend/model_artifacts:/app/model_artifacts` (container path
+   confirmed from the Dockerfile's `WORKDIR /app` + `COPY . .`, then
+   `WORKDIR /app/src` for runtime - so `ml/chart_model.py`'s own
+   `BACKEND_DIR` computation resolves to `/app`). Verified live: wrote
+   a probe value to the host's `supported_symbols.json` and confirmed
+   `docker exec optitrade-api cat /app/model_artifacts/supported_symbols.json`
+   reflected it immediately, no restart - then restored the real
+   61-symbol file and reconfirmed.
+
+   Restarting to apply the compose change caused a real (brief)
+   production incident, and surfaced a pre-existing inconsistency in
+   this project's own documentation: the restart command used `docker
+   compose -f docker-compose.yml up -d --build api --no-deps` - the
+   explicit `-f` flag suppresses Compose's normal auto-merge of
+   `docker-compose.override.yml`. That file is what actually publishes
+   port 8000 to `127.0.0.1` (the base file alone only `expose`s it,
+   internal-network-only) - which the host's system nginx depends on
+   to reach the container at all (per the deployment-topology memory:
+   nginx proxies to `127.0.0.1:8000`). Dropping that binding 502'd
+   `https://algorixstudio.com/optitrade/api/health` for a few minutes,
+   fixed by re-running `docker compose up -d --build api --no-deps`
+   **without** `-f`, letting Compose auto-merge both files by default
+   again.
+
+   **This means `docker-compose.override.yml`'s own header comment -
+   "Production deployment must NOT include this file ... so the API
+   stay off any public interface" - does not match how production
+   actually runs.** The live site only works *because* that file's
+   port-publish is merged in; this session didn't create that
+   dependency, just tripped over it by explicitly passing `-f` and
+   accidentally removing it. Flagging here rather than "fixing" either
+   side unprompted: someone should eventually either update that
+   file's header to reflect reality, or move the production-needed
+   part of its config (the loopback port publish nginx depends on)
+   into `docker-compose.yml` itself and trim the override file down to
+   genuinely dev-only additions. Until then: any future rebuild of
+   `api` on this host should omit `-f` entirely (the default merge),
+   not add it.
 
 **Verified end-to-end** (not a full 61-symbol run - that takes ~1-1.5h
 and wasn't necessary to prove the mechanism): called the script's
