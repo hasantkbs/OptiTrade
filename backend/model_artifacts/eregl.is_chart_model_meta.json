@@ -1,0 +1,69 @@
+{
+  "trained_on": "EREGL.IS",
+  "training_date": "2026-10-22T12:17:32.698955",
+  "period": "max",
+  "n_train": 4695,
+  "n_val": 1005,
+  "n_test": 1005,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.532,
+  "test_loss": 0.9275,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.6164874551971327,
+      "recall": 0.5584415584415584,
+      "f1-score": 0.58603066439523,
+      "support": 308.0
+    },
+    "NEUTRAL": {
+      "precision": 0.49691358024691357,
+      "recall": 0.3907766990291262,
+      "f1-score": 0.4375,
+      "support": 412.0
+    },
+    "BUY": {
+      "precision": 0.5012594458438288,
+      "recall": 0.7107142857142857,
+      "f1-score": 0.5878877400295421,
+      "support": 280.0
+    },
+    "accuracy": 0.532,
+    "macro avg": {
+      "precision": 0.5382201604292917,
+      "recall": 0.5533108477283234,
+      "f1-score": 0.5371394681415907,
+      "support": 1000.0
+    },
+    "weighted avg": {
+      "precision": 0.5349591760987173,
+      "recall": 0.532,
+      "f1-score": 0.5253560118420026,
+      "support": 1000.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      172,
+      103,
+      33
+    ],
+    [
+      86,
+      161,
+      165
+    ],
+    [
+      21,
+      60,
+      199
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 1931,
+    "NEUTRAL": 2772,
+    "BUY": 2002
+  },
+  "best_epoch": 18
+}

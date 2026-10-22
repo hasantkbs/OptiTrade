@@ -263,6 +263,45 @@ Added to `SUPPORTED_SYMBOLS` (now `("BTC-USD", "ETH-USD", "BNB-USD",
 prediction with the `period="6mo"` fix in place for both THYAO.IS and
 BTC-USD.
 
+## Completing the platform's default BIST watchlist
+
+`core/market_config.py::get_default_watchlist("TR")` - the platform's
+actual default-active basket for the Turkish market (10 symbols,
+distinct from the much larger `BIST_SYMBOLS` reference/display-name
+table of 36) - has THYAO.IS plus 9 more: GARAN.IS, EREGL.IS, ASELS.IS,
+KCHOL.IS, AKBNK.IS, TUPRS.IS, SISE.IS, BIMAS.IS, FROTO.IS. All 9 were
+trained and validated the same day, same methodology, in one batch:
+
+| Symbol | W1 gap | W1 p | W2 gap | W2 p |
+|---|---|---|---|---|
+| GARAN.IS | +0.228 | ~0 | +0.102 | ~0 |
+| EREGL.IS | +0.120 | ~0 | +0.150 | ~0 |
+| ASELS.IS | +0.161 | ~0 | +0.156 | ~0 |
+| KCHOL.IS | +0.220 | ~0 | +0.102 | ~0 |
+| AKBNK.IS | +0.242 | ~0 | +0.163 | ~0 |
+| TUPRS.IS | +0.185 | ~0 | +0.134 | ~0 |
+| SISE.IS | +0.190 | ~0 | +0.146 | ~0 |
+| BIMAS.IS | +0.105 | ~0 | +0.075 | 0.000012 |
+| FROTO.IS | +0.207 | ~0 | +0.189 | ~0 |
+
+**9 for 9** - every single symbol clears both windows decisively, the
+cleanest result of any basket tried (crypto's 4-for-5 included one
+outright failure, SOL-USD). BIMAS.IS's window 2 p-value (0.000012) is
+the "weakest" result in this whole batch and still far below any
+conventional significance threshold. All 9 added to `SUPPORTED_SYMBOLS`
+alongside THYAO.IS, verified end-to-end with real yfinance pulls
+(`period="6mo"`) for every symbol before committing - the platform's
+entire default BIST watchlist (10/10) is now live.
+
+This consistency across 10 different BIST equities - after crypto
+showed one failure out of 5 - is suggestive (plausibly: longer price
+history than any crypto symbol gives the model more to learn from,
+and/or BIST's retail-driven trading has more exploitable short-term
+momentum than crypto or the News-features basket this session's
+ml-accuracy research used) but shouldn't be over-read from 10 single-
+window-pair checks alone; the same two-window bar was applied
+uniformly, not relaxed for this batch.
+
 ## Known follow-up, not fixed here (out of today's scope)
 
 `_try_load_base_model()` / `transfer_train()`'s "continual training"

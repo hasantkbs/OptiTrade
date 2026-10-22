@@ -33,7 +33,11 @@ MODEL_SYMBOL = "BTC-USD"  # geriye dönük uyumluluk için - ilk eğitilen/varsa
 # alınmadı. Dosyası model_artifacts/sol_chart_model.keras'ta duruyor, ileride
 # daha fazla veriyle (SOL-USD'nin yfinance geçmişi diğerlerinden daha kısa,
 # 2292 vs ~3175 sequence) yeniden denenebilir.
-SUPPORTED_SYMBOLS = ("BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD", "THYAO.IS")
+SUPPORTED_SYMBOLS = (
+    "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD",
+    "THYAO.IS", "GARAN.IS", "EREGL.IS", "ASELS.IS", "KCHOL.IS",
+    "AKBNK.IS", "TUPRS.IS", "SISE.IS", "BIMAS.IS", "FROTO.IS",
+)
 WINDOW      = 60       # Sliding window (gün)
 FORWARD_DAYS = 5       # Kaç gün sonrası tahmin
 BUY_THRESH  = 0.03     # %3 üstü yükseliş → BUY
