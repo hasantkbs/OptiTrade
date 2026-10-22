@@ -12,9 +12,10 @@ Model Mimarisi:
   5. Dense softmax (3 sınıf: SELL / NEUTRAL / BUY)
 """
 from __future__ import annotations
+import json
 import os
 import logging
-from typing import Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple
 import numpy as np
 import pandas as pd
 
@@ -22,24 +23,20 @@ logger = logging.getLogger(__name__)
 
 # ── Sabitler ──────────────────────────────────────────────────────────────────
 # Her sembolün kendi scaler/ağırlıkları var (model_path_for vb.), ama canlı
-# entegrasyon (main.py) yalnızca burada açıkça listelenen, eğitilmiş VE
-# ikinci pencerede doğrulanmış sembollerde çalışmalı. Yeni bir sembol
-# eğitilip doğrulanınca buraya eklenmeli - dosyanın var olması tek başına
-# yeterli değil (kasıtlı: canlıya alma hâlâ açık bir kod değişikliği
-# gerektirsin, sessizce "dosya var, o yüzden aktif" olmasın).
+# entegrasyon (main.py) yalnızca get_supported_symbols()'un döndürdüğü,
+# eğitilmiş VE ikinci pencerede doğrulanmış sembollerde çalışmalı. Dosyanın
+# var olması tek başına yeterli değil (kasıtlı: canlıya alma/çıkarma hâlâ
+# açık bir karar - get_supported_symbols() ya SUPPORTED_SYMBOLS_PATH'teki
+# JSON'u ya da aşağıdaki sabit listeyi okur).
 MODEL_SYMBOL = "BTC-USD"  # geriye dönük uyumluluk için - ilk eğitilen/varsayılan sembol
-# Eğitilip BURADA OLMAYAN semboller - en az bir penceresi baseline'ı anlamlı
-# şekilde geçemedi (tam gerekçe: docs/btc-chart-model-training-2026-10-22.md):
-# kripto: SOL-USD, ADA-USD, ARB-USD, AVAX-USD, DOT-USD, NEAR-USD, OP-USD,
-#         TIA-USD
-# US:     MSFT, GOOGL, V, MA, WMT
-# Dosyaları model_artifacts/'ta duruyor, ileride yeniden denenebilir.
-# Ayrıca 6 sembol (KOZAL.IS, QNBFB.IS, SODA.IS, GE, APT-USD, MATIC-USD) hiç
-# eğitilemedi - yfinance bu ticker'ları çözemiyor ("possibly delisted"),
-# muhtemelen core/market_config.py'deki eşleşmeler güncel değil (ör.
-# MATIC->POL marka değişikliği) - ayrı bir veri-kalitesi sorunu, burada
-# düzeltilmedi.
-SUPPORTED_SYMBOLS = (
+# 2026-10-22'de eğitilip doğrulanmış 61 sembollük anlık görüntü - haftalık
+# yeniden eğitim işi (research/retrain_chart_models.py) artık asıl canlı
+# listeyi SUPPORTED_SYMBOLS_PATH'teki JSON dosyasında tutuyor ve
+# otomatik günceliyor; bu sabit liste SADECE o dosya hiç yazılmamışsa
+# (örn. taze bir checkout) kullanılan geriye dönük bir başlangıç değeri.
+# O JSON dosyasında yer almayan ama eğitilmiş semboller (ör. SOL-USD,
+# MSFT, GE...) için tam gerekçe: docs/btc-chart-model-training-2026-10-22.md.
+_SUPPORTED_SYMBOLS_SNAPSHOT_2026_10_22 = (
     # Kripto (CRYPTO_SYMBOLS, 18 sembolün 8'i)
     "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD",
     "DOGE-USD", "INJ-USD", "LINK-USD", "LTC-USD",
@@ -65,6 +62,37 @@ N_FEATURES  = 11        # OHLCV_norm(5) + RSI + MACD + BB_pb + volume_ratio + AT
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 MODEL_DIR   = os.path.join(BACKEND_DIR, "model_artifacts")
+SUPPORTED_SYMBOLS_PATH = os.path.join(MODEL_DIR, "supported_symbols.json")
+
+
+def get_supported_symbols() -> Tuple[str, ...]:
+    """Canlı entegrasyonun (main.py) kullandığı GERÇEK allowlist.
+    `research/retrain_chart_models.py` her haftalık koşudan sonra
+    SUPPORTED_SYMBOLS_PATH'teki JSON'u günceller - bu fonksiyon dosyayı
+    HER ÇAĞRIDA yeniden okuyor (sunucu yeniden başlatılmadan güncellensin
+    diye), dosya yoksa/okunamazsa sabit anlık görüntüye düşer."""
+    try:
+        with open(SUPPORTED_SYMBOLS_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return tuple(data["supported_symbols"])
+    except (FileNotFoundError, json.JSONDecodeError, KeyError) as exc:
+        logger.warning(f"{SUPPORTED_SYMBOLS_PATH} okunamadı ({exc}), sabit anlık görüntüye dönülüyor.")
+        return _SUPPORTED_SYMBOLS_SNAPSHOT_2026_10_22
+
+
+def check_window_significance(n: int, baseline: float, accuracy: float) -> Tuple[bool, float]:
+    """Tek-taraflı binom testi: `accuracy`, `n` örnekte `baseline`'ı
+    anlamlı şekilde geçiyor mu? Bu modelin BTC'den bugüne her sembolü
+    için kullanılan aynı bar - hem manuel analizde hem
+    retrain_chart_models.py'nin otomatik canlıya alma/çıkarma
+    kararında aynı fonksiyon kullanılıyor, iki yerde ayrı ayrı
+    yazılmış (ve sürüklenebilecek) bir eşik mantığı olmasın diye."""
+    from scipy.stats import binomtest
+    n = int(n)  # scipy's binomtest rejects numpy int/float types outright
+    k = int(round(accuracy * n))
+    p_value = float(binomtest(k, n, baseline, alternative="greater").pvalue)
+    passes = bool(accuracy > baseline and p_value < 0.05)
+    return passes, p_value
 
 
 def _symbol_slug(symbol: str) -> str:

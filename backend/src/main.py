@@ -1139,12 +1139,13 @@ def _enrich_result(result: AnalysisResult, mc_data: Optional[Dict[str, Any]]) ->
     # Chart AI entegrasyonu (model varsa)
     chart_ai_result = None
     try:
-        from ml.chart_model import SUPPORTED_SYMBOLS, predict_chart_signal, is_model_available
+        from ml.chart_model import get_supported_symbols, predict_chart_signal, is_model_available
         # Her sembolün kendi scaler/ağırlıkları var (model_path_for vb.) -
         # ama yalnızca eğitilip İKİNCİ PENCEREDE DOĞRULANMIŞ sembollerde
-        # çalıştırılıyor (SUPPORTED_SYMBOLS), başka bir sembole rastgele
-        # uygulanmasın diye.
-        if result.symbol in SUPPORTED_SYMBOLS and is_model_available(result.symbol):
+        # çalıştırılıyor. get_supported_symbols() haftalık yeniden eğitim
+        # işinin güncellediği JSON dosyasını HER ÇAĞRIDA okur, bu yüzden
+        # sunucu yeniden başlatılmadan canlı liste değişebilir.
+        if result.symbol in get_supported_symbols() and is_model_available(result.symbol):
             import yfinance as yf
             # WINDOW (60) + _build_features'ın 30 satırlık ısınma kaybı = en
             # az 90 ham satır gerekiyor. "3mo" bunu haftada-7-gün işlem gören

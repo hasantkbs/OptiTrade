@@ -420,6 +420,88 @@ hypotheses from earlier in this doc - but the shape of the result
 (BIST clean, crypto noisy, US in between) has now replicated across
 three independent expansion rounds rather than one.
 
+## Weekly automatic retraining — SUPPORTED_SYMBOLS becomes live state
+
+Every decision above (promote BTC, demote SOL, promote THYAO, etc.)
+was made by a human reading the numbers after a one-off training run.
+To make the system actually adapt to changing market conditions
+without a human reviewing every symbol every week, a scheduled
+retraining job needed two things that didn't exist before:
+
+1. **A machine-checkable version of the "both windows significant"
+   bar.** Added `ml.chart_model.check_window_significance(n, baseline,
+   accuracy) -> (passes: bool, p_value: float)` - the exact one-sided
+   binomial test used by hand throughout this whole effort, now a
+   single reusable function instead of ad-hoc scratch Python each
+   time. Also added `test_majority_baseline` to `train()`'s own meta
+   dict (the TEST set's own baseline, not the full dataset's
+   `class_distribution` that was already there) so the retraining job
+   doesn't need to recompute it from the confusion matrix.
+
+2. **A live allowlist a running server can see change without a
+   restart.** `SUPPORTED_SYMBOLS` was a hardcoded Python tuple -
+   editing it only ever took effect on the next deploy. Replaced the
+   live-serving path with `ml.chart_model.get_supported_symbols()`,
+   which reads `model_artifacts/supported_symbols.json` fresh on
+   *every call* (cheap - it's a tiny file) and falls back to a frozen
+   2026-10-22 snapshot (`_SUPPORTED_SYMBOLS_SNAPSHOT_2026_10_22`) if
+   the file is missing or corrupt. `main.py` and tests updated to call
+   the function instead of importing the old constant. The JSON file
+   was bootstrapped with the current 61-symbol live set before this
+   landed, so there's no gap in coverage.
+
+**`research/retrain_chart_models.py`** (new): re-trains and
+re-validates every symbol currently in `get_supported_symbols()` -
+never the already-excluded ones (SOL, MSFT, GOOGL, ...), since
+re-attempting those every week without being asked would be scope
+creep on its own. A symbol is **demoted** (dropped from the live
+allowlist) the moment either window no longer clears
+`check_window_significance()` - same bar, no human in the loop. A
+symbol whose retrain fails for an infrastructure reason (yfinance
+fetch error) is **not** demoted - its previous live status is kept
+and the failure is flagged in the run's report, matching the
+"non-fatal, bounded gap" judgment already used for GS's partial news
+backfill earlier in this project. Writes the updated model/scaler
+files (so a change is live on the very next request, no restart),
+the new `supported_symbols.json`, and a timestamped JSON report under
+`model_artifacts/retrain_reports/` with the full per-symbol numbers
+behind every keep/demote decision.
+
+**Deliberately does not run `git add`/`commit`/`push`.** This script
+runs unattended on a schedule with no human reviewing each run - an
+automated process rewriting the shared `main` branch on its own is a
+materially different risk than every other change in this project,
+which a human (this session) reviewed and pushed individually. Git
+operations stay a deliberate, separate step.
+
+**Not installed as an actual cron/systemd timer by this work** - that
+is a deployment decision for wherever the live app actually serves
+from (per earlier memory, `mayasoftlnx01`), which this session doesn't
+have authorization to modify unprompted. The exact line, for whoever
+sets it up:
+
+```
+0 2 * * 0 cd /path/to/backend/src && /path/to/venv/bin/python -m research.retrain_chart_models >> /var/log/optitrade-retrain.log 2>&1
+```
+
+(Sundays 02:00 server time - weekly, chosen over daily since one
+day's new data barely moves a model trained on years of history, and
+over monthly given the "adapt to current market conditions" framing
+behind this whole feature.)
+
+**Verified end-to-end** (not a full 61-symbol run - that takes ~1-1.5h
+and wasn't necessary to prove the mechanism): called the script's
+`_check_symbol("BTC-USD")` directly. It retrained BTC-USD fresh,
+revalidated it, and correctly returned `{"status": "kept", "window1":
+{"passes": true, "p_value": 0.0014}, "window2": {"passes": true,
+"p_value": 0.0}}` - matching the live decision already on record for
+BTC. Caught and fixed one real bug in the process: `scipy.stats.binomtest`
+rejects a numpy `int64`/`float64` for its sample-size argument
+outright ("n must be an integer") - `check_window_significance` now
+explicitly coerces `n`/`k` to plain Python `int` before calling it,
+since `retrain_chart_models.py` sums `classification_report`'s
+numpy-typed `support` values into that argument.
+
 ## Known follow-up, not fixed here (out of today's scope)
 
 `_try_load_base_model()` / `transfer_train()`'s "continual training"

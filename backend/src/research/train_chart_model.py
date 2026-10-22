@@ -186,6 +186,13 @@ def train(
     logger.info(f"\n{classification_report(y_test, y_pred, target_names=label_names)}")
     logger.info(f"Confusion Matrix:\n{np.array(cm)}")
 
+    # Test setinin KENDİ majority baseline'ı - class_distribution (üstteki
+    # `dist`) tüm veri kümesi (y_seq) üzerinden, bu ise sadece test seti
+    # üzerinden - automated retraining'in anlamlılık testinin kullanması
+    # gereken baseline bu (bkz. ml.chart_model.check_window_significance).
+    _, test_counts = np.unique(y_test, return_counts=True)
+    test_majority_baseline = float(max(test_counts)) / len(y_test) if len(y_test) else 0.0
+
     # ── 10. Meta kaydet ───────────────────────────────────────────────────────
     meta = {
         "trained_on":    symbol,
@@ -198,6 +205,7 @@ def train(
         "n_features":    N_FEATURES,
         "forward_days":  FORWARD_DAYS,
         "test_accuracy": round(float(test_acc), 4),
+        "test_majority_baseline": round(test_majority_baseline, 4),
         "test_loss":     round(float(test_loss), 4),
         "classification_report": report,
         "confusion_matrix":      cm,
