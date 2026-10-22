@@ -21,12 +21,11 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # ── Sabitler ──────────────────────────────────────────────────────────────────
-# Bu modelin eğitildiği/doğrulandığı tek varlık sınıfı (kripto, 60 günlük
-# CNN+LSTM) - her sembolün kendi scaler/ağırlıkları var (model_path_for vb.),
-# ama canlı entegrasyon (main.py) yalnızca burada açıkça listelenen,
-# eğitilmiş VE ikinci pencerede doğrulanmış sembollerde çalışmalı. Yeni bir
-# sembol eğitilip doğrulanınca buraya eklenmeli - dosyanın var olması tek
-# başına yeterli değil (kasıtlı: canlıya alma hâlâ açık bir kod değişikliği
+# Her sembolün kendi scaler/ağırlıkları var (model_path_for vb.), ama canlı
+# entegrasyon (main.py) yalnızca burada açıkça listelenen, eğitilmiş VE
+# ikinci pencerede doğrulanmış sembollerde çalışmalı. Yeni bir sembol
+# eğitilip doğrulanınca buraya eklenmeli - dosyanın var olması tek başına
+# yeterli değil (kasıtlı: canlıya alma hâlâ açık bir kod değişikliği
 # gerektirsin, sessizce "dosya var, o yüzden aktif" olmasın).
 MODEL_SYMBOL = "BTC-USD"  # geriye dönük uyumluluk için - ilk eğitilen/varsayılan sembol
 # SOL-USD de eğitildi ama BURADA YOK: window 1'de baseline'ın altında kaldı
@@ -34,7 +33,7 @@ MODEL_SYMBOL = "BTC-USD"  # geriye dönük uyumluluk için - ilk eğitilen/varsa
 # alınmadı. Dosyası model_artifacts/sol_chart_model.keras'ta duruyor, ileride
 # daha fazla veriyle (SOL-USD'nin yfinance geçmişi diğerlerinden daha kısa,
 # 2292 vs ~3175 sequence) yeniden denenebilir.
-SUPPORTED_SYMBOLS = ("BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD")
+SUPPORTED_SYMBOLS = ("BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD", "THYAO.IS")
 WINDOW      = 60       # Sliding window (gün)
 FORWARD_DAYS = 5       # Kaç gün sonrası tahmin
 BUY_THRESH  = 0.03     # %3 üstü yükseliş → BUY

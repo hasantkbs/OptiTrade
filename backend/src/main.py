@@ -1146,7 +1146,14 @@ def _enrich_result(result: AnalysisResult, mc_data: Optional[Dict[str, Any]]) ->
         # uygulanmasın diye.
         if result.symbol in SUPPORTED_SYMBOLS and is_model_available(result.symbol):
             import yfinance as yf
-            hist_ai = yf.Ticker(result.symbol).history(period="3mo")
+            # WINDOW (60) + _build_features'ın 30 satırlık ısınma kaybı = en
+            # az 90 ham satır gerekiyor. "3mo" bunu haftada-7-gün işlem gören
+            # kripto için ancak karşılıyordu (63 satır, 3 satır pay) ve
+            # haftada-5-gün işlem gören piyasalarda (BIST/ABD hisseleri) hiç
+            # yetmiyordu (THYAO.IS: 37 satır) - "Yetersiz veri" ile sessizce
+            # hiçbir sinyal üretmiyordu. "6mo" her iki durumda da güvenli pay
+            # bırakıyor.
+            hist_ai = yf.Ticker(result.symbol).history(period="6mo")
             if not hist_ai.empty:
                 chart_ai_result = predict_chart_signal(hist_ai, symbol=result.symbol)
     except Exception:

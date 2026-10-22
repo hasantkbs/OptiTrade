@@ -1,0 +1,69 @@
+{
+  "trained_on": "THYAO.IS",
+  "training_date": "2026-10-22T12:02:07.035473",
+  "period": "max",
+  "n_train": 4694,
+  "n_val": 1005,
+  "n_test": 1005,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.501,
+  "test_loss": 0.9893,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.47491638795986624,
+      "recall": 0.4913494809688581,
+      "f1-score": 0.48299319727891155,
+      "support": 289.0
+    },
+    "NEUTRAL": {
+      "precision": 0.5160142348754448,
+      "recall": 0.34441805225653205,
+      "f1-score": 0.4131054131054131,
+      "support": 421.0
+    },
+    "BUY": {
+      "precision": 0.5095238095238095,
+      "recall": 0.7379310344827587,
+      "f1-score": 0.6028169014084507,
+      "support": 290.0
+    },
+    "accuracy": 0.501,
+    "macro avg": {
+      "precision": 0.5001514774530401,
+      "recall": 0.5245661892360496,
+      "f1-score": 0.4996385039309252,
+      "support": 1000.0
+    },
+    "weighted avg": {
+      "precision": 0.5022547337648684,
+      "recall": 0.501,
+      "f1-score": 0.48831931433943504,
+      "support": 1000.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      142,
+      90,
+      57
+    ],
+    [
+      127,
+      145,
+      149
+    ],
+    [
+      30,
+      46,
+      214
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 2019,
+    "NEUTRAL": 2682,
+    "BUY": 2003
+  },
+  "best_epoch": 14
+}

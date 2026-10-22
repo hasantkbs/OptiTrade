@@ -220,6 +220,49 @@ the approach for this symbol permanently.
 with the reasoning recorded above (both in this doc and as a code
 comment next to `SUPPORTED_SYMBOLS` in `ml/chart_model.py`).
 
+## First equity — THYAO.IS (BIST), and a fifth bug in the live path
+
+With the crypto basket done, the next test is a different asset class
+entirely: BIST equities, trading 5 days/week (unlike crypto's 7).
+THYAO.IS (Türk Hava Yolları, the BIST basket's flagship/most liquid
+symbol) was trained and validated the same way:
+
+| | THYAO W1 | THYAO W2 |
+|---|---|---|
+| Test accuracy | 0.5010 | 0.5900 |
+| Majority baseline | 0.4210 | 0.3840 |
+| Gap vs. baseline | +0.0800 | **+0.2060** |
+| Binomial p-value | 0.0000002 | ~0 |
+
+The strongest result of any symbol tried so far - both windows highly
+significant, window 2 even larger than window 1 (same reinforcing
+pattern as BTC and BNB). 6,704 total sequences, far more than any
+crypto symbol, because THYAO.IS has a much longer yfinance history
+than any crypto asset (BIST listing vs. a 2017-era crypto listing) -
+more training data plausibly explains part of why equity numbers came
+out stronger than crypto's.
+
+**Fifth bug, found while smoke-testing before going live**:
+`main.py`'s live history pull used a hardcoded `period="3mo"`. For
+THYAO.IS this produced only 37 valid feature rows after `_build_features()`'s
+30-row warmup trim - short of `WINDOW` (60) - so `predict_chart_signal()`
+always returned `{"error": "Yetersiz veri"}` in production, silently
+producing no signal. Worse: crypto's own margin was dangerously thin
+too (63 rows for a 60-row window, since crypto trades 7 days/week vs.
+equities' 5) - a slightly shorter month could have broken BTC/ETH/BNB/XRP
+the same way at any time without anyone noticing, since the failure is
+swallowed by `_enrich_result`'s own try/except. Fixed by changing to
+`period="6mo"` (125 raw rows for THYAO.IS, 95 after warmup - comfortable
+margin for both 5-day and 7-day markets). Regression tests added to
+`tests/test_chart_model_build_features.py` encoding the exact margin
+requirement with synthetic business-day data (3mo-equivalent fails the
+window requirement, 6mo-equivalent clears it).
+
+Added to `SUPPORTED_SYMBOLS` (now `("BTC-USD", "ETH-USD", "BNB-USD",
+"XRP-USD", "THYAO.IS")`) after re-verifying the real end-to-end
+prediction with the `period="6mo"` fix in place for both THYAO.IS and
+BTC-USD.
+
 ## Known follow-up, not fixed here (out of today's scope)
 
 `_try_load_base_model()` / `transfer_train()`'s "continual training"
