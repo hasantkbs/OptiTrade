@@ -1,0 +1,69 @@
+{
+  "trained_on": "TOASO.IS",
+  "training_date": "2026-10-22T13:48:11.485763",
+  "period": "max",
+  "n_train": 4694,
+  "n_val": 1005,
+  "n_test": 1005,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.549,
+  "test_loss": 0.9295,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.6041055718475073,
+      "recall": 0.6645161290322581,
+      "f1-score": 0.6328725038402457,
+      "support": 310.0
+    },
+    "NEUTRAL": {
+      "precision": 0.48484848484848486,
+      "recall": 0.2774566473988439,
+      "f1-score": 0.35294117647058826,
+      "support": 346.0
+    },
+    "BUY": {
+      "precision": 0.5357917570498916,
+      "recall": 0.7180232558139535,
+      "f1-score": 0.613664596273292,
+      "support": 344.0
+    },
+    "accuracy": 0.549,
+    "macro avg": {
+      "precision": 0.5415819379152945,
+      "recall": 0.5533320107483518,
+      "f1-score": 0.533159425528042,
+      "support": 1000.0
+    },
+    "weighted avg": {
+      "precision": 0.5393426674554658,
+      "recall": 0.549,
+      "f1-score": 0.5294087443673121,
+      "support": 1000.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      206,
+      40,
+      64
+    ],
+    [
+      100,
+      96,
+      150
+    ],
+    [
+      35,
+      62,
+      247
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 1986,
+    "NEUTRAL": 2570,
+    "BUY": 2148
+  },
+  "best_epoch": 19
+}

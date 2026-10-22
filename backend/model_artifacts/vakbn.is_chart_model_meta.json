@@ -1,0 +1,69 @@
+{
+  "trained_on": "VAKBN.IS",
+  "training_date": "2026-10-22T13:54:32.683037",
+  "period": "max",
+  "n_train": 3683,
+  "n_val": 789,
+  "n_test": 789,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.523,
+  "test_loss": 0.9717,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.587360594795539,
+      "recall": 0.6528925619834711,
+      "f1-score": 0.6183953033268101,
+      "support": 242.0
+    },
+    "NEUTRAL": {
+      "precision": 0.3953488372093023,
+      "recall": 0.12686567164179105,
+      "f1-score": 0.192090395480226,
+      "support": 268.0
+    },
+    "BUY": {
+      "precision": 0.5081585081585082,
+      "recall": 0.7956204379562044,
+      "f1-score": 0.620199146514936,
+      "support": 274.0
+    },
+    "accuracy": 0.5229591836734694,
+    "macro avg": {
+      "precision": 0.49695598005444985,
+      "recall": 0.5251262238604889,
+      "f1-score": 0.47689494844065744,
+      "support": 784.0
+    },
+    "weighted avg": {
+      "precision": 0.49404360146434273,
+      "recall": 0.5229591836734694,
+      "f1-score": 0.4732990504322463,
+      "support": 784.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      158,
+      35,
+      49
+    ],
+    [
+      72,
+      34,
+      162
+    ],
+    [
+      39,
+      17,
+      218
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 1670,
+    "NEUTRAL": 2053,
+    "BUY": 1538
+  },
+  "best_epoch": 14
+}

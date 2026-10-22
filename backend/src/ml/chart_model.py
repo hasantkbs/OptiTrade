@@ -28,16 +28,33 @@ logger = logging.getLogger(__name__)
 # yeterli değil (kasıtlı: canlıya alma hâlâ açık bir kod değişikliği
 # gerektirsin, sessizce "dosya var, o yüzden aktif" olmasın).
 MODEL_SYMBOL = "BTC-USD"  # geriye dönük uyumluluk için - ilk eğitilen/varsayılan sembol
-# SOL-USD, MSFT, GOOGL, V de eğitildi ama BURADA YOK - en az bir penceresi
-# baseline'ı anlamlı şekilde geçemedi: SOL W1 p=0.90, MSFT W2 p=0.77, GOOGL
-# W1 p=0.60, V hem W1 hem W2'de açıkça negatif (p=1.00, p=0.999). Dosyaları
-# model_artifacts/'ta duruyor (ör. sol_chart_model.keras), ileride daha
-# fazla veriyle yeniden denenebilir.
+# Eğitilip BURADA OLMAYAN semboller - en az bir penceresi baseline'ı anlamlı
+# şekilde geçemedi (tam gerekçe: docs/btc-chart-model-training-2026-10-22.md):
+# kripto: SOL-USD, ADA-USD, ARB-USD, AVAX-USD, DOT-USD, NEAR-USD, OP-USD,
+#         TIA-USD
+# US:     MSFT, GOOGL, V, MA, WMT
+# Dosyaları model_artifacts/'ta duruyor, ileride yeniden denenebilir.
+# Ayrıca 6 sembol (KOZAL.IS, QNBFB.IS, SODA.IS, GE, APT-USD, MATIC-USD) hiç
+# eğitilemedi - yfinance bu ticker'ları çözemiyor ("possibly delisted"),
+# muhtemelen core/market_config.py'deki eşleşmeler güncel değil (ör.
+# MATIC->POL marka değişikliği) - ayrı bir veri-kalitesi sorunu, burada
+# düzeltilmedi.
 SUPPORTED_SYMBOLS = (
+    # Kripto (CRYPTO_SYMBOLS, 18 sembolün 8'i)
     "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD",
+    "DOGE-USD", "INJ-USD", "LINK-USD", "LTC-USD",
+    # BIST (BIST_SYMBOLS, 34 sembolün 31'i)
     "THYAO.IS", "GARAN.IS", "EREGL.IS", "ASELS.IS", "KCHOL.IS",
     "AKBNK.IS", "TUPRS.IS", "SISE.IS", "BIMAS.IS", "FROTO.IS",
+    "ALBRK.IS", "ARCLK.IS", "DOHOL.IS", "ENKAI.IS", "HALKB.IS",
+    "INDES.IS", "ISCTR.IS", "KRDMD.IS", "LOGO.IS", "MGROS.IS",
+    "PETKM.IS", "PGSUS.IS", "SAHOL.IS", "TCELL.IS", "TOASO.IS",
+    "TTKOM.IS", "ULKER.IS", "VAKBN.IS", "VESTL.IS", "YKBNK.IS",
+    "ZOREN.IS",
+    # US (US_SYMBOLS, 28 sembolün 22'si)
     "AAPL", "NVDA", "META", "TSLA", "JPM", "XOM", "HD",
+    "AMD", "AMZN", "BA", "BAC", "CAT", "CRM", "CVX", "GS",
+    "INTC", "JNJ", "LLY", "MCD", "MS", "PFE", "UNH",
 )
 WINDOW      = 60       # Sliding window (gün)
 FORWARD_DAYS = 5       # Kaç gün sonrası tahmin

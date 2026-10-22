@@ -1,0 +1,69 @@
+{
+  "trained_on": "ARCLK.IS",
+  "training_date": "2026-10-22T13:17:11.641060",
+  "period": "max",
+  "n_train": 4694,
+  "n_val": 1005,
+  "n_test": 1005,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.564,
+  "test_loss": 0.8885,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.5861111111111111,
+      "recall": 0.6355421686746988,
+      "f1-score": 0.6098265895953757,
+      "support": 332.0
+    },
+    "NEUTRAL": {
+      "precision": 0.5561797752808989,
+      "recall": 0.4841075794621027,
+      "f1-score": 0.5176470588235295,
+      "support": 409.0
+    },
+    "BUY": {
+      "precision": 0.545774647887324,
+      "recall": 0.5984555984555985,
+      "f1-score": 0.570902394106814,
+      "support": 259.0
+    },
+    "accuracy": 0.564,
+    "macro avg": {
+      "precision": 0.5626885114264447,
+      "recall": 0.5727017821974667,
+      "f1-score": 0.566125347508573,
+      "support": 1000.0
+    },
+    "weighted avg": {
+      "precision": 0.5634220507815935,
+      "recall": 0.564,
+      "f1-score": 0.5620437948781531,
+      "support": 1000.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      211,
+      82,
+      39
+    ],
+    [
+      121,
+      198,
+      90
+    ],
+    [
+      28,
+      76,
+      155
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 2023,
+    "NEUTRAL": 2816,
+    "BUY": 1865
+  },
+  "best_epoch": 12
+}

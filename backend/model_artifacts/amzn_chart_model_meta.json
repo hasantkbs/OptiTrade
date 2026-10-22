@@ -1,0 +1,69 @@
+{
+  "trained_on": "AMZN",
+  "training_date": "2026-10-22T13:22:32.618739",
+  "period": "max",
+  "n_train": 5118,
+  "n_val": 1096,
+  "n_test": 1096,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.5857,
+  "test_loss": 0.8607,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.5718157181571816,
+      "recall": 0.705685618729097,
+      "f1-score": 0.6317365269461078,
+      "support": 299.0
+    },
+    "NEUTRAL": {
+      "precision": 0.6172248803827751,
+      "recall": 0.5129224652087475,
+      "f1-score": 0.5602605863192183,
+      "support": 503.0
+    },
+    "BUY": {
+      "precision": 0.5592105263157895,
+      "recall": 0.5882352941176471,
+      "f1-score": 0.5733558178752108,
+      "support": 289.0
+    },
+    "accuracy": 0.5857011915673694,
+    "macro avg": {
+      "precision": 0.5827503749519153,
+      "recall": 0.6022811260184971,
+      "f1-score": 0.5884509770468457,
+      "support": 1091.0
+    },
+    "weighted avg": {
+      "precision": 0.5894123342500424,
+      "recall": 0.5857011915673694,
+      "f1-score": 0.5833181740067727,
+      "support": 1091.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      211,
+      74,
+      14
+    ],
+    [
+      125,
+      258,
+      120
+    ],
+    [
+      33,
+      86,
+      170
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 2141,
+    "NEUTRAL": 3026,
+    "BUY": 2143
+  },
+  "best_epoch": 17
+}

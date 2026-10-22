@@ -1,0 +1,69 @@
+{
+  "trained_on": "DOHOL.IS",
+  "training_date": "2026-10-22T13:20:25.048665",
+  "period": "max",
+  "n_train": 4694,
+  "n_val": 1005,
+  "n_test": 1005,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.545,
+  "test_loss": 0.9456,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.5614617940199336,
+      "recall": 0.5728813559322034,
+      "f1-score": 0.5671140939597316,
+      "support": 295.0
+    },
+    "NEUTRAL": {
+      "precision": 0.509641873278237,
+      "recall": 0.4817708333333333,
+      "f1-score": 0.49531459170013387,
+      "support": 384.0
+    },
+    "BUY": {
+      "precision": 0.5684523809523809,
+      "recall": 0.5950155763239875,
+      "f1-score": 0.5814307458143074,
+      "support": 321.0
+    },
+    "accuracy": 0.545,
+    "macro avg": {
+      "precision": 0.5465186827501838,
+      "recall": 0.5498892551965081,
+      "f1-score": 0.5479531438247243,
+      "support": 1000.0
+    },
+    "weighted avg": {
+      "precision": 0.5438069228604376,
+      "recall": 0.545,
+      "f1-score": 0.5441387303373649,
+      "support": 1000.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      169,
+      82,
+      44
+    ],
+    [
+      98,
+      185,
+      101
+    ],
+    [
+      34,
+      96,
+      191
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 2156,
+    "NEUTRAL": 2630,
+    "BUY": 1918
+  },
+  "best_epoch": 15
+}

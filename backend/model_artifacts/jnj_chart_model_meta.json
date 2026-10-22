@@ -1,0 +1,69 @@
+{
+  "trained_on": "JNJ",
+  "training_date": "2026-10-22T14:16:49.031456",
+  "period": "max",
+  "n_train": 11352,
+  "n_val": 2432,
+  "n_test": 2432,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.8047,
+  "test_loss": 0.4698,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.6293103448275862,
+      "recall": 0.7604166666666666,
+      "f1-score": 0.6886792452830188,
+      "support": 384.0
+    },
+    "NEUTRAL": {
+      "precision": 0.9110546378653113,
+      "recall": 0.8133862733976177,
+      "f1-score": 0.8594545999400659,
+      "support": 1763.0
+    },
+    "BUY": {
+      "precision": 0.583547557840617,
+      "recall": 0.8107142857142857,
+      "f1-score": 0.6786248131539612,
+      "support": 280.0
+    },
+    "accuracy": 0.8046971569839307,
+    "macro avg": {
+      "precision": 0.7079708468445048,
+      "recall": 0.7948390752595232,
+      "f1-score": 0.742252886125682,
+      "support": 2427.0
+    },
+    "weighted avg": {
+      "precision": 0.8286929605132713,
+      "recall": 0.8046971569839307,
+      "f1-score": 0.8115724093803561,
+      "support": 2427.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      292,
+      91,
+      1
+    ],
+    [
+      168,
+      1434,
+      161
+    ],
+    [
+      4,
+      49,
+      227
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 3137,
+    "NEUTRAL": 10510,
+    "BUY": 2569
+  },
+  "best_epoch": 27
+}

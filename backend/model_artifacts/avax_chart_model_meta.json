@@ -1,0 +1,69 @@
+{
+  "trained_on": "AVAX-USD",
+  "training_date": "2026-10-22T13:18:04.642927",
+  "period": "max",
+  "n_train": 1491,
+  "n_val": 319,
+  "n_test": 319,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.4522,
+  "test_loss": 1.0656,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.5473684210526316,
+      "recall": 0.4,
+      "f1-score": 0.4622222222222222,
+      "support": 130.0
+    },
+    "NEUTRAL": {
+      "precision": 0.38571428571428573,
+      "recall": 0.5346534653465347,
+      "f1-score": 0.44813278008298757,
+      "support": 101.0
+    },
+    "BUY": {
+      "precision": 0.45569620253164556,
+      "recall": 0.43373493975903615,
+      "f1-score": 0.4444444444444444,
+      "support": 83.0
+    },
+    "accuracy": 0.45222929936305734,
+    "macro avg": {
+      "precision": 0.462926303099521,
+      "recall": 0.4561294683685236,
+      "f1-score": 0.4515998155832181,
+      "support": 314.0
+    },
+    "weighted avg": {
+      "precision": 0.4711395617965336,
+      "recall": 0.45222929936305734,
+      "f1-score": 0.4529910463890431,
+      "support": 314.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      52,
+      55,
+      23
+    ],
+    [
+      27,
+      54,
+      20
+    ],
+    [
+      16,
+      31,
+      36
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 912,
+    "NEUTRAL": 454,
+    "BUY": 763
+  },
+  "best_epoch": 17
+}

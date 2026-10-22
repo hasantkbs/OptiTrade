@@ -1,0 +1,69 @@
+{
+  "trained_on": "ZOREN.IS",
+  "training_date": "2026-10-22T14:01:34.059286",
+  "period": "max",
+  "n_train": 4686,
+  "n_val": 1003,
+  "n_test": 1003,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.5561,
+  "test_loss": 0.9154,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.6237623762376238,
+      "recall": 0.6684350132625995,
+      "f1-score": 0.645326504481434,
+      "support": 377.0
+    },
+    "NEUTRAL": {
+      "precision": 0.5021645021645021,
+      "recall": 0.332378223495702,
+      "f1-score": 0.4,
+      "support": 349.0
+    },
+    "BUY": {
+      "precision": 0.5151515151515151,
+      "recall": 0.6875,
+      "f1-score": 0.5889763779527559,
+      "support": 272.0
+    },
+    "accuracy": 0.5561122244488977,
+    "macro avg": {
+      "precision": 0.547026131184547,
+      "recall": 0.5627710789194338,
+      "f1-score": 0.5447676274780634,
+      "support": 998.0
+    },
+    "weighted avg": {
+      "precision": 0.5516383158499074,
+      "recall": 0.5561122244488977,
+      "f1-score": 0.5441780230387276,
+      "support": 998.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      252,
+      74,
+      51
+    ],
+    [
+      108,
+      116,
+      125
+    ],
+    [
+      44,
+      41,
+      187
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 2098,
+    "NEUTRAL": 2920,
+    "BUY": 1674
+  },
+  "best_epoch": 11
+}

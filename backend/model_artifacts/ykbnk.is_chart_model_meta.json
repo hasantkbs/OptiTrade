@@ -1,0 +1,69 @@
+{
+  "trained_on": "YKBNK.IS",
+  "training_date": "2026-10-22T13:59:27.966236",
+  "period": "max",
+  "n_train": 4694,
+  "n_val": 1005,
+  "n_test": 1005,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.593,
+  "test_loss": 0.8982,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.6237373737373737,
+      "recall": 0.7462235649546828,
+      "f1-score": 0.6795048143053645,
+      "support": 331.0
+    },
+    "NEUTRAL": {
+      "precision": 0.37055837563451777,
+      "recall": 0.2534722222222222,
+      "f1-score": 0.30103092783505153,
+      "support": 288.0
+    },
+    "BUY": {
+      "precision": 0.6707616707616708,
+      "recall": 0.7165354330708661,
+      "f1-score": 0.6928934010152284,
+      "support": 381.0
+    },
+    "accuracy": 0.593,
+    "macro avg": {
+      "precision": 0.5550191400445207,
+      "recall": 0.5720770734159237,
+      "f1-score": 0.5578097143852148,
+      "support": 1000.0
+    },
+    "weighted avg": {
+      "precision": 0.5687380794500084,
+      "recall": 0.593,
+      "f1-score": 0.5756053865383726,
+      "support": 1000.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      247,
+      50,
+      34
+    ],
+    [
+      115,
+      73,
+      100
+    ],
+    [
+      34,
+      74,
+      273
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 2093,
+    "NEUTRAL": 2571,
+    "BUY": 2040
+  },
+  "best_epoch": 19
+}

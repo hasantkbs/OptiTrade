@@ -1,0 +1,69 @@
+{
+  "trained_on": "DOT-USD",
+  "training_date": "2026-10-22T13:20:44.813622",
+  "period": "max",
+  "n_train": 1512,
+  "n_val": 324,
+  "n_test": 324,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.489,
+  "test_loss": 1.0217,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.5837837837837838,
+      "recall": 0.627906976744186,
+      "f1-score": 0.6050420168067226,
+      "support": 172.0
+    },
+    "NEUTRAL": {
+      "precision": 0.08,
+      "recall": 0.03571428571428571,
+      "f1-score": 0.04938271604938271,
+      "support": 56.0
+    },
+    "BUY": {
+      "precision": 0.42201834862385323,
+      "recall": 0.5054945054945055,
+      "f1-score": 0.46,
+      "support": 91.0
+    },
+    "accuracy": 0.4890282131661442,
+    "macro avg": {
+      "precision": 0.361934044135879,
+      "recall": 0.38970525598432576,
+      "f1-score": 0.37147491095203516,
+      "support": 319.0
+    },
+    "weighted avg": {
+      "precision": 0.4491989985441425,
+      "recall": 0.4890282131661442,
+      "f1-score": 0.4661211880549271,
+      "support": 319.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      108,
+      19,
+      45
+    ],
+    [
+      36,
+      2,
+      18
+    ],
+    [
+      41,
+      4,
+      46
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 956,
+    "NEUTRAL": 435,
+    "BUY": 769
+  },
+  "best_epoch": 12
+}

@@ -1,0 +1,69 @@
+{
+  "trained_on": "CRM",
+  "training_date": "2026-10-22T13:50:58.451392",
+  "period": "max",
+  "n_train": 3869,
+  "n_val": 828,
+  "n_test": 828,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.514,
+  "test_loss": 0.9038,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.47678018575851394,
+      "recall": 0.6111111111111112,
+      "f1-score": 0.5356521739130434,
+      "support": 252.0
+    },
+    "NEUTRAL": {
+      "precision": 0.5,
+      "recall": 0.3190883190883191,
+      "f1-score": 0.38956521739130434,
+      "support": 351.0
+    },
+    "BUY": {
+      "precision": 0.5688405797101449,
+      "recall": 0.7136363636363636,
+      "f1-score": 0.6330645161290323,
+      "support": 220.0
+    },
+    "accuracy": 0.5139732685297691,
+    "macro avg": {
+      "precision": 0.5152069218228862,
+      "recall": 0.5479452646119313,
+      "f1-score": 0.5194273024777933,
+      "support": 823.0
+    },
+    "weighted avg": {
+      "precision": 0.5112922653066554,
+      "recall": 0.5139732685297691,
+      "f1-score": 0.4993875245186171,
+      "support": 823.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      154,
+      77,
+      21
+    ],
+    [
+      141,
+      112,
+      98
+    ],
+    [
+      28,
+      35,
+      157
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 1584,
+    "NEUTRAL": 2396,
+    "BUY": 1545
+  },
+  "best_epoch": 13
+}

@@ -1,0 +1,69 @@
+{
+  "trained_on": "ENKAI.IS",
+  "training_date": "2026-10-22T13:23:03.367748",
+  "period": "max",
+  "n_train": 4290,
+  "n_val": 918,
+  "n_test": 918,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.5268,
+  "test_loss": 0.9682,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.5308641975308642,
+      "recall": 0.6254545454545455,
+      "f1-score": 0.5742904841402338,
+      "support": 275.0
+    },
+    "NEUTRAL": {
+      "precision": 0.5966386554621849,
+      "recall": 0.199438202247191,
+      "f1-score": 0.29894736842105263,
+      "support": 356.0
+    },
+    "BUY": {
+      "precision": 0.5063829787234042,
+      "recall": 0.8439716312056738,
+      "f1-score": 0.6329787234042553,
+      "support": 282.0
+    },
+    "accuracy": 0.5268346111719606,
+    "macro avg": {
+      "precision": 0.5446286105721511,
+      "recall": 0.55628812630247,
+      "f1-score": 0.5020721919885139,
+      "support": 913.0
+    },
+    "weighted avg": {
+      "precision": 0.5489496338067091,
+      "recall": 0.5268346111719606,
+      "f1-score": 0.48505492474968126,
+      "support": 913.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      172,
+      31,
+      72
+    ],
+    [
+      125,
+      71,
+      160
+    ],
+    [
+      27,
+      17,
+      238
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 1552,
+    "NEUTRAL": 3001,
+    "BUY": 1573
+  },
+  "best_epoch": 14
+}

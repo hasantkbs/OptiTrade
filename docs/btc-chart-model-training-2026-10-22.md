@@ -355,6 +355,71 @@ research applies here: a single-digit set of symbols, each checked on
 only two windows, is suggestive, not conclusive, about the underlying
 market.
 
+## Full universe expansion — the rest of BIST, US, and crypto
+
+After the default-watchlist work above, the decision was made to
+broaden the LIVE universe to the platform's full configured symbol
+tables (`core/market_config.py::BIST_SYMBOLS`, `US_SYMBOLS`,
+`CRYPTO_SYMBOLS`) rather than build on-demand/scheduled training
+infrastructure - same methodology, just every remaining symbol in
+each table. Ran as 3 parallel batches (one per market, to use the
+machine's 8 cores) covering 55 remaining symbols: 24 BIST, 18 US, 13
+crypto.
+
+**6 symbols never trained at all** - yfinance can't resolve the exact
+ticker string in `market_config.py`: `KOZAL.IS`, `QNBFB.IS`, `SODA.IS`
+("possibly delisted; no timezone found"), `GE` ("possibly delisted;
+no price data found" - plausibly stale after GE's 2024 three-way
+corporate split into GE Aerospace/Vernova/HealthCare), `APT-USD`,
+`MATIC-USD` ("possibly delisted; no timezone found" - MATIC rebranded
+to POL in 2024, so the old ticker may no longer resolve). This is a
+`market_config.py` data-quality issue, not a bug in the training
+pipeline - left unfixed since correcting ticker mappings wasn't part
+of this task and guessing a replacement ticker (e.g. `POL-USD` for
+`MATIC-USD`) without confirming it's actually the intended asset would
+be worse than leaving the gap visible.
+
+**49 symbols successfully trained and validated. 40 went live, 9 excluded**
+(same both-windows-significant bar as every symbol before):
+
+**BIST (21 of 24 attempted, all 21 went live)** - cleanest result yet,
+zero failures for the third basket running: ALBRK.IS, ARCLK.IS,
+DOHOL.IS, ENKAI.IS, HALKB.IS, INDES.IS, ISCTR.IS, KRDMD.IS, LOGO.IS,
+MGROS.IS, PETKM.IS, PGSUS.IS, SAHOL.IS, TCELL.IS, TOASO.IS, TTKOM.IS,
+ULKER.IS, VAKBN.IS, VESTL.IS, YKBNK.IS, ZOREN.IS.
+
+**US (17 of 18 attempted, 15 went live, 2 excluded)**: AMD, AMZN, BA,
+BAC, CAT, CRM, CVX, GS, INTC, JNJ, LLY, MCD, MS, PFE, UNH LIVE. **MA
+NOT live** (window 1 clearly negative, p=0.99999965). **WMT NOT live**
+(window 2 flat/negative, p=0.858, despite a strong window 1).
+
+**Crypto (11 of 13 attempted, 4 went live, 7 excluded)** - crypto's hit
+rate dropped further on this wider, lower-cap/newer-listing set:
+DOGE-USD, INJ-USD, LINK-USD, LTC-USD LIVE. **NOT live**: ADA-USD (both
+weak/non-significant), ARB-USD (window 1 catastrophically negative,
+-0.502, p=1.00 - likely too little/volatile history), AVAX-USD (window
+2 negative), DOT-USD (both windows non-significant/negative), NEAR-USD
+(both non-significant), OP-USD (window 1 marginal, window 2 fails),
+TIA-USD (both flat/non-significant - likely too little history, it's
+one of the newer listings in this set).
+
+`SUPPORTED_SYMBOLS` now has **61 symbols**: 8 crypto, 31 BIST, 22 US.
+All 40 newly-live symbols spot-checked (not exhaustively re-verified
+one by one, given the volume) with real end-to-end `predict_chart_signal()`
+calls across all three markets before committing.
+
+**Pattern holding across the whole effort**: BIST has now gone 31-for-31
+(10 default-watchlist + 21 more) with zero failures across three
+separate batches. Crypto's hit rate keeps falling as the set widens
+past the top 5 by market cap (4/5 → now 12/18 overall, with most of
+today's new failures concentrated in newer/smaller-cap listings with
+less price history). US sits in between (22/28 overall). This is
+still not enough evidence to firmly explain *why* - more history and
+possibly BIST's retail-driven trading pattern remain the leading
+hypotheses from earlier in this doc - but the shape of the result
+(BIST clean, crypto noisy, US in between) has now replicated across
+three independent expansion rounds rather than one.
+
 ## Known follow-up, not fixed here (out of today's scope)
 
 `_try_load_base_model()` / `transfer_train()`'s "continual training"

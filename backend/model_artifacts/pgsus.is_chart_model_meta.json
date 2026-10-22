@@ -1,0 +1,69 @@
+{
+  "trained_on": "PGSUS.IS",
+  "training_date": "2026-10-22T13:40:52.716425",
+  "period": "max",
+  "n_train": 2305,
+  "n_val": 493,
+  "n_test": 493,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.4877,
+  "test_loss": 1.0092,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.5,
+      "recall": 0.6162790697674418,
+      "f1-score": 0.5520833333333334,
+      "support": 172.0
+    },
+    "NEUTRAL": {
+      "precision": 0.5576923076923077,
+      "recall": 0.4084507042253521,
+      "f1-score": 0.4715447154471545,
+      "support": 213.0
+    },
+    "BUY": {
+      "precision": 0.375,
+      "recall": 0.4368932038834951,
+      "f1-score": 0.40358744394618834,
+      "support": 103.0
+    },
+    "accuracy": 0.48770491803278687,
+    "macro avg": {
+      "precision": 0.4775641025641026,
+      "recall": 0.4872076592920964,
+      "f1-score": 0.47573849757555875,
+      "support": 488.0
+    },
+    "weighted avg": {
+      "precision": 0.4987980769230769,
+      "recall": 0.48770491803278687,
+      "f1-score": 0.4855878369877759,
+      "support": 488.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      106,
+      43,
+      23
+    ],
+    [
+      74,
+      87,
+      52
+    ],
+    [
+      32,
+      26,
+      45
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 1082,
+    "NEUTRAL": 1226,
+    "BUY": 983
+  },
+  "best_epoch": 13
+}

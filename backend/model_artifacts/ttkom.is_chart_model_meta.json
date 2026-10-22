@@ -1,0 +1,69 @@
+{
+  "trained_on": "TTKOM.IS",
+  "training_date": "2026-10-22T13:50:31.040878",
+  "period": "max",
+  "n_train": 3239,
+  "n_val": 693,
+  "n_test": 693,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.4666,
+  "test_loss": 1.0338,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.47703180212014135,
+      "recall": 0.6818181818181818,
+      "f1-score": 0.5613305613305614,
+      "support": 198.0
+    },
+    "NEUTRAL": {
+      "precision": 0.504950495049505,
+      "recall": 0.17894736842105263,
+      "f1-score": 0.26424870466321243,
+      "support": 285.0
+    },
+    "BUY": {
+      "precision": 0.4440789473684211,
+      "recall": 0.6585365853658537,
+      "f1-score": 0.5304518664047151,
+      "support": 205.0
+    },
+    "accuracy": 0.46656976744186046,
+    "macro avg": {
+      "precision": 0.4753537481793558,
+      "recall": 0.5064340452016961,
+      "f1-score": 0.45201037746616296,
+      "support": 688.0
+    },
+    "weighted avg": {
+      "precision": 0.47877815715032446,
+      "recall": 0.46656976744186046,
+      "f1-score": 0.4290653555020833,
+      "support": 688.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      135,
+      16,
+      47
+    ],
+    [
+      112,
+      51,
+      122
+    ],
+    [
+      36,
+      34,
+      135
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 1249,
+    "NEUTRAL": 2184,
+    "BUY": 1192
+  },
+  "best_epoch": 14
+}

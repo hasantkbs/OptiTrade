@@ -1,0 +1,69 @@
+{
+  "trained_on": "VESTL.IS",
+  "training_date": "2026-10-22T13:56:52.388328",
+  "period": "max",
+  "n_train": 4694,
+  "n_val": 1005,
+  "n_test": 1005,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.571,
+  "test_loss": 0.9042,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.6220472440944882,
+      "recall": 0.7764127764127764,
+      "f1-score": 0.6907103825136612,
+      "support": 407.0
+    },
+    "NEUTRAL": {
+      "precision": 0.44660194174757284,
+      "recall": 0.2893081761006289,
+      "f1-score": 0.3511450381679389,
+      "support": 318.0
+    },
+    "BUY": {
+      "precision": 0.5699300699300699,
+      "recall": 0.5927272727272728,
+      "f1-score": 0.5811051693404634,
+      "support": 275.0
+    },
+    "accuracy": 0.571,
+    "macro avg": {
+      "precision": 0.546193085257377,
+      "recall": 0.552816075080226,
+      "f1-score": 0.5409868633406879,
+      "support": 1000.0
+    },
+    "weighted avg": {
+      "precision": 0.5519234150529542,
+      "recall": 0.571,
+      "f1-score": 0.5525871693890921,
+      "support": 1000.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      316,
+      59,
+      32
+    ],
+    [
+      135,
+      92,
+      91
+    ],
+    [
+      57,
+      55,
+      163
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 2172,
+    "NEUTRAL": 2711,
+    "BUY": 1821
+  },
+  "best_epoch": 21
+}

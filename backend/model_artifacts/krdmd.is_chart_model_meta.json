@@ -1,0 +1,69 @@
+{
+  "trained_on": "KRDMD.IS",
+  "training_date": "2026-10-22T13:31:35.149592",
+  "period": "max",
+  "n_train": 4694,
+  "n_val": 1005,
+  "n_test": 1005,
+  "window": 60,
+  "n_features": 11,
+  "forward_days": 5,
+  "test_accuracy": 0.555,
+  "test_loss": 0.9156,
+  "classification_report": {
+    "SELL": {
+      "precision": 0.6286549707602339,
+      "recall": 0.6090651558073654,
+      "f1-score": 0.6187050359712231,
+      "support": 353.0
+    },
+    "NEUTRAL": {
+      "precision": 0.3807531380753138,
+      "recall": 0.3023255813953488,
+      "f1-score": 0.337037037037037,
+      "support": 301.0
+    },
+    "BUY": {
+      "precision": 0.594272076372315,
+      "recall": 0.7196531791907514,
+      "f1-score": 0.6509803921568628,
+      "support": 346.0
+    },
+    "accuracy": 0.555,
+    "macro avg": {
+      "precision": 0.5345600617359543,
+      "recall": 0.5436813054644886,
+      "f1-score": 0.5355741550550409,
+      "support": 1000.0
+    },
+    "weighted avg": {
+      "precision": 0.542140037663853,
+      "recall": 0.555,
+      "f1-score": 0.5450902415322644,
+      "support": 1000.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      215,
+      84,
+      54
+    ],
+    [
+      94,
+      91,
+      116
+    ],
+    [
+      33,
+      64,
+      249
+    ]
+  ],
+  "class_distribution": {
+    "SELL": 2127,
+    "NEUTRAL": 2406,
+    "BUY": 2171
+  },
+  "best_epoch": 17
+}
