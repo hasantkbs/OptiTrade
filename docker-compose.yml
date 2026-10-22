@@ -128,6 +128,16 @@ services:
     container_name: optitrade-api
     expose:
       - "8000"
+    volumes:
+      # research/retrain_chart_models.py (weekly, host crontab) writes
+      # new chart-model files directly here - without this mount, the
+      # Dockerfile's `COPY . .` only ever bakes in whatever existed at
+      # the last image build, and a host-side retrain would silently
+      # have zero effect on the running container. Bind mount (not a
+      # named volume) so the host's ./backend/model_artifacts stays the
+      # single source of truth and a retrain takes effect on the very
+      # next request - no restart needed.
+      - ./backend/model_artifacts:/app/model_artifacts
     env_file:
       - ./backend/.env
     environment:
