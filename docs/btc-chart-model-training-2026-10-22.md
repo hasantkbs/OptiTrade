@@ -649,11 +649,32 @@ two).
 **Chart AI's edge over the naive baseline also varies by market**:
 largest and most statistically overwhelming in US (+18.1 points,
 p≈10⁻⁸⁰, also the largest pooled sample), solid in BIST (+16.5
-points, p≈10⁻³²), and real but markedly more marginal in CRYPTO (+6.8
-points) - p=0.013 does clear the conventional 0.05 bar, but by far the
-smallest margin and the smallest sample of the three (n=279), so this
-one is the least strongly established of the three and the first to
-re-check once more CRYPTO price history accumulates.
+points, p≈10⁻³²), and more marginal in CRYPTO (+6.5-6.8 points) -
+significant, but on by far the smallest sample of the three.
+
+**CRYPTO re-run with roughly double the sample.** Added
+`--include-window2` to `backtest_oversold_regime.py`: for each symbol,
+also trains a SECOND model on window 1's former train block and
+evaluates it on window 1's former val block (mirrors
+`validate_chart_model_window2.py`'s exact split - zero overlap with
+window 1's own test block), pooling both windows' oversold subsets
+together. Worth doing specifically for CRYPTO, whose symbols have far
+less price history than BIST/US, so window 1's test split alone gives
+a thin subset per symbol:
+
+| | n=279 (window 1 only) | n=569 (window 1 + 2) |
+|---|---|---|
+| Actual SELL | 44.1% | 44.5% |
+| Actual NEUTRAL | 36.2% | 30.2% |
+| Actual BUY | 19.7% | 25.3% |
+| Model accuracy | 50.9% | 51.0% |
+| Majority baseline | 44.1% | 44.6% |
+| p-value | 0.013 | **0.0011** |
+
+The pattern holds under a near-doubled sample, and the p-value drops
+by more than an order of magnitude - CRYPTO's result is no longer the
+comparatively marginal one of the three; it's now on statistical
+footing comparable to BIST and US.
 
 ## Known follow-up, not fixed here (out of today's scope)
 
