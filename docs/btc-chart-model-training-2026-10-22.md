@@ -173,6 +173,53 @@ committing. Regression tests extended in
 supported symbol gets scored through its own model" and "an
 unsupported symbol is still skipped").
 
+## Completing the platform's crypto basket — BNB, SOL, XRP
+
+`core/market_config.py::CRYPTO_SYMBOLS` has exactly five entries
+(BTC-USD, ETH-USD, BNB-USD, SOL-USD, XRP-USD). With BTC and ETH both
+validated and live, the remaining three were trained and validated
+the same day, same methodology, in one batch:
+
+| | BNB W1 | BNB W2 | SOL W1 | SOL W2 | XRP W1 | XRP W2 |
+|---|---|---|---|---|---|---|
+| Test accuracy | 0.5117 | 0.4671 | 0.3550 | 0.4527 | 0.4756 | 0.5074 |
+| Majority baseline | 0.4246 | 0.3631 | **0.3876** | 0.4024 | 0.4289 | 0.3715 |
+| Gap vs. baseline | +0.0871 | +0.1040 | **-0.0326** | +0.0503 | +0.0467 | +0.1359 |
+| Binomial p-value | 0.000087 | 0.000002 | **0.901** | 0.034 | 0.023 | 0.000000 |
+
+**BNB-USD**: clean replication, both windows strongly significant and
+positive - same pattern as BTC/ETH. Added to `SUPPORTED_SYMBOLS`, live.
+
+**XRP-USD**: both windows significant and positive, though window 1 is
+markedly weaker (p=0.023 - well under 0.05, but nowhere near as
+decisive as BTC/ETH/BNB's window 1 results). Window 2 is actually
+*more* significant than window 1 (p<0.000001), the opposite of what
+pure noise inflating window 1 would predict - this is the same kind of
+corroboration-across-windows reasoning used throughout the ml-accuracy
+research, and it reads as a genuine (if weaker) effect rather than a
+fluke. Added to `SUPPORTED_SYMBOLS`, live.
+
+**SOL-USD**: window 1 is not just non-significant, it's *negative*
+(0.355 vs. 0.388 baseline, p=0.901 - essentially indistinguishable
+from chance, and if anything worse). Window 2 alone looks fine
+(p=0.034), but one failing window is disqualifying under the same bar
+BTC/ETH/BNB/XRP all had to clear on *both* windows - this is exactly
+the single-window-looked-promising-then-didn't-hold pattern the
+ml-accuracy News-features work hit (`ml-accuracy-consolidated-summary-2026-10-14f.md`).
+**Not** added to `SUPPORTED_SYMBOLS` - trained and saved
+(`sol_chart_model.keras` etc. exist on disk) but inert, since the
+allowlist design means existing on disk is not enough to go live.
+Worth revisiting if SOL-USD's yfinance history grows - it already has
+noticeably fewer sequences than the other four (2,292 vs. ~3,175),
+plausibly because SOL's listing history is shorter, which may be
+contributing to the weaker/inconsistent result rather than ruling out
+the approach for this symbol permanently.
+
+`SUPPORTED_SYMBOLS` is now `("BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD")`
+- 4 of the platform's 5 canonical crypto symbols live, SOL-USD excluded
+with the reasoning recorded above (both in this doc and as a code
+comment next to `SUPPORTED_SYMBOLS` in `ml/chart_model.py`).
+
 ## Known follow-up, not fixed here (out of today's scope)
 
 `_try_load_base_model()` / `transfer_train()`'s "continual training"

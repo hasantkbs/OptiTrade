@@ -29,7 +29,12 @@ logger = logging.getLogger(__name__)
 # başına yeterli değil (kasıtlı: canlıya alma hâlâ açık bir kod değişikliği
 # gerektirsin, sessizce "dosya var, o yüzden aktif" olmasın).
 MODEL_SYMBOL = "BTC-USD"  # geriye dönük uyumluluk için - ilk eğitilen/varsayılan sembol
-SUPPORTED_SYMBOLS = ("BTC-USD", "ETH-USD")
+# SOL-USD de eğitildi ama BURADA YOK: window 1'de baseline'ın altında kaldı
+# (0.355 vs 0.388, p=0.90 - anlamlı değil) - tutarlı bir sonuç değil, canlıya
+# alınmadı. Dosyası model_artifacts/sol_chart_model.keras'ta duruyor, ileride
+# daha fazla veriyle (SOL-USD'nin yfinance geçmişi diğerlerinden daha kısa,
+# 2292 vs ~3175 sequence) yeniden denenebilir.
+SUPPORTED_SYMBOLS = ("BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD")
 WINDOW      = 60       # Sliding window (gün)
 FORWARD_DAYS = 5       # Kaç gün sonrası tahmin
 BUY_THRESH  = 0.03     # %3 üstü yükseliş → BUY
