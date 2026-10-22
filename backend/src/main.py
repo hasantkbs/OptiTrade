@@ -1139,15 +1139,16 @@ def _enrich_result(result: AnalysisResult, mc_data: Optional[Dict[str, Any]]) ->
     # Chart AI entegrasyonu (model varsa)
     chart_ai_result = None
     try:
-        from ml.chart_model import MODEL_SYMBOL, predict_chart_signal, is_model_available
-        # Model tek bir sembol (MODEL_SYMBOL) üzerinde eğitildi/doğrulandı -
-        # başka bir sembolün fiyat/volatilite dağılımına uygulamak anlamsız
-        # bir sinyal üretir, bu yüzden sadece o sembolde çalıştırılıyor.
-        if result.symbol == MODEL_SYMBOL and is_model_available():
+        from ml.chart_model import SUPPORTED_SYMBOLS, predict_chart_signal, is_model_available
+        # Her sembolün kendi scaler/ağırlıkları var (model_path_for vb.) -
+        # ama yalnızca eğitilip İKİNCİ PENCEREDE DOĞRULANMIŞ sembollerde
+        # çalıştırılıyor (SUPPORTED_SYMBOLS), başka bir sembole rastgele
+        # uygulanmasın diye.
+        if result.symbol in SUPPORTED_SYMBOLS and is_model_available(result.symbol):
             import yfinance as yf
             hist_ai = yf.Ticker(result.symbol).history(period="3mo")
             if not hist_ai.empty:
-                chart_ai_result = predict_chart_signal(hist_ai)
+                chart_ai_result = predict_chart_signal(hist_ai, symbol=result.symbol)
     except Exception:
         pass
     rec_data = compute_recommendation(

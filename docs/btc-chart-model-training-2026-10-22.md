@@ -155,11 +155,23 @@ under any conventional threshold). Saved to
 `eth_chart_scaler.joblib` / `eth_chart_model_meta.json` - BTC's own
 files were confirmed untouched (same mtimes) before and after.
 
-**Not yet wired into `main.py`.** The BTC gate (`result.symbol ==
-MODEL_SYMBOL`) is a single-symbol check - extending it to cover ETH
-too (and whatever future symbols get trained) needs its own small
-change (a supported-symbols set/dict instead of one constant) and is
-a separate decision from training/validating ETH itself.
+## ETH wired live too
+
+Given ETH's second-window validation held up, `main.py`'s gate was
+extended from a single `MODEL_SYMBOL` constant to
+`ml.chart_model.SUPPORTED_SYMBOLS = ("BTC-USD", "ETH-USD")` - an
+explicit allowlist, not "any symbol with a model file on disk is
+live," so adding a future symbol still requires a deliberate code
+change rather than becoming active the moment a training run happens
+to produce a file. `is_model_available(symbol)` and
+`predict_chart_signal(hist, symbol=...)` are now called with each
+analyzed symbol explicitly (previously both defaulted silently to
+BTC), so BTC and ETH each score through their own model/scaler.
+Verified end-to-end with a real ETH-USD history pull before
+committing. Regression tests extended in
+`tests/test_main_chart_ai_symbol_gating.py` (now also covers "every
+supported symbol gets scored through its own model" and "an
+unsupported symbol is still skipped").
 
 ## Known follow-up, not fixed here (out of today's scope)
 
