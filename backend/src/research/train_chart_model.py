@@ -69,11 +69,13 @@ def train(
     )
     from ml.chart_model import (
         _build_features, _label_data, _create_sequences,
-        build_model, MODEL_DIR, MODEL_PATH, SCALER_PATH,
+        build_model, MODEL_DIR, model_path_for, scaler_path_for, meta_path_for,
         WINDOW, N_FEATURES, N_CLASSES, FORWARD_DAYS,
     )
 
     os.makedirs(MODEL_DIR, exist_ok=True)
+    model_path = model_path_for(symbol)
+    scaler_path = scaler_path_for(symbol)
 
     # ── 1. Veri çekme (tek sembol - `symbol`) ────────────────────────────────
     # Daha önce burada 20 farklı sembolün (kripto/ABD/BIST/Nikkei/endeks)
@@ -126,8 +128,8 @@ def train(
     scaler = StandardScaler()
     X_train_flat = X_train.reshape(-1, N_FEATURES)
     scaler.fit(X_train_flat)
-    joblib.dump(scaler, SCALER_PATH)
-    logger.info(f"  Scaler kaydedildi: {SCALER_PATH}")
+    joblib.dump(scaler, scaler_path)
+    logger.info(f"  Scaler kaydedildi: {scaler_path}")
 
     def scale(X):
         orig_shape = X.shape
@@ -158,7 +160,7 @@ def train(
     callbacks = [
         EarlyStopping(patience=8, restore_best_weights=True, verbose=1),
         ReduceLROnPlateau(factor=0.5, patience=4, verbose=1),
-        ModelCheckpoint(MODEL_PATH, save_best_only=True, verbose=0),
+        ModelCheckpoint(model_path, save_best_only=True, verbose=0),
     ]
 
     history = model.fit(
@@ -202,11 +204,11 @@ def train(
         "class_distribution":    {k: int(v) for k, v in dist.items()},
         "best_epoch": len(history.history["val_accuracy"]),
     }
-    meta_path = os.path.join(MODEL_DIR, "btc_chart_model_meta.json")
+    meta_path = meta_path_for(symbol)
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)
     logger.info(f"\nMeta kaydedildi: {meta_path}")
-    logger.info(f"Model kaydedildi: {MODEL_PATH}")
+    logger.info(f"Model kaydedildi: {model_path}")
     logger.info(f"\n✅ Eğitim tamamlandı — Test Accuracy: {test_acc:.2%}")
     return meta
 

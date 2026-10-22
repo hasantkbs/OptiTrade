@@ -59,8 +59,9 @@ def validate(
     from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 
     from ml.chart_model import (
-        FORWARD_DAYS, MODEL_DIR, N_FEATURES, WINDOW,
+        FORWARD_DAYS, N_FEATURES, WINDOW,
         _build_features, _create_sequences, _label_data, build_model,
+        meta_path_for,
     )
 
     logger.info(f"Veri çekiliyor: {symbol} ({period})")
@@ -141,7 +142,7 @@ def validate(
     print(f"\n{classification_report(y_test2, y_pred2, target_names=label_names)}")
     print(f"Confusion matrix:\n{np.array(cm2)}")
 
-    meta_path = os.path.join(MODEL_DIR, "btc_chart_model_meta.json")
+    meta_path = meta_path_for(symbol)
     if os.path.exists(meta_path):
         with open(meta_path, encoding="utf-8") as f:
             meta1 = json.load(f)
@@ -172,4 +173,13 @@ def validate(
 
 
 if __name__ == "__main__":
-    validate()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="BTC chart model - second window validation")
+    parser.add_argument("--symbol", default="BTC-USD", help="Varlık sembolü")
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--period", default="max", help="yfinance period: max/5y/2y")
+    args = parser.parse_args()
+
+    validate(symbol=args.symbol, epochs=args.epochs, batch_size=args.batch_size, period=args.period)

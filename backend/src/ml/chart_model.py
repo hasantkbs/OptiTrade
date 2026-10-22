@@ -35,12 +35,37 @@ N_FEATURES  = 11        # OHLCV_norm(5) + RSI + MACD + BB_pb + volume_ratio + AT
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 MODEL_DIR   = os.path.join(BACKEND_DIR, "model_artifacts")
-MODEL_PATH  = os.path.join(MODEL_DIR, "btc_chart_model.keras")
-SCALER_PATH = os.path.join(MODEL_DIR, "btc_chart_scaler.joblib")
 
-# ── Model Cache ────────────────────────────────────────────────────────────────
-_model_cache  = None
-_scaler_cache = None
+
+def _symbol_slug(symbol: str) -> str:
+    """'BTC-USD' -> 'btc', 'ETH-USD' -> 'eth' - matches the existing
+    btc_chart_model.keras naming convention, generalized so each
+    symbol gets its own model/scaler/meta files instead of silently
+    overwriting another symbol's already-trained-and-validated model."""
+    return symbol.split("-")[0].lower()
+
+
+def model_path_for(symbol: str) -> str:
+    return os.path.join(MODEL_DIR, f"{_symbol_slug(symbol)}_chart_model.keras")
+
+
+def scaler_path_for(symbol: str) -> str:
+    return os.path.join(MODEL_DIR, f"{_symbol_slug(symbol)}_chart_scaler.joblib")
+
+
+def meta_path_for(symbol: str) -> str:
+    return os.path.join(MODEL_DIR, f"{_symbol_slug(symbol)}_chart_model_meta.json")
+
+
+# Kept as flat attributes for existing callers/tests that only ever cared
+# about MODEL_SYMBOL (BTC) - every function below defaults its `symbol`
+# parameter to MODEL_SYMBOL, so a zero-arg call behaves exactly as before.
+MODEL_PATH  = model_path_for(MODEL_SYMBOL)
+SCALER_PATH = scaler_path_for(MODEL_SYMBOL)
+
+# ── Model Cache (sembol başına) ──────────────────────────────────────────────
+_model_cache: Dict[str, object] = {}
+_scaler_cache: Dict[str, object] = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -204,28 +229,31 @@ def _create_sequences(
 # MARK: - Inference (Runtime)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def load_model():
-    """Model ve scaler'ı yükle (önbellek destekli)."""
-    global _model_cache, _scaler_cache
-    if _model_cache is not None:
-        return _model_cache, _scaler_cache
-    if not os.path.exists(MODEL_PATH):
+def load_model(symbol: str = MODEL_SYMBOL):
+    """`symbol`'e ait model ve scaler'ı yükle (sembol başına önbellek)."""
+    if symbol in _model_cache:
+        return _model_cache[symbol], _scaler_cache.get(symbol)
+    model_path = model_path_for(symbol)
+    if not os.path.exists(model_path):
         return None, None
     try:
         import joblib
         from tensorflow import keras
-        _model_cache  = keras.models.load_model(MODEL_PATH)
-        if os.path.exists(SCALER_PATH):
-            _scaler_cache = joblib.load(SCALER_PATH)
-        logger.info(f"Chart AI modeli yüklendi: {MODEL_PATH}")
-        return _model_cache, _scaler_cache
+        model = keras.models.load_model(model_path)
+        scaler_path = scaler_path_for(symbol)
+        scaler = joblib.load(scaler_path) if os.path.exists(scaler_path) else None
+        _model_cache[symbol] = model
+        _scaler_cache[symbol] = scaler
+        logger.info(f"Chart AI modeli yüklendi ({symbol}): {model_path}")
+        return model, scaler
     except Exception as e:
-        logger.warning(f"Chart AI modeli yüklenemedi: {e}")
+        logger.warning(f"Chart AI modeli yüklenemedi ({symbol}): {e}")
         return None, None
 
 
 def predict_chart_signal(
     hist: pd.DataFrame,
+    symbol: str = MODEL_SYMBOL,
 ) -> Optional[Dict]:
     """
     Son 60 günlük OHLCV verisinden sinyal üret.
@@ -236,7 +264,7 @@ def predict_chart_signal(
       probabilities: {sell, neutral, buy}
       model_available: bool
     """
-    model, scaler = load_model()
+    model, scaler = load_model(symbol)
     if model is None:
         return {
             "signal": None,
@@ -279,13 +307,13 @@ def predict_chart_signal(
                 "error": str(e)}
 
 
-def is_model_available() -> bool:
-    return os.path.exists(MODEL_PATH)
+def is_model_available(symbol: str = MODEL_SYMBOL) -> bool:
+    return os.path.exists(model_path_for(symbol))
 
 
-def get_model_meta() -> Dict:
+def get_model_meta(symbol: str = MODEL_SYMBOL) -> Dict:
     import json
-    meta_path = os.path.join(MODEL_DIR, "btc_chart_model_meta.json")
+    meta_path = meta_path_for(symbol)
     if not os.path.exists(meta_path):
         return {"available": False}
     try:

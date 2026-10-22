@@ -1,4 +1,4 @@
-# BTC Chart AI Model — Fix, Training, and Second-Window Validation (2026-10-22)
+# Chart AI Model — Fix, Training, and Multi-Symbol Validation (2026-10-22)
 
 ## Context
 
@@ -98,6 +98,68 @@ model's live integration has no such gate: `main.py` checks only
 BTC recommendation via `compute_recommendation`. Given the second-
 window validation held up, this is being kept live rather than rolled
 back.
+
+## Fourth bug found while expanding to a second symbol — no symbol gate at all
+
+Right after the BTC model went live, `main.py::_enrich_result` was
+found to apply it to **every** analyzed symbol, not just BTC -
+`is_model_available()` had no symbol parameter, so once *any* model
+file existed, `predict_chart_signal()` ran on every symbol's own
+features through BTC's model and scaler, feeding a signal into
+non-BTC recommendations at 15% weight. Fixed by adding
+`ml.chart_model.MODEL_SYMBOL` and gating `_enrich_result` on
+`result.symbol == MODEL_SYMBOL` (committed separately, `4e13267`).
+Regression test: `tests/test_main_chart_ai_symbol_gating.py`.
+
+## Per-symbol model storage (prerequisite for a second symbol)
+
+`MODEL_PATH`/`SCALER_PATH` were flat, BTC-only path constants -
+training a second symbol would have silently overwritten BTC's
+already-validated model file. Added `model_path_for(symbol)` /
+`scaler_path_for(symbol)` / `meta_path_for(symbol)` (e.g. `"BTC-USD"` →
+`btc_chart_model.keras`, `"ETH-USD"` → `eth_chart_model.keras`).
+`load_model()`, `predict_chart_signal()`, `is_model_available()`, and
+`get_model_meta()` all gained an optional `symbol` parameter
+defaulting to `MODEL_SYMBOL`, so every existing BTC-only call site
+(including `main.py`, which still only gates on `MODEL_SYMBOL`) is
+completely unaffected. `MODEL_PATH`/`SCALER_PATH` stay as flat
+attributes for backward compatibility with the untouched
+`_try_load_base_model()` legacy helper and its tests. Regression test:
+`tests/test_chart_model_per_symbol_paths.py`.
+
+`research/validate_chart_model_window2.py` also gained a `--symbol`
+CLI argument it was missing (caught immediately when a first attempt
+to validate ETH silently re-ran on BTC's own data instead - the script
+had no `argparse` block at all, so `--symbol ETH-USD` was accepted by
+the shell but ignored by the script, which always called `validate()`
+with its BTC default).
+
+## ETH-USD — second symbol, same methodology
+
+Trained and validated exactly like BTC (same architecture, same
+chronological split discipline, same second-window check), now that
+per-symbol storage exists:
+
+| | BTC window 1 | BTC window 2 | ETH window 1 | ETH window 2 |
+|---|---|---|---|---|
+| Test accuracy | 0.5583 | 0.5365 | 0.5287 | 0.4459 |
+| Majority baseline | 0.4852 | 0.4370 | 0.3546 | 0.3546 |
+| Gap vs. baseline | +0.0731 | +0.0995 | **+0.1741** | +0.0913 |
+| Binomial p-value | 0.00012 | <0.00001 | <0.000001 | 0.000028 |
+
+ETH's effect also replicates on its own non-overlapping second
+window - smaller than window 1's gap (unlike BTC, where window 2 was
+if anything larger), but still clearly significant (p=0.000028, well
+under any conventional threshold). Saved to
+`backend/model_artifacts/eth_chart_model.keras` /
+`eth_chart_scaler.joblib` / `eth_chart_model_meta.json` - BTC's own
+files were confirmed untouched (same mtimes) before and after.
+
+**Not yet wired into `main.py`.** The BTC gate (`result.symbol ==
+MODEL_SYMBOL`) is a single-symbol check - extending it to cover ETH
+too (and whatever future symbols get trained) needs its own small
+change (a supported-symbols set/dict instead of one constant) and is
+a separate decision from training/validating ETH itself.
 
 ## Known follow-up, not fixed here (out of today's scope)
 
