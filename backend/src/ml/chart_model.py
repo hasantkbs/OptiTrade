@@ -21,6 +21,11 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # ── Sabitler ──────────────────────────────────────────────────────────────────
+# Bu modelin eğitildiği ve doğrulandığı tek sembol - başka bir sembole
+# (farklı fiyat/volatilite rejimi, farklı scaler dağılımı) uygulamak
+# anlamlı bir sinyal vermez. Canlı entegrasyon (main.py) bu sembolle
+# eşleşmeyen her sembolde modeli atlamalı.
+MODEL_SYMBOL = "BTC-USD"
 WINDOW      = 60       # Sliding window (gün)
 FORWARD_DAYS = 5       # Kaç gün sonrası tahmin
 BUY_THRESH  = 0.03     # %3 üstü yükseliş → BUY

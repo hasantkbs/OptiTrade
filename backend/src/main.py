@@ -1139,8 +1139,11 @@ def _enrich_result(result: AnalysisResult, mc_data: Optional[Dict[str, Any]]) ->
     # Chart AI entegrasyonu (model varsa)
     chart_ai_result = None
     try:
-        from ml.chart_model import predict_chart_signal, is_model_available
-        if is_model_available():
+        from ml.chart_model import MODEL_SYMBOL, predict_chart_signal, is_model_available
+        # Model tek bir sembol (MODEL_SYMBOL) üzerinde eğitildi/doğrulandı -
+        # başka bir sembolün fiyat/volatilite dağılımına uygulamak anlamsız
+        # bir sinyal üretir, bu yüzden sadece o sembolde çalıştırılıyor.
+        if result.symbol == MODEL_SYMBOL and is_model_available():
             import yfinance as yf
             hist_ai = yf.Ticker(result.symbol).history(period="3mo")
             if not hist_ai.empty:
