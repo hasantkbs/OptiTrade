@@ -136,7 +136,86 @@ def _symbol_oversold_test_labels(symbol: str) -> "tuple[np.ndarray, np.ndarray] 
     return y_test[oversold_mask], y_pred[oversold_mask]
 
 
-def main(symbols: List[str] = None, market: str = "BIST") -> None:
+def _symbol_oversold_window2_labels(symbol: str) -> "tuple[np.ndarray, np.ndarray] | None":
+    """Same idea as _symbol_oversold_test_labels, but on window 2 - a
+    SEPARATE model trained only on window 1's former TRAIN block,
+    evaluated on window 1's former VAL block (the middle 15%, zero
+    overlap with window 1's own test block). Mirrors
+    validate_chart_model_window2.py::validate()'s exact split/train
+    logic, trading a few minutes of CPU per symbol for roughly double
+    the pooled oversold sample - the point for a market like CRYPTO
+    whose symbols have far less price history than BIST/US, so window
+    1's test split alone gives a thin oversold subset per symbol."""
+    import yfinance as yf
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.utils.class_weight import compute_class_weight
+    from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+
+    from ml.chart_model import build_model
+
+    hist = yf.Ticker(symbol).history(period="max")
+    if hist.empty or len(hist) < WINDOW + 100:
+        return None
+    X_raw = _build_features(hist)
+    if X_raw is None:
+        return None
+    y_raw = _label_data(hist["Close"].iloc[: len(X_raw)])
+    X_seq, y_seq = _create_sequences(X_raw, y_raw)
+
+    n = len(X_seq)
+    n_test1 = int(n * 0.15)
+    n_val1 = int(n * 0.15)
+    n_train1 = n - n_test1 - n_val1
+
+    window2_test_start = n_train1 + FORWARD_DAYS
+    X_test2_raw = X_seq[window2_test_start:n_train1 + n_val1]
+    y_test2 = y_seq[window2_test_start:n_train1 + n_val1]
+    if len(X_test2_raw) < 10:
+        return None
+
+    n_inner_val = int(n_train1 * 0.15)
+    n_inner_train = n_train1 - n_inner_val
+    X_train2, y_train2 = X_seq[:n_inner_train], y_seq[:n_inner_train]
+    inner_val_start = n_inner_train + FORWARD_DAYS
+    X_val2, y_val2 = X_seq[inner_val_start:n_train1], y_seq[inner_val_start:n_train1]
+
+    scaler = StandardScaler()
+    scaler.fit(X_train2.reshape(-1, N_FEATURES))
+
+    def scale(X):
+        return scaler.transform(X.reshape(-1, N_FEATURES)).reshape(X.shape)
+
+    X_train2_s, X_val2_s = scale(X_train2), scale(X_val2)
+    weights = compute_class_weight("balanced", classes=np.array([0, 1, 2]), y=y_train2)
+    cw = {0: weights[0], 1: weights[1], 2: weights[2]}
+
+    model = build_model()
+    model.fit(
+        X_train2_s, y_train2,
+        validation_data=(X_val2_s, y_val2),
+        epochs=50, batch_size=64, class_weight=cw,
+        callbacks=[
+            EarlyStopping(patience=8, restore_best_weights=True, verbose=0),
+            ReduceLROnPlateau(factor=0.5, patience=4, verbose=0),
+        ],
+        verbose=0,
+    )
+
+    last_row = X_test2_raw[:, -1, :]
+    rsi_raw = last_row[:, 5] * 100
+    bb_pb_raw = last_row[:, 7]
+    oversold_mask = (rsi_raw < 30) | (bb_pb_raw < 0.02)
+    if oversold_mask.sum() == 0:
+        return None
+
+    X_test2_s = scale(X_test2_raw)
+    y_pred2 = np.argmax(model.predict(X_test2_s, verbose=0), axis=1)
+
+    print(f"{symbol} (window2): {len(y_test2)} test örnek, {int(oversold_mask.sum())} oversold")
+    return y_test2[oversold_mask], y_pred2[oversold_mask]
+
+
+def main(symbols: List[str] = None, market: str = "BIST", include_window2: bool = False) -> None:
     symbols = symbols if symbols is not None else symbols_for_market(market)
     print(f"=== {market.upper()} - {len(symbols)} canlı chart-AI sembolü ===")
     pooled_true: List[int] = []
@@ -146,13 +225,23 @@ def main(symbols: List[str] = None, market: str = "BIST") -> None:
         try:
             result = _symbol_oversold_test_labels(symbol)
         except Exception as exc:
-            logger.error(f"{symbol}: {exc}")
-            continue
-        if result is None:
-            continue
-        true_labels, pred_labels = result
-        pooled_true.extend(true_labels.tolist())
-        pooled_pred.extend(pred_labels.tolist())
+            logger.error(f"{symbol} (window1): {exc}")
+            result = None
+        if result is not None:
+            true_labels, pred_labels = result
+            pooled_true.extend(true_labels.tolist())
+            pooled_pred.extend(pred_labels.tolist())
+
+        if include_window2:
+            try:
+                result2 = _symbol_oversold_window2_labels(symbol)
+            except Exception as exc:
+                logger.error(f"{symbol} (window2): {exc}")
+                result2 = None
+            if result2 is not None:
+                true_labels2, pred_labels2 = result2
+                pooled_true.extend(true_labels2.tolist())
+                pooled_pred.extend(pred_labels2.tolist())
 
     pooled_true_arr = np.array(pooled_true)
     pooled_pred_arr = np.array(pooled_pred)
@@ -183,6 +272,13 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Oversold-regime ground-truth backtest")
     parser.add_argument("--market", default="BIST", choices=["BIST", "US", "CRYPTO"])
+    parser.add_argument(
+        "--include-window2", action="store_true",
+        help="Also train+evaluate a second-window model per symbol (roughly doubles the "
+             "pooled sample at the cost of a few minutes of CPU per symbol) - meant for "
+             "markets like CRYPTO whose symbols have too little history for window 1 "
+             "alone to give a robust oversold subset.",
+    )
     args = parser.parse_args()
 
-    main(market=args.market)
+    main(market=args.market, include_window2=args.include_window2)
