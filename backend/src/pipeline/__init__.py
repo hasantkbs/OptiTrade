@@ -10,7 +10,7 @@ Tracker -> API Response. Research Lab never executes in this path - see
 indirectly, through `model_serving` - the sole bridge between the
 offline Model Registry and this live path.
 """
-from pipeline.models import PipelineResponse, QuantAnalysisRequest
+from pipeline.models import ChartAISignal, PipelineResponse, QuantAnalysisRequest
 from pipeline.service import PipelineService
 
-__all__ = ["PipelineService", "PipelineResponse", "QuantAnalysisRequest"]
+__all__ = ["PipelineService", "PipelineResponse", "QuantAnalysisRequest", "ChartAISignal"]

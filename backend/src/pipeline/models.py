@@ -72,6 +72,16 @@ class PipelineMetadata(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ChartAISignal(BaseModel):
+    """ml.chart_model.predict_chart_signal()'s own vocabulary - NOT
+    the Prediction enum (decision_engine/models.py), which has no
+    NEUTRAL value. Populated outside this module entirely (see
+    main.py's _attach_chart_ai) - PipelineService.run() never touches
+    this field."""
+    signal: str  # "BUY" | "SELL" | "NEUTRAL"
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+
 class PipelineResponse(BaseModel):
     symbol: str
     decision: Prediction
@@ -83,3 +93,4 @@ class PipelineResponse(BaseModel):
     risk: RiskAssessment
     explanation: str
     metadata: PipelineMetadata
+    chart_ai: Optional[ChartAISignal] = None
