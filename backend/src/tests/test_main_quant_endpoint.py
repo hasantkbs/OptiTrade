@@ -235,3 +235,89 @@ def test_quant_analyze_chart_ai_failure_does_not_break_the_request(client, monke
     assert response.status_code == 200
     assert response.json()["chart_ai"] is None
     _cleanup("AAPL")
+
+
+def test_quant_analyze_chart_ai_stays_none_when_history_is_too_short(client, monkeypatch):
+    """predict_chart_signal() (ml/chart_model.py) returns {"signal": None,
+    "error": "..."} - not an exception - when it gets real but insufficient
+    history (fewer than WINDOW=60 rows). _attach_chart_ai's own
+    `chart_ai_result.get("signal")` check must treat that the same as "no
+    model": chart_ai stays None and the error string must never reach a
+    response field a user sees. Distinct from
+    test_quant_analyze_chart_ai_failure_does_not_break_the_request above,
+    which only exercises the `except Exception` branch (history() raising),
+    not this real-return-value branch."""
+    import yfinance as yf
+
+    real_history = yf.Ticker.history
+
+    def _too_short(self, period=None):
+        return real_history(self, period=period).tail(20)
+
+    monkeypatch.setattr(yf.Ticker, "history", _too_short)
+
+    response = client.post("/quant/analyze", json={"symbol": "AAPL"})
+    assert response.status_code == 200
+    assert response.json()["chart_ai"] is None
+    assert "Yetersiz" not in response.text
+    _cleanup("AAPL")
+
+
+def test_quant_analyze_does_not_block_other_requests_while_attaching_chart_ai(client, monkeypatch):
+    """_attach_chart_ai does a blocking yfinance call plus a Keras predict.
+    quant_analyze is `async def` and already runs the real pipeline via
+    run_in_executor for exactly this reason - if _attach_chart_ai were ever
+    called directly on the event-loop thread instead, every other
+    coroutine on this worker (including an unrelated concurrent
+    /quant/analyze request) would stall for its whole duration. Uses the
+    file's own _fake_pipeline_response (already used by the caching tests
+    above) so this test exercises only the event-loop-blocking behavior,
+    not real network/DB speed."""
+    import asyncio
+    import time
+
+    import httpx
+
+    import main
+
+    class _FakePipelineService:
+        def run(self, symbol):
+            return _fake_pipeline_response(symbol)
+
+    def _slow_only_for_the_slow_symbol(result):
+        # _fake_pipeline_response (above) returns a plain dict, same as
+        # the pre-existing caching tests already rely on - not a real
+        # PipelineResponse, so index rather than attribute-access it.
+        if result["symbol"] == "SLOWCHARTAI":
+            time.sleep(0.5)
+
+    original_pipeline = main._pipeline_service
+    main._pipeline_service = _FakePipelineService()
+    monkeypatch.setattr(main, "_attach_chart_ai", _slow_only_for_the_slow_symbol)
+
+    async def _run():
+        transport = httpx.ASGITransport(app=main.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+            # Both requests start from the same timer baseline, with the
+            # slow one created first - if _attach_chart_ai runs
+            # synchronously on the event loop thread, the fast task
+            # literally cannot be resumed until the slow one's blocking
+            # sleep returns, however fast attaching chart_ai is for the
+            # fast symbol itself.
+            start = time.monotonic()
+            slow_task = asyncio.create_task(ac.post("/quant/analyze", json={"symbol": "SLOWCHARTAI"}))
+            fast_task = asyncio.create_task(ac.post("/quant/analyze", json={"symbol": "FASTCHARTAI"}))
+            fast_response = await fast_task
+            fast_elapsed = time.monotonic() - start
+            await slow_task
+            return fast_response, fast_elapsed
+
+    try:
+        fast_response, fast_elapsed = asyncio.run(_run())
+    finally:
+        main._pipeline_service = original_pipeline
+
+    assert fast_response.status_code == 200
+    # Well under the slow call's 0.5s sleep - proves the event loop kept
+    # serving other requests instead of blocking on _attach_chart_ai.
+    assert fast_elapsed < 0.3

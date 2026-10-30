@@ -58,14 +58,19 @@ describe('Recommendation', () => {
 
 describe('Recommendation - chart AI conflict', () => {
   it('shows the warning line when decision is BUY and chart AI says SELL', () => {
+    // Main response confidence (0.72, "Yüksek güven") deliberately
+    // differs from chart_ai.confidence (0.4, "Orta güven") so this test
+    // actually pins which confidence the warning line's word comes from
+    // - with a shared 0.72 on both, a bug that read data.confidence
+    // instead of data.chart_ai.confidence would pass unnoticed.
     render(
       <Recommendation
-        data={{ ...response, decision: 'BUY', chart_ai: { signal: 'SELL', confidence: 0.72 } }}
+        data={{ ...response, decision: 'BUY', confidence: 0.72, chart_ai: { signal: 'SELL', confidence: 0.4 } }}
         isPending={false} isError={false} onAnalyze={vi.fn()}
       />,
     )
     expect(screen.getByText('SELL')).toBeInTheDocument()
-    expect(screen.getByText(/disagrees/i)).toBeInTheDocument()
+    expect(screen.getByText(/disagrees · Orta güven/)).toBeInTheDocument()
     expect(screen.getByText('Yüksek güven')).toBeInTheDocument()
   })
 

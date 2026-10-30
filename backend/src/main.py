@@ -1608,7 +1608,11 @@ async def quant_analyze(
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(_executor, _pipeline_service.run, symbol)
-        _attach_chart_ai(result)
+        # _attach_chart_ai does a blocking yfinance call plus a Keras
+        # predict - run it off the event loop (same executor as the
+        # pipeline run above), or every other coroutine on this worker
+        # stalls for its whole duration.
+        await loop.run_in_executor(_executor, _attach_chart_ai, result)
         _QUANT_ANALYZE_CACHE.set(symbol, result)
         return result
     except Exception as e:
