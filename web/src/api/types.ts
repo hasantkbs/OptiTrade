@@ -548,6 +548,11 @@ export interface PipelineMetadata {
   timestamp: string
 }
 
+export interface ChartAISignal {
+  signal: 'BUY' | 'SELL' | 'NEUTRAL'
+  confidence: number
+}
+
 export interface PipelineResponse {
   symbol: string
   decision: Prediction
@@ -559,6 +564,7 @@ export interface PipelineResponse {
   risk: QuantRiskAssessment
   explanation: string
   metadata: PipelineMetadata
+  chart_ai?: ChartAISignal
 }
 
 // ── Generic API error shape (FastAPI's default HTTPException body) ─────
