@@ -55,3 +55,52 @@ describe('Recommendation', () => {
     expect(screen.getByText('HOLD')).toBeInTheDocument()
   })
 })
+
+describe('Recommendation - chart AI conflict', () => {
+  it('shows the warning line when decision is BUY and chart AI says SELL', () => {
+    render(
+      <Recommendation
+        data={{ ...response, decision: 'BUY', chart_ai: { signal: 'SELL', confidence: 0.72 } }}
+        isPending={false} isError={false} onAnalyze={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('SELL')).toBeInTheDocument()
+    expect(screen.getByText(/disagrees/i)).toBeInTheDocument()
+    expect(screen.getByText('Yüksek güven')).toBeInTheDocument()
+  })
+
+  it('shows nothing extra when decision and chart AI agree', () => {
+    render(
+      <Recommendation
+        data={{ ...response, decision: 'BUY', chart_ai: { signal: 'BUY', confidence: 0.72 } }}
+        isPending={false} isError={false} onAnalyze={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText(/disagrees/i)).not.toBeInTheDocument()
+  })
+
+  it('shows nothing extra when chart AI is NEUTRAL', () => {
+    render(
+      <Recommendation
+        data={{ ...response, decision: 'BUY', chart_ai: { signal: 'NEUTRAL', confidence: 0.5 } }}
+        isPending={false} isError={false} onAnalyze={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText(/disagrees/i)).not.toBeInTheDocument()
+  })
+
+  it('shows nothing extra when decision is HOLD, even if chart AI has a strong opposite opinion', () => {
+    render(
+      <Recommendation
+        data={{ ...response, decision: 'HOLD', chart_ai: { signal: 'SELL', confidence: 0.9 } }}
+        isPending={false} isError={false} onAnalyze={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText(/disagrees/i)).not.toBeInTheDocument()
+  })
+
+  it('renders exactly as before when chart_ai is absent (today\'s shape for any symbol with no live model)', () => {
+    render(<Recommendation data={response} isPending={false} isError={false} onAnalyze={vi.fn()} />)
+    expect(screen.queryByText(/disagrees/i)).not.toBeInTheDocument()
+  })
+})

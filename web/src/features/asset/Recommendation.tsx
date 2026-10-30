@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle } from '../../components/ui/Card'
 import { ErrorState } from '../../components/ui/ErrorState'
 import { SkeletonCard } from '../../components/ui/Skeleton'
 import type { PipelineResponse, Prediction } from '../../api/types'
+import { isConflict } from './chartAiConflict'
 import styles from './Recommendation.module.css'
 
 const DECISION_TONE: Record<Prediction, 'positive' | 'negative' | 'neutral'> = {
@@ -66,6 +67,14 @@ export function Recommendation({ data, isPending, isError, errorMessage, onAnaly
             <span className={styles.confidence}>{confidenceWord(data.confidence)}</span>
           </div>
           {data.explanation ? <p className={styles.explanation}>{data.explanation}</p> : null}
+          {data.chart_ai && isConflict(data.decision, data.chart_ai.signal) ? (
+            <div className={styles.row}>
+              <Badge tone="warning" className={styles.badge}>{data.chart_ai.signal}</Badge>
+              <span className={styles.confidence}>
+                Chart pattern model disagrees · {confidenceWord(data.chart_ai.confidence)}
+              </span>
+            </div>
+          ) : null}
           {isError ? <p className={styles.staleNote}>The last refresh failed - showing the previous result above.</p> : null}
         </div>
       ) : null}
