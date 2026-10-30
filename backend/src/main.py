@@ -77,7 +77,7 @@ from providers.coingecko_provider import get_btc_dominance
 from v2.api.router import router as v2_router
 from api.v1.router import api_v1_router
 from core.rate_limiter import limiter
-from pipeline import PipelineResponse, PipelineService, QuantAnalysisRequest
+from pipeline import ChartAISignal, PipelineResponse, PipelineService, QuantAnalysisRequest
 from intelligence.background_intelligence import BackgroundIntelligenceOrchestrator
 from intelligence.models import (
     BackgroundScanStatus,
@@ -1560,6 +1560,34 @@ def analyze_enhanced(request: Request, body: EnhancedAnalysisRequest,
 _QUANT_ANALYZE_CACHE: TTLCache = TTLCache(ttl_seconds=180)
 
 
+def _attach_chart_ai(result: PipelineResponse) -> None:
+    """Mutates `result.chart_ai` in place when a live chart-AI model
+    exists for this symbol - mirrors _enrich_result's own established
+    pattern (same file, /analyze endpoint family) so the two live
+    chart-AI call sites stay consistent. Never raises: any failure
+    here (no model, insufficient yfinance history, a network error)
+    must not break /quant/analyze itself - the endpoint still returns
+    the real decision_engine result with chart_ai left at its default
+    None."""
+    try:
+        from ml.chart_model import get_supported_symbols, is_model_available, predict_chart_signal
+        if result.symbol in get_supported_symbols() and is_model_available(result.symbol):
+            import yfinance as yf
+            # Same period="6mo" requirement _enrich_result already
+            # established - "3mo" is too short for a 5-day trading
+            # week (see that function's own comment, same file).
+            hist_ai = yf.Ticker(result.symbol).history(period="6mo")
+            if not hist_ai.empty:
+                chart_ai_result = predict_chart_signal(hist_ai, symbol=result.symbol)
+                if chart_ai_result and chart_ai_result.get("signal"):
+                    result.chart_ai = ChartAISignal(
+                        signal=chart_ai_result["signal"],
+                        confidence=chart_ai_result["confidence"],
+                    )
+    except Exception:
+        pass
+
+
 @app.post("/quant/analyze", response_model=PipelineResponse)
 @limiter.limit("10/minute")
 async def quant_analyze(
@@ -1580,6 +1608,7 @@ async def quant_analyze(
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(_executor, _pipeline_service.run, symbol)
+        _attach_chart_ai(result)
         _QUANT_ANALYZE_CACHE.set(symbol, result)
         return result
     except Exception as e:

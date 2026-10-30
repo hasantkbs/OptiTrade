@@ -22,9 +22,18 @@ def _clear_quant_analyze_cache():
     meant to check (and leaving _cleanup() below with nothing to delete).
     The dedicated caching tests further down clear it themselves at the
     point they need an empty cache, same as this fixture does for every
-    other test."""
+    other test.
+
+    Also resets main.limiter (slowapi) before each test: conftest.py's
+    `client` fixture is module-scoped and already resets it once per
+    module, but /quant/analyze is capped at 10/minute and this file alone
+    now runs more than 10 real requests against it - without a per-test
+    reset too, tests later in the file get a real 429 instead of 200
+    purely from earlier tests in the same file spending the shared quota,
+    not from anything the test itself is checking."""
     import main
 
+    main.limiter.reset()
     main._QUANT_ANALYZE_CACHE.clear()
     yield
     main._QUANT_ANALYZE_CACHE.clear()
@@ -187,3 +196,42 @@ def test_quant_analyze_cache_is_keyed_per_symbol(client):
         main._pipeline_service = original
 
     assert calls == ["YYYY", "XXXX"]
+
+
+def test_quant_analyze_populates_chart_ai_for_a_supported_symbol(client):
+    """AAPL is live in ml.chart_model.get_supported_symbols() as of
+    2026-10-22 (docs/btc-chart-model-training-2026-10-22.md). If this
+    ever changes, pick another symbol from that doc's live list
+    instead of weakening this test."""
+    response = client.post("/quant/analyze", json={"symbol": "AAPL"})
+    assert response.status_code == 200
+    chart_ai = response.json()["chart_ai"]
+    assert chart_ai is not None
+    assert chart_ai["signal"] in ("BUY", "SELL", "NEUTRAL")
+    assert 0.0 <= chart_ai["confidence"] <= 1.0
+    _cleanup("AAPL")
+
+
+def test_quant_analyze_chart_ai_is_none_for_an_unsupported_symbol(client):
+    """MSFT was trained but excluded from SUPPORTED_SYMBOLS (window 2
+    failed significance - docs/btc-chart-model-training-2026-10-22.md)
+    - a real symbol with a real decision_engine result, just no live
+    chart-AI model."""
+    response = client.post("/quant/analyze", json={"symbol": "MSFT"})
+    assert response.status_code == 200
+    assert response.json()["chart_ai"] is None
+    _cleanup("MSFT")
+
+
+def test_quant_analyze_chart_ai_failure_does_not_break_the_request(client, monkeypatch):
+    import yfinance as yf
+
+    def _raise(self, period=None):
+        raise RuntimeError("yfinance unavailable")
+
+    monkeypatch.setattr(yf.Ticker, "history", _raise)
+
+    response = client.post("/quant/analyze", json={"symbol": "AAPL"})
+    assert response.status_code == 200
+    assert response.json()["chart_ai"] is None
+    _cleanup("AAPL")
