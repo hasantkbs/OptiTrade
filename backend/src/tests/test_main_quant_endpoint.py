@@ -237,6 +237,33 @@ def test_quant_analyze_chart_ai_failure_does_not_break_the_request(client, monke
     _cleanup("AAPL")
 
 
+def test_quant_analyze_chart_ai_failure_is_logged(client, monkeypatch, caplog):
+    """_attach_chart_ai's `except Exception: pass` is silent today - a
+    systematic outage (yfinance rate-limiting, a TF/Keras import
+    failure in prod) would look identical to "no conflicts ever exist",
+    with nothing in the logs to tell the two apart. The failure must
+    still never reach the response (see
+    test_quant_analyze_chart_ai_failure_does_not_break_the_request
+    above), but it must be logged, naming the symbol, so an outage is
+    at least visible."""
+    import logging
+
+    import yfinance as yf
+
+    def _raise(self, period=None):
+        raise RuntimeError("yfinance unavailable")
+
+    monkeypatch.setattr(yf.Ticker, "history", _raise)
+
+    with caplog.at_level(logging.WARNING, logger="main"):
+        response = client.post("/quant/analyze", json={"symbol": "AAPL"})
+
+    assert response.status_code == 200
+    assert response.json()["chart_ai"] is None
+    assert any("AAPL" in record.message and "chart_ai" in record.message for record in caplog.records)
+    _cleanup("AAPL")
+
+
 def test_quant_analyze_chart_ai_stays_none_when_history_is_too_short(client, monkeypatch):
     """predict_chart_signal() (ml/chart_model.py) returns {"signal": None,
     "error": "..."} - not an exception - when it gets real but insufficient

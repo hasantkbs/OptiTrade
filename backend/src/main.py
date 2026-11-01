@@ -1569,23 +1569,29 @@ def _attach_chart_ai(result: PipelineResponse) -> None:
     must not break /quant/analyze itself - the endpoint still returns
     the real decision_engine result with chart_ai left at its default
     None."""
+    # Captured once, outside the try, so the except block below can
+    # always log a symbol even when `result` itself is the thing that
+    # made the attempt fail (e.g. a non-PipelineResponse object in a
+    # test double - see test_quant_analyze_caches_a_successful_result_
+    # and_skips_a_second_pipeline_run, which exercises exactly that).
+    symbol = getattr(result, "symbol", "<unknown>")
     try:
         from ml.chart_model import get_supported_symbols, is_model_available, predict_chart_signal
-        if result.symbol in get_supported_symbols() and is_model_available(result.symbol):
+        if symbol in get_supported_symbols() and is_model_available(symbol):
             import yfinance as yf
             # Same period="6mo" requirement _enrich_result already
             # established - "3mo" is too short for a 5-day trading
             # week (see that function's own comment, same file).
-            hist_ai = yf.Ticker(result.symbol).history(period="6mo")
+            hist_ai = yf.Ticker(symbol).history(period="6mo")
             if not hist_ai.empty:
-                chart_ai_result = predict_chart_signal(hist_ai, symbol=result.symbol)
+                chart_ai_result = predict_chart_signal(hist_ai, symbol=symbol)
                 if chart_ai_result and chart_ai_result.get("signal"):
                     result.chart_ai = ChartAISignal(
                         signal=chart_ai_result["signal"],
                         confidence=chart_ai_result["confidence"],
                     )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"chart_ai attach failed ({symbol}): {e}")
 
 
 @app.post("/quant/analyze", response_model=PipelineResponse)
