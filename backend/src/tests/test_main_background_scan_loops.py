@@ -323,3 +323,33 @@ async def test_market_opportunities_refresh_loop_skips_a_tick_while_another_scan
         main_module._HEAVY_BACKGROUND_SCAN_LOCK.release()
 
     assert calls == [], "the loop must skip its heavy work entirely while the lock is held elsewhere"
+
+
+@pytest.mark.asyncio
+async def test_market_opportunities_refresh_loop_only_refreshes_us_every_sixth_tick(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main_module, "_pipeline_service", object())
+    monkeypatch.setattr(main_module, "_MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(main_module, "_market_opportunities_tick_count", 0)
+    monkeypatch.setattr(main_module, "_refresh_market_opportunities", lambda market: calls.append(market))
+
+    # Run for a window wide enough for exactly 5 ticks (5 * 0.01s), not
+    # yet the 6th - US must not have been refreshed at all.
+    await _run_one_cycle(main_module.market_opportunities_refresh_loop, timeout=0.055)
+
+    assert "US" not in calls
+    assert "TR" in calls and "CRYPTO" in calls
+
+
+@pytest.mark.asyncio
+async def test_market_opportunities_refresh_loop_refreshes_us_on_the_sixth_tick(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main_module, "_pipeline_service", object())
+    monkeypatch.setattr(main_module, "_MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS", 0.01)
+    monkeypatch.setattr(main_module, "_market_opportunities_tick_count", 0)
+    monkeypatch.setattr(main_module, "_refresh_market_opportunities", lambda market: calls.append(market))
+
+    # Wide enough for at least 6 ticks.
+    await _run_one_cycle(main_module.market_opportunities_refresh_loop, timeout=0.09)
+
+    assert "US" in calls

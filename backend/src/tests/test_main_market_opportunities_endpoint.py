@@ -157,3 +157,31 @@ def test_market_is_case_insensitive(client, monkeypatch, cleanup):
     monkeypatch.setattr(main_module, "_opportunities_cache", _WarmCache())
     r = client.get("/market/opportunities/us", headers=headers)
     assert r.status_code == 200
+
+
+def test_refresh_market_opportunities_uses_higher_concurrency_for_us(monkeypatch):
+    """US's symbol universe is now the full S&P 500 (~500 symbols) -
+    the scanner's default concurrency (max_parallel_symbols=3) would
+    make a single scan take far too long. US must get its own,
+    higher-concurrency MarketScannerConfig; TR/CRYPTO keep the default."""
+    import intelligence.market_scanner as market_scanner_module
+
+    captured_configs = []
+    original_init = market_scanner_module.MarketScanner.__init__
+
+    def _capturing_init(self, pipeline_service=None, config=None):
+        captured_configs.append(config)
+        original_init(self, pipeline_service=pipeline_service, config=config)
+
+    monkeypatch.setattr(market_scanner_module.MarketScanner, "__init__", _capturing_init)
+    monkeypatch.setattr(main_module, "scan_and_rank", lambda scanner, symbols, config=None: OpportunityRankingResult(
+        ranked=[], failed_symbols=[], unclassifiable_symbols=[], ranked_count=0, total_scanned_count=0,
+    ))
+    monkeypatch.setattr(main_module, "_opportunities_cache", type("C", (), {"set": staticmethod(lambda m, p: None)})())
+    monkeypatch.setattr(main_module, "_pipeline_service", object())
+
+    main_module._refresh_market_opportunities("US")
+    main_module._refresh_market_opportunities("TR")
+
+    assert captured_configs[0] is not None and captured_configs[0].max_parallel_symbols == 10
+    assert captured_configs[1] is None

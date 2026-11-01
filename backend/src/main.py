@@ -556,6 +556,8 @@ async def dashboard_cache_refresh_loop() -> None:
 
 _MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS = 300
 _MARKET_OPPORTUNITIES_MAX_RESULTS = 10
+_MARKET_OPPORTUNITIES_US_TICK_INTERVAL = 6  # 6 * 300s = 30 minutes
+_market_opportunities_tick_count = 0
 
 
 def _refresh_market_opportunities(market: str) -> None:
@@ -570,10 +572,16 @@ def _refresh_market_opportunities(market: str) -> None:
     opportunities_refresh_loop) decides what a failure means for this
     market's cache, not this function."""
     from core.market_config import get_symbols_for_market
+    from intelligence.config import MarketScannerConfig
     from intelligence.market_scanner import MarketScanner
 
     symbols = list(get_symbols_for_market(market).keys())
-    scanner = MarketScanner(pipeline_service=_pipeline_service)
+    # US's universe is now the full S&P 500 (~500 symbols, vs. TR/
+    # CRYPTO's much smaller curated lists) - the scanner's default
+    # concurrency (3) would make one scan take far too long; TR/CRYPTO
+    # keep the default, unchanged.
+    scanner_config = MarketScannerConfig(max_parallel_symbols=10) if market == "US" else None
+    scanner = MarketScanner(pipeline_service=_pipeline_service, config=scanner_config)
     result = scan_and_rank(scanner, symbols)
 
     response = MarketOpportunitiesResponse(
@@ -613,6 +621,7 @@ async def market_opportunities_refresh_loop() -> None:
     those two to starve each other in production (2026-10-12); this
     loop skips its tick entirely under the same rule rather than adding
     a third, independently-contending heavy scan."""
+    global _market_opportunities_tick_count
     while True:
         await asyncio.sleep(_MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS)
         if _pipeline_service is None:
@@ -621,7 +630,11 @@ async def market_opportunities_refresh_loop() -> None:
             logger.info("Piyasa fırsatları yenileme: başka bir tarama devam ediyor, bu tur atlanıyor.")
             continue
         async with _HEAVY_BACKGROUND_SCAN_LOCK:
-            for market in ("TR", "US", "CRYPTO"):
+            _market_opportunities_tick_count += 1
+            markets = ["TR", "CRYPTO"]
+            if _market_opportunities_tick_count % _MARKET_OPPORTUNITIES_US_TICK_INTERVAL == 0:
+                markets.append("US")
+            for market in markets:
                 try:
                     await _run_in_executor(_refresh_market_opportunities, market)
                 except Exception as e:
