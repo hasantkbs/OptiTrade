@@ -62,7 +62,7 @@ import httpx
 import pandas as pd
 import yfinance as yf
 
-from core.market_config import US_SYMBOLS
+from scripts._frozen_us_symbols import ORIGINAL_US_SYMBOLS_28 as US_SYMBOLS
 from feature_store.models import FeatureRecord
 from feature_store.offline_store import PostgresOfflineStore
 

@@ -36,7 +36,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from core.market_config import US_SYMBOLS
+from scripts._frozen_us_symbols import ORIGINAL_US_SYMBOLS_28 as US_SYMBOLS
 from ml_training.config import MLTrainingConfig
 from ml_training.datasets.builder import DatasetBuilder
 from ml_training.features.extractor import FeatureExtractor

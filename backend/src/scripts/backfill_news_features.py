@@ -51,7 +51,7 @@ from dotenv import load_dotenv
 load_dotenv()
 import os
 
-from core.market_config import US_SYMBOLS
+from scripts._frozen_us_symbols import ORIGINAL_US_SYMBOLS_28 as US_SYMBOLS
 from engines.news import aggregator, deduplicator, normalizer
 from engines.news.config import ALL_FEATURE_NAMES, NewsEngineConfig
 from engines.news.models import RawArticle

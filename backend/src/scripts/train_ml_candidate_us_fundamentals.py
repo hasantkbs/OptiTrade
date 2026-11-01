@@ -50,7 +50,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 import yfinance as yf
 
-from core.market_config import US_SYMBOLS
+from scripts._frozen_us_symbols import ORIGINAL_US_SYMBOLS_28 as US_SYMBOLS
 from engines.technical.config import FEATURE_TREND_STRENGTH
 from feature_store.service import get_default_feature_store_service
 from ml_training.config import MLTrainingConfig

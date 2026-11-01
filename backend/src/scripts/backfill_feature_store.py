@@ -43,7 +43,7 @@ from engines.technical.config import TechnicalEngineConfig
 from engines.technical.feature_adapter import compute_technical_features
 from feature_store.models import FeatureRecord
 from feature_store.offline_store import PostgresOfflineStore
-from core.market_config import US_SYMBOLS
+from scripts._frozen_us_symbols import ORIGINAL_US_SYMBOLS_28 as US_SYMBOLS
 from research.ml_trainer import SYMBOLS
 
 logging.basicConfig(level=logging.WARNING)

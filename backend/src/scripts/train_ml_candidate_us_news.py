@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
-from core.market_config import US_SYMBOLS
+from scripts._frozen_us_symbols import ORIGINAL_US_SYMBOLS_28 as US_SYMBOLS
 from ml_training.config import MLTrainingConfig
 from ml_training.datasets.builder import DatasetBuilder
 from ml_training.datasets.service import DatasetService

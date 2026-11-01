@@ -41,7 +41,7 @@ import pandas as pd
 from scipy.stats import chi2
 from sklearn.metrics import accuracy_score, roc_auc_score
 
-from core.market_config import US_SYMBOLS
+from scripts._frozen_us_symbols import ORIGINAL_US_SYMBOLS_28 as US_SYMBOLS
 from ml_training.config import MLTrainingConfig
 from ml_training.datasets.builder import DatasetBuilder
 from ml_training.evaluation.evaluator import ModelEvaluator
