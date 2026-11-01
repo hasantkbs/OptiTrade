@@ -552,7 +552,7 @@ async def dashboard_cache_refresh_loop() -> None:
 
 
 _MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS = 300
-_MARKET_OPPORTUNITIES_MAX_RESULTS = 15
+_MARKET_OPPORTUNITIES_MAX_RESULTS = 10
 
 
 def _refresh_market_opportunities(market: str) -> None:

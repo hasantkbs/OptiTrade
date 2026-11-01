@@ -1,8 +1,10 @@
 import { useNavigate } from 'react-router-dom'
+import { Card, CardHeader, CardSubtitle, CardTitle } from '../components/ui/Card'
 import { apiErrorMessage } from '../api/client'
 import { useMarketSnapshot } from '../features/dashboard/hooks'
 import { IndexChart } from '../features/market/IndexChart'
 import { DominanceFigure } from '../features/market/DominanceFigure'
+import { MarketOpportunities } from '../features/market/MarketOpportunities'
 import { MarketSummary } from '../features/market/MarketSummary'
 import { SymbolSearch } from '../features/market/SymbolSearch'
 import styles from './MarketSnapshotPage.module.css'
@@ -39,6 +41,16 @@ export function MarketSnapshotPage() {
         />
         <DominanceFigure value={snapshot.data?.btc_dominance_pct ?? null} isLoading={snapshot.isLoading} />
       </div>
+
+      <Card style={{ marginTop: 'var(--space-5)' }}>
+        <CardHeader>
+          <div>
+            <CardTitle>Top opportunities</CardTitle>
+            <CardSubtitle>The model's highest-ranked picks per market, updated every 5 minutes</CardSubtitle>
+          </div>
+        </CardHeader>
+        <MarketOpportunities />
+      </Card>
 
       <MarketSummary />
     </div>

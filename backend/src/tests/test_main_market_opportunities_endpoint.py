@@ -5,6 +5,15 @@ the endpoint's own docstring in main.py)."""
 import pytest
 
 import main as main_module
+from intelligence.models import (
+    OpportunityAssessment,
+    OpportunityLabel,
+    OpportunityRankingResult,
+    RankedOpportunity,
+    RankingReason,
+    RiskBucket,
+)
+from pipeline.models import PipelineMetadata, PipelineResponse, RiskAssessment
 from users.repository import UsersRepository
 
 _EMAIL_PREFIX = "market-opps-test"
@@ -77,6 +86,61 @@ def test_returns_the_cached_ranking(client, monkeypatch, cleanup):
     assert len(body["opportunities"]) == 1
     assert body["opportunities"][0]["symbol"] == "AAPL"
     assert body["opportunities"][0]["label"] == "BUY_BIAS"
+
+
+def _fake_ranked_opportunity(rank: int, symbol: str) -> RankedOpportunity:
+    response = PipelineResponse(
+        symbol=symbol, decision="BUY", confidence=0.7, expected_return=0.02, expected_volatility=0.1,
+        risk=RiskAssessment(risk_level="LOW", expected_volatility=0.1, data_sufficiency=0.9),
+        explanation="test",
+        metadata=PipelineMetadata(
+            pipeline_version="1.0.0", total_duration_ms=1.0,
+            engines_available=3, engines_succeeded=3, degraded=False,
+        ),
+    )
+    assessment = OpportunityAssessment(
+        symbol=symbol, decision="BUY", confidence=0.7, expected_return=0.02,
+        expected_volatility=0.1, risk_bucket=RiskBucket.LOW, data_sufficiency=0.9,
+        classification=OpportunityLabel.BUY_BIAS, timestamp="2026-01-01T00:00:00Z",
+    )
+    return RankedOpportunity(
+        rank=rank, symbol=symbol, assessment=assessment, response=response,
+        reason=RankingReason(label_priority=0, risk_rank=0),
+    )
+
+
+def test_refresh_caps_the_cached_ranking_at_ten_results(monkeypatch):
+    """_refresh_market_opportunities must cap what it caches at 10 -
+    "en fazla 10 opsiyonu sıralasın" (rank at most 10 options), the
+    Market page's own top-opportunities picker. rank_opportunities
+    itself ranks every successfully-scanned symbol with no limit of
+    its own (see intelligence/opportunity_ranking.py) - the cap is this
+    function's own responsibility, not something to re-derive
+    elsewhere."""
+    twelve_ranked = [_fake_ranked_opportunity(i, f"SYM{i}") for i in range(1, 13)]
+
+    def _fake_scan_and_rank(scanner, symbols, config=None):
+        return OpportunityRankingResult(
+            ranked=twelve_ranked, failed_symbols=[], unclassifiable_symbols=[],
+            ranked_count=len(twelve_ranked), total_scanned_count=len(twelve_ranked),
+        )
+
+    monkeypatch.setattr(main_module, "scan_and_rank", _fake_scan_and_rank)
+
+    cached: dict = {}
+
+    class _RecordingCache:
+        def set(self, market, payload):
+            cached[market] = payload
+
+    monkeypatch.setattr(main_module, "_opportunities_cache", _RecordingCache())
+    monkeypatch.setattr(main_module, "_pipeline_service", object())
+
+    main_module._refresh_market_opportunities("US")
+
+    stored = main_module.MarketOpportunitiesResponse.model_validate_json(cached["US"])
+    assert len(stored.opportunities) == 10
+    assert [item.symbol for item in stored.opportunities] == [f"SYM{i}" for i in range(1, 11)]
 
 
 def test_market_is_case_insensitive(client, monkeypatch, cleanup):

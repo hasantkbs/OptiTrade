@@ -10,7 +10,7 @@ vi.mock('../api/endpoints', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/endpoints')>()
   return {
     ...actual,
-    marketApi: { snapshot: vi.fn(), watchlist: vi.fn() },
+    marketApi: { snapshot: vi.fn(), watchlist: vi.fn(), opportunities: vi.fn() },
     dashboardApi: { ...actual.dashboardApi, market: vi.fn() },
   }
 })
@@ -55,6 +55,12 @@ beforeEach(() => {
       symbols: (market === 'TR' ? { 'GARAN.IS': 'Garanti BBVA' } : {}) as Record<string, string>,
     }),
   )
+  mockedMarketApi.opportunities.mockImplementation((market: string) =>
+    Promise.resolve({
+      market, opportunities: [], total_scanned_count: 0, failed_count: 0,
+      generated_at: '2026-01-01T00:00:00Z',
+    }),
+  )
 })
 
 describe('MarketSnapshotPage', () => {
@@ -84,5 +90,20 @@ describe('MarketSnapshotPage', () => {
     await user.click(await screen.findByRole('button', { name: /GARAN.IS/ }))
 
     await waitFor(() => expect(screen.getByText('Asset detail for GARAN.IS')).toBeInTheDocument())
+  })
+
+  it('shows the Top opportunities picker with a tab for each supported market', async () => {
+    mockedMarketApi.snapshot.mockResolvedValueOnce({
+      bist100: { symbol: 'XU100.IS', period: '3mo', change_pct: 1.1, high: 100, low: 90, points: [] },
+      btc: { symbol: 'BTC-USD', period: '3mo', change_pct: 2.2, high: 70000, low: 60000, points: [] },
+      btc_dominance_pct: 54.3,
+      generated_at: '2026-01-01T00:00:00Z',
+    })
+    renderPage()
+
+    expect(await screen.findByText('Top opportunities')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'BIST (TR)' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'US' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Crypto' })).toBeInTheDocument()
   })
 })
