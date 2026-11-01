@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Protocol, runtime_checkable
 
-from core.market_config import BIST_SYMBOLS, CRYPTO_SYMBOLS, US_SYMBOLS
+from core.market_config import BIST_SYMBOLS, CRYPTO_SYMBOLS, get_us_symbols
 from core.sector_mapper import SECTOR_KEYWORDS
 from news.models import Entity, EntityType
 
@@ -29,17 +29,18 @@ class EntityExtractor(Protocol):
 
 
 def _build_gazetteers() -> tuple[Dict[str, str], Dict[str, str]]:
-    """Return (ticker -> symbol [case-sensitive], company name -> symbol)."""
+    """Return (ticker -> symbol [case-sensitive], company name -> symbol).
+    Called fresh on every extract() call (not cached at module-import
+    time) - get_us_symbols() can change without a server restart, and
+    the gazetteer must reflect that."""
     ticker_map: Dict[str, str] = {}
     company_map: Dict[str, str] = {}
-    for table in (US_SYMBOLS, BIST_SYMBOLS, CRYPTO_SYMBOLS):
+    for table in (get_us_symbols(), BIST_SYMBOLS, CRYPTO_SYMBOLS):
         for symbol, name in table.items():
             ticker_map[symbol] = symbol
             company_map[name.lower()] = symbol
     return ticker_map, company_map
 
-
-_TICKER_MAP, _COMPANY_MAP = _build_gazetteers()
 
 # sector/macro keyword phrase (lowercase) -> sector code
 _SECTOR_KEYWORD_INDEX: Dict[str, str] = {
@@ -69,10 +70,11 @@ class DeterministicEntityExtractor:
         if not text:
             return []
 
+        ticker_map, company_map = _build_gazetteers()
         entities: List[Entity] = []
         seen_symbols: set = set()
 
-        for symbol in _TICKER_MAP:
+        for symbol in ticker_map:
             if symbol in seen_symbols:
                 continue
             if re.search(rf"\b{re.escape(symbol)}\b", text):
@@ -80,7 +82,7 @@ class DeterministicEntityExtractor:
                 entities.append(Entity(text=symbol, entity_type=EntityType.TICKER, symbol=symbol))
 
         lower = text.lower()
-        for name, symbol in _COMPANY_MAP.items():
+        for name, symbol in company_map.items():
             if symbol in seen_symbols:
                 continue
             if re.search(rf"\b{re.escape(name)}\b", lower):

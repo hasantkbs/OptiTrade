@@ -393,8 +393,8 @@ def _fetch_yfinance_news(symbol: str, max_news: int = 15) -> List[Dict]:
 
 def _query_for_symbol(symbol: str, market: str) -> str:
     """Sembol için okunabilir arama sorgusu üret (şirket adı varsa onu kullan)."""
-    from core.market_config import BIST_SYMBOLS, US_SYMBOLS, CRYPTO_SYMBOLS
-    names = {**BIST_SYMBOLS, **US_SYMBOLS, **CRYPTO_SYMBOLS}
+    from core.market_config import BIST_SYMBOLS, CRYPTO_SYMBOLS, get_us_symbols
+    names = {**BIST_SYMBOLS, **get_us_symbols(), **CRYPTO_SYMBOLS}
     name = names.get(symbol.upper())
     if name:
         return name
