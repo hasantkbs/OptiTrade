@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import json
 import logging
 import os
+import re
 import asyncio
 
 import pandas as pd
@@ -558,6 +559,11 @@ _MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS = 300
 _MARKET_OPPORTUNITIES_MAX_RESULTS = 10
 _MARKET_OPPORTUNITIES_US_TICK_INTERVAL = 6  # 6 * 300s = 30 minutes
 _market_opportunities_tick_count = 0
+# Comfortably past US's own ~30min refresh cadence plus real scan
+# time, so one skipped/slow cycle doesn't expire the last good US
+# result out from under the endpoint (OpportunitiesCache's own 900s
+# default is sized for TR/CRYPTO's 300s cadence, not this one).
+_MARKET_OPPORTUNITIES_US_TTL_SECONDS = 7200
 
 
 def _refresh_market_opportunities(market: str) -> None:
@@ -579,8 +585,13 @@ def _refresh_market_opportunities(market: str) -> None:
     # US's universe is now the full S&P 500 (~500 symbols, vs. TR/
     # CRYPTO's much smaller curated lists) - the scanner's default
     # concurrency (3) would make one scan take far too long; TR/CRYPTO
-    # keep the default, unchanged.
-    scanner_config = MarketScannerConfig(max_parallel_symbols=10) if market == "US" else None
+    # keep the default, unchanged. Capped at 5 (not higher) because
+    # every scanned symbol is a full PipelineService.run() call sharing
+    # the same process-wide engine executor (max_parallel_workers=8,
+    # also serving user-facing /quant/analyze) - more scanner
+    # concurrency than that would mostly add queueing, not speed, and
+    # risks starving real user requests during the scan.
+    scanner_config = MarketScannerConfig(max_parallel_symbols=5) if market == "US" else None
     scanner = MarketScanner(pipeline_service=_pipeline_service, config=scanner_config)
     result = scan_and_rank(scanner, symbols)
 
@@ -599,7 +610,8 @@ def _refresh_market_opportunities(market: str) -> None:
         total_scanned_count=result.total_scanned_count,
         failed_count=len(result.failed_symbols),
     )
-    _opportunities_cache.set(market, response.model_dump_json())
+    ttl_seconds = _MARKET_OPPORTUNITIES_US_TTL_SECONDS if market == "US" else None
+    _opportunities_cache.set(market, response.model_dump_json(), ttl_seconds=ttl_seconds)
 
 
 async def market_opportunities_refresh_loop() -> None:
@@ -632,7 +644,10 @@ async def market_opportunities_refresh_loop() -> None:
         async with _HEAVY_BACKGROUND_SCAN_LOCK:
             _market_opportunities_tick_count += 1
             markets = ["TR", "CRYPTO"]
-            if _market_opportunities_tick_count % _MARKET_OPPORTUNITIES_US_TICK_INTERVAL == 0:
+            # Fires on tick 1 (minimizes the post-deploy blackout to one
+            # ~5min tick instead of a full 30min cycle), then every
+            # _MARKET_OPPORTUNITIES_US_TICK_INTERVAL ticks after that.
+            if (_market_opportunities_tick_count - 1) % _MARKET_OPPORTUNITIES_US_TICK_INTERVAL == 0:
                 markets.append("US")
             for market in markets:
                 try:
@@ -642,6 +657,35 @@ async def market_opportunities_refresh_loop() -> None:
 
 
 _SP500_REFRESH_INTERVAL_SECONDS = 24 * 60 * 60  # once a day
+# The real S&P 500 has ~500 constituents - anything far below that
+# means the fetch got a wrong/truncated table (e.g. Wikipedia's page
+# layout changed and tables[0] is no longer the constituent list), not
+# a real index composition. Treated as a failure, same as a network
+# error - the existing cache is never overwritten with it.
+_MIN_PLAUSIBLE_SP500_SYMBOLS = 400
+
+_LEGAL_SUFFIX_RE = re.compile(
+    r"\s*\((?:Class\s+\w+)\)\s*$"
+    r"|,?\s+(?:Incorporated|Corporation|Inc|Corp|Company|Co|plc|Ltd|Limited|Holdings|Group|LLC)\.?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _clean_company_name(name: str) -> str:
+    """Strips a trailing legal suffix / share-class parenthetical from
+    a Wikipedia company name ("Apple Inc." -> "Apple", "Alphabet Inc.
+    (Class A)" -> "Alphabet") - the original curated 28-symbol dict
+    never carried these, and news/entity_extraction.py's company-name
+    matching requires the literal phrase in article text, so an
+    unstripped "Apple Inc." stops matching headlines that just say
+    "Apple". Applied twice to catch combinations like "Inc. (Class A)"."""
+    cleaned = name
+    for _ in range(2):
+        stripped = _LEGAL_SUFFIX_RE.sub("", cleaned).strip().rstrip(" &,.").strip()
+        if stripped == cleaned or not stripped:
+            break
+        cleaned = stripped
+    return cleaned
 
 
 def _fetch_sp500_symbols_from_wikipedia() -> Dict[str, str]:
@@ -649,35 +693,59 @@ def _fetch_sp500_symbols_from_wikipedia() -> Dict[str, str]:
     (network call - only ever invoked from sp500_refresh_loop, never
     inline on a request path). Tickers are normalized from Wikipedia's
     dot notation for dual-class shares (e.g. BRK.B) to yfinance's own
-    hyphen convention (BRK-B) - see this function's own test for why."""
-    tables = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")
+    hyphen convention (BRK-B) - see this function's own test for why.
+    Raises if the result looks implausibly small - the caller
+    (sp500_refresh_loop) treats that exactly like a network failure."""
+    # Wikipedia returns HTTP 403 to pandas/urllib's default User-Agent
+    # (confirmed live) - a real one is required for this call to work at all.
+    tables = pd.read_html(
+        "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+        storage_options={"User-Agent": "OptiTrade/1.0 (market-data-refresh)"},
+    )
     table = tables[0]
     symbols: Dict[str, str] = {}
     for _, row in table.iterrows():
         symbol = str(row["Symbol"]).strip().replace(".", "-")
-        name = str(row["Security"]).strip()
+        name = _clean_company_name(str(row["Security"]).strip())
         symbols[symbol] = name
+    if len(symbols) < _MIN_PLAUSIBLE_SP500_SYMBOLS:
+        raise ValueError(f"Wikipedia tablosu beklenenden çok az sembol döndürdü ({len(symbols)})")
     return symbols
+
+
+async def _try_refresh_sp500_cache() -> None:
+    """One fetch-and-write attempt. A failure (network, parse, or the
+    too-small-table guard in _fetch_sp500_symbols_from_wikipedia) logs
+    and leaves the existing cache file exactly as it was - never
+    deletes or truncates good data (same principle as research/
+    retrain_chart_models.py's own infra-failure handling). The write
+    itself is atomic (temp file + os.replace) so a crash mid-write
+    can't leave a corrupt file behind for get_us_symbols() to trip over."""
+    from core.market_config import SP500_SYMBOLS_PATH
+
+    try:
+        symbols = await _run_in_executor(_fetch_sp500_symbols_from_wikipedia)
+        os.makedirs(os.path.dirname(SP500_SYMBOLS_PATH), exist_ok=True)
+        tmp_path = f"{SP500_SYMBOLS_PATH}.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump({"sp500_symbols": symbols}, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, SP500_SYMBOLS_PATH)
+        logger.info(f"S&P 500 sembol listesi güncellendi ({len(symbols)} sembol).")
+    except Exception as e:
+        logger.error(f"S&P 500 sembol listesi güncellenemedi, mevcut önbellek korunuyor: {e}")
 
 
 async def sp500_refresh_loop() -> None:
     """Keeps core.market_config.SP500_SYMBOLS_PATH's cache current from
-    Wikipedia's S&P 500 table, once a day. A fetch/parse failure logs
-    and leaves the existing cache file exactly as it was - never
-    deletes or truncates good data (same principle as
-    research/retrain_chart_models.py's own infra-failure handling)."""
-    from core.market_config import SP500_SYMBOLS_PATH
-
+    Wikipedia's S&P 500 table. Tries once immediately on startup (a
+    sleep-first loop meant a fresh deploy served the 28-symbol
+    fallback for a full 24h before ever attempting a real fetch - on a
+    host that redeploys several times a day, the real list could
+    effectively never appear), then once a day after that."""
+    await _try_refresh_sp500_cache()
     while True:
         await asyncio.sleep(_SP500_REFRESH_INTERVAL_SECONDS)
-        try:
-            symbols = await _run_in_executor(_fetch_sp500_symbols_from_wikipedia)
-            os.makedirs(os.path.dirname(SP500_SYMBOLS_PATH), exist_ok=True)
-            with open(SP500_SYMBOLS_PATH, "w", encoding="utf-8") as f:
-                json.dump({"sp500_symbols": symbols}, f, ensure_ascii=False, indent=2)
-            logger.info(f"S&P 500 sembol listesi güncellendi ({len(symbols)} sembol).")
-        except Exception as e:
-            logger.error(f"S&P 500 sembol listesi güncellenemedi, mevcut önbellek korunuyor: {e}")
+        await _try_refresh_sp500_cache()
 
 
 _RETENTION_PURGE_INTERVAL_SECONDS = 86400  # once a day, matching self_evolution_loop's cadence

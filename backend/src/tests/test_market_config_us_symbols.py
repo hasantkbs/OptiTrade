@@ -3,6 +3,7 @@ mirrors ml/chart_model.py's get_supported_symbols() tests exactly
 (test_chart_model_live_allowlist.py), same file-cache-with-fallback
 pattern, different payload shape (a name dict, not a tuple)."""
 import json
+import logging
 
 import core.market_config as market_config
 
@@ -40,15 +41,15 @@ def test_get_us_symbols_picks_up_a_change_without_reimporting_the_module(tmp_pat
     assert market_config.get_us_symbols() == {"AAPL": "Apple", "MSFT": "Microsoft"}
 
 
-def test_get_market_for_symbol_recognizes_a_symbol_only_in_the_dynamic_list(tmp_path, monkeypatch):
-    """A symbol NOT in the frozen 28-symbol fallback, present only via
-    the (mocked) dynamic cache file - proves get_market_for_symbol no
-    longer references the old static US_SYMBOLS dict directly."""
-    path = tmp_path / "sp500_symbols.json"
-    path.write_text(json.dumps({"sp500_symbols": {"ABNB": "Airbnb"}}))
-    monkeypatch.setattr(market_config, "SP500_SYMBOLS_PATH", str(path))
-
-    assert market_config.get_market_for_symbol("ABNB") == "US"
+def test_get_market_for_symbol_falls_through_to_us_for_any_non_tr_non_crypto_symbol():
+    """Final-review fix: get_market_for_symbol's own US branch never
+    actually needed get_us_symbols() - a hit returned "US" and the
+    very next line (a miss) also returned "US", so the membership
+    check was dead weight (now removed; see market_config.py's own
+    comment there). This replaces the Task 1 test that exercised that
+    now-removed branch, which asserted nothing a non-US symbol
+    wouldn't also satisfy."""
+    assert market_config.get_market_for_symbol("ZZZZNOTREAL") == "US"
 
 
 def test_get_symbols_for_market_us_returns_the_dynamic_list(tmp_path, monkeypatch):
@@ -57,3 +58,37 @@ def test_get_symbols_for_market_us_returns_the_dynamic_list(tmp_path, monkeypatc
     monkeypatch.setattr(market_config, "SP500_SYMBOLS_PATH", str(path))
 
     assert market_config.get_symbols_for_market("US") == {"ABNB": "Airbnb"}
+
+
+def test_get_us_symbols_logs_the_fallback_warning_only_once_per_failure_streak(tmp_path, monkeypatch, caplog):
+    """Final-review fix: get_us_symbols() is called per news article
+    (news/entity_extraction.py, core/news_analyzer.py) and per market-
+    for-symbol lookup - while the cache file is missing/corrupt, the
+    old code logged an identical WARNING on every single one of those
+    calls, which at S&P-500 scan scale means thousands of repeated
+    lines per cycle. Logs once, then stays quiet until a successful
+    read resets it."""
+    monkeypatch.setattr(market_config, "SP500_SYMBOLS_PATH", str(tmp_path / "does-not-exist.json"))
+    monkeypatch.setattr(market_config, "_us_symbols_fallback_warned", False)
+
+    with caplog.at_level(logging.WARNING, logger="core.market_config"):
+        market_config.get_us_symbols()
+        market_config.get_us_symbols()
+        market_config.get_us_symbols()
+
+    assert len(caplog.records) == 1
+
+
+def test_get_us_symbols_warns_again_after_a_successful_read_then_another_failure(tmp_path, monkeypatch, caplog):
+    path = tmp_path / "sp500_symbols.json"
+    monkeypatch.setattr(market_config, "SP500_SYMBOLS_PATH", str(path))
+    monkeypatch.setattr(market_config, "_us_symbols_fallback_warned", False)
+
+    with caplog.at_level(logging.WARNING, logger="core.market_config"):
+        market_config.get_us_symbols()  # missing file - warns, sets the flag
+        path.write_text(json.dumps({"sp500_symbols": {"AAPL": "Apple"}}))
+        market_config.get_us_symbols()  # success - clears the flag
+        path.unlink()
+        market_config.get_us_symbols()  # missing again - must warn again
+
+    assert len(caplog.records) == 2

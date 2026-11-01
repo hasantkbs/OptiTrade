@@ -42,6 +42,24 @@ def test_set_applies_the_configured_ttl(cache, redis_client):
     assert 0 < ttl <= 300
 
 
+def test_set_accepts_a_per_call_ttl_override(cache, redis_client):
+    """US's opportunities scan now runs every 30 minutes (main.py's
+    _MARKET_OPPORTUNITIES_US_TICK_INTERVAL), far past this cache's
+    15-minute default TTL - a per-call override is how
+    _refresh_market_opportunities gives US's entry enough time to
+    survive until its next refresh, without changing TR/CRYPTO's own
+    300s-cadence-appropriate default."""
+    cache.set("US", "us-payload", ttl_seconds=7200)
+    ttl = redis_client.ttl("market:opportunities:US")
+    assert 300 < ttl <= 7200
+
+
+def test_set_without_override_still_uses_the_configured_default_ttl(cache, redis_client):
+    cache.set("TR", "tr-payload")
+    ttl = redis_client.ttl("market:opportunities:TR")
+    assert 0 < ttl <= 300
+
+
 def test_redis_errors_are_caught_not_raised():
     class _BrokenRedis:
         def get(self, key):

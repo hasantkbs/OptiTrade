@@ -326,15 +326,37 @@ async def test_market_opportunities_refresh_loop_skips_a_tick_while_another_scan
 
 
 @pytest.mark.asyncio
-async def test_market_opportunities_refresh_loop_only_refreshes_us_every_sixth_tick(monkeypatch):
+async def test_market_opportunities_refresh_loop_refreshes_us_on_the_very_first_tick(monkeypatch):
+    """Final-review fix: the original "every 6th tick starting from
+    tick 6" gate left US's cache completely empty (503) for the first
+    30 minutes after every deploy or restart. Firing on tick 1 too
+    (then every 6th tick after that) cuts that initial blackout down
+    to a single ~5-minute tick, with no change to the steady-state
+    30-minute cadence."""
     calls = []
     monkeypatch.setattr(main_module, "_pipeline_service", object())
     monkeypatch.setattr(main_module, "_MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS", 0.01)
     monkeypatch.setattr(main_module, "_market_opportunities_tick_count", 0)
     monkeypatch.setattr(main_module, "_refresh_market_opportunities", lambda market: calls.append(market))
 
-    # Run for a window wide enough for exactly 5 ticks (5 * 0.01s), not
-    # yet the 6th - US must not have been refreshed at all.
+    # Wide enough for exactly 1 tick, not yet a 2nd.
+    await _run_one_cycle(main_module.market_opportunities_refresh_loop, timeout=0.015)
+
+    assert "US" in calls
+    assert "TR" in calls and "CRYPTO" in calls
+
+
+@pytest.mark.asyncio
+async def test_market_opportunities_refresh_loop_does_not_refresh_us_again_before_the_seventh_tick(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main_module, "_pipeline_service", object())
+    monkeypatch.setattr(main_module, "_MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS", 0.01)
+    # Simulates "tick 1 already happened" (e.g. right after startup) -
+    # ticks 2 through 6 must not refresh US again.
+    monkeypatch.setattr(main_module, "_market_opportunities_tick_count", 1)
+    monkeypatch.setattr(main_module, "_refresh_market_opportunities", lambda market: calls.append(market))
+
+    # Wide enough for exactly 5 more ticks (counter reaches 6), not yet the 7th.
     await _run_one_cycle(main_module.market_opportunities_refresh_loop, timeout=0.055)
 
     assert "US" not in calls
@@ -342,14 +364,14 @@ async def test_market_opportunities_refresh_loop_only_refreshes_us_every_sixth_t
 
 
 @pytest.mark.asyncio
-async def test_market_opportunities_refresh_loop_refreshes_us_on_the_sixth_tick(monkeypatch):
+async def test_market_opportunities_refresh_loop_refreshes_us_again_on_the_seventh_tick(monkeypatch):
     calls = []
     monkeypatch.setattr(main_module, "_pipeline_service", object())
     monkeypatch.setattr(main_module, "_MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS", 0.01)
-    monkeypatch.setattr(main_module, "_market_opportunities_tick_count", 0)
+    monkeypatch.setattr(main_module, "_market_opportunities_tick_count", 1)
     monkeypatch.setattr(main_module, "_refresh_market_opportunities", lambda market: calls.append(market))
 
-    # Wide enough for at least 6 ticks.
+    # Wide enough for 6 more ticks (counter reaches 7).
     await _run_one_cycle(main_module.market_opportunities_refresh_loop, timeout=0.09)
 
     assert "US" in calls

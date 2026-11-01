@@ -613,10 +613,10 @@ def test_market_config_universe_provider_isolates_different_markets():
 def test_market_config_universe_provider_does_not_duplicate_symbol_lists():
     # Positive check: proves the provider really is backed by
     # core.market_config's own data, not a second copy.
-    from core.market_config import US_SYMBOLS
+    from core.market_config import get_us_symbols
 
     provider = MarketConfigUniverseProvider("US")
-    assert set(provider.get_symbols()) == set(US_SYMBOLS.keys())
+    assert set(provider.get_symbols()) == set(get_us_symbols().keys())
 
 
 # ── 30. Configuration is deterministic ────────────────────────────────────

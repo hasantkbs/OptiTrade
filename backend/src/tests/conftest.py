@@ -35,9 +35,15 @@ def client():
     original_self_evolution_loop = main.self_evolution_loop
     original_alert_scan_loop = main.alert_scan_loop
     original_paper_trading_fill_loop = main.paper_trading_fill_loop
+    original_sp500_refresh_loop = main.sp500_refresh_loop
     main.self_evolution_loop = _noop_loop
     main.alert_scan_loop = _noop_loop
     main.paper_trading_fill_loop = _noop_loop
+    # sp500_refresh_loop now fetches once immediately on startup (final-
+    # review fix: a sleep-first loop left a fresh deploy on the 28-
+    # symbol fallback for a full day) - left real, every test run using
+    # this fixture would make a real Wikipedia network call.
+    main.sp500_refresh_loop = _noop_loop
     try:
         with TestClient(main.app) as test_client:
             # main.limiter (slowapi) tracks request counts in a single
@@ -55,3 +61,4 @@ def client():
         main.self_evolution_loop = original_self_evolution_loop
         main.alert_scan_loop = original_alert_scan_loop
         main.paper_trading_fill_loop = original_paper_trading_fill_loop
+        main.sp500_refresh_loop = original_sp500_refresh_loop

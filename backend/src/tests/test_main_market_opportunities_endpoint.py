@@ -130,7 +130,7 @@ def test_refresh_caps_the_cached_ranking_at_ten_results(monkeypatch):
     cached: dict = {}
 
     class _RecordingCache:
-        def set(self, market, payload):
+        def set(self, market, payload, ttl_seconds=None):
             cached[market] = payload
 
     monkeypatch.setattr(main_module, "_opportunities_cache", _RecordingCache())
@@ -177,11 +177,41 @@ def test_refresh_market_opportunities_uses_higher_concurrency_for_us(monkeypatch
     monkeypatch.setattr(main_module, "scan_and_rank", lambda scanner, symbols, config=None: OpportunityRankingResult(
         ranked=[], failed_symbols=[], unclassifiable_symbols=[], ranked_count=0, total_scanned_count=0,
     ))
-    monkeypatch.setattr(main_module, "_opportunities_cache", type("C", (), {"set": staticmethod(lambda m, p: None)})())
+    monkeypatch.setattr(main_module, "_opportunities_cache", type("C", (), {"set": staticmethod(lambda m, p, ttl_seconds=None: None)})())
     monkeypatch.setattr(main_module, "_pipeline_service", object())
 
     main_module._refresh_market_opportunities("US")
     main_module._refresh_market_opportunities("TR")
 
-    assert captured_configs[0] is not None and captured_configs[0].max_parallel_symbols == 10
+    assert captured_configs[0] is not None and captured_configs[0].max_parallel_symbols == 5
     assert captured_configs[1] is None
+
+
+def test_refresh_market_opportunities_gives_us_a_ttl_that_survives_its_own_cadence(monkeypatch):
+    """US now refreshes at most every 6th tick (30 minutes, main.py's
+    _MARKET_OPPORTUNITIES_US_TICK_INTERVAL *
+    _MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS) plus real scan
+    time - the cache's 900s (15-minute) default TTL would expire the
+    US entry before its own next refresh, making GET /market/
+    opportunities/US return 503 most of the time. TR/CRYPTO still
+    refresh every tick (300s) and must keep the default TTL."""
+    monkeypatch.setattr(main_module, "scan_and_rank", lambda scanner, symbols, config=None: OpportunityRankingResult(
+        ranked=[], failed_symbols=[], unclassifiable_symbols=[], ranked_count=0, total_scanned_count=0,
+    ))
+    captured_calls = []
+
+    class _RecordingCache:
+        def set(self, market, payload, ttl_seconds=None):
+            captured_calls.append((market, ttl_seconds))
+
+    monkeypatch.setattr(main_module, "_opportunities_cache", _RecordingCache())
+    monkeypatch.setattr(main_module, "_pipeline_service", object())
+
+    main_module._refresh_market_opportunities("US")
+    main_module._refresh_market_opportunities("TR")
+
+    us_ttl = dict(captured_calls)["US"]
+    tr_ttl = dict(captured_calls)["TR"]
+    min_us_survival = main_module._MARKET_OPPORTUNITIES_REFRESH_INTERVAL_SECONDS * main_module._MARKET_OPPORTUNITIES_US_TICK_INTERVAL
+    assert us_ttl is not None and us_ttl > min_us_survival
+    assert tr_ttl is None  # unchanged - still uses the cache's own configured default

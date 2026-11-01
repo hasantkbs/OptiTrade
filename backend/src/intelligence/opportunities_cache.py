@@ -48,9 +48,9 @@ class OpportunitiesCache:
                 retry=redis_retry_disabled(), retry_on_error=[],
             )
 
-    def set(self, market: str, payload_json: str) -> None:
+    def set(self, market: str, payload_json: str, ttl_seconds: Optional[int] = None) -> None:
         try:
-            self._client.set(f"{_CACHE_KEY_PREFIX}{market}", payload_json, ex=self._ttl_seconds)
+            self._client.set(f"{_CACHE_KEY_PREFIX}{market}", payload_json, ex=ttl_seconds or self._ttl_seconds)
         except redis.RedisError as exc:
             log_event(
                 logger, component=_COMPONENT, module=_MODULE, operation="set", status=STATUS_ERROR,

@@ -157,18 +157,29 @@ _SP500_SYMBOLS_SNAPSHOT_2026_11_01: Dict[str, str] = {
 }
 
 
+_us_symbols_fallback_warned = False
+
+
 def get_us_symbols() -> Dict[str, str]:
     """Canlı entegrasyonun kullandığı GERÇEK US sembol evreni (S&P 500).
     `sp500_refresh_loop` (main.py) günde bir SP500_SYMBOLS_PATH'teki
     JSON'u günceller - bu fonksiyon dosyayı HER ÇAĞRIDA yeniden okuyor
     (sunucu yeniden başlatılmadan güncellensin diye), dosya yoksa/
-    okunamazsa sabit anlık görüntüye düşer."""
+    okunamazsa sabit anlık görüntüye düşer. Bu fonksiyon haber başına
+    (news/entity_extraction.py, news_analyzer.py) ve her market-for-
+    symbol aramasında çağrıldığı için, geri dönüş uyarısı sadece bir
+    kez loglanır - her başarılı okuma bayrağı sıfırlar, yeni bir
+    başarısızlık dizisi tekrar loglanmasına izin verir."""
+    global _us_symbols_fallback_warned
     try:
         with open(SP500_SYMBOLS_PATH, encoding="utf-8") as f:
             data = json.load(f)
+        _us_symbols_fallback_warned = False
         return dict(data["sp500_symbols"])
     except (FileNotFoundError, json.JSONDecodeError, KeyError) as exc:
-        logger.warning(f"{SP500_SYMBOLS_PATH} okunamadı ({exc}), sabit anlık görüntüye dönülüyor.")
+        if not _us_symbols_fallback_warned:
+            logger.warning(f"{SP500_SYMBOLS_PATH} okunamadı ({exc}), sabit anlık görüntüye dönülüyor.")
+            _us_symbols_fallback_warned = True
         return dict(_SP500_SYMBOLS_SNAPSHOT_2026_11_01)
 
 CRYPTO_SYMBOLS = {
@@ -352,9 +363,12 @@ def get_market_for_symbol(symbol: str) -> str:
         return "TR"
     if sym.endswith("-USD") or sym in CRYPTO_SYMBOLS:
         return "CRYPTO"
-    if sym in get_us_symbols():
-        return "US"
-    # Fallback: yfinance suffix
+    # Anything else falls through to US - this was already true before
+    # get_us_symbols() existed (the old US_SYMBOLS membership check
+    # below returned "US" on a hit, and the fallback right after it
+    # returned "US" on a miss too), so checking membership here was
+    # always dead weight; removed rather than paying a file read for
+    # an answer that doesn't change either way.
     return "US"
 
 
