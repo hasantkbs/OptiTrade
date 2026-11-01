@@ -6,9 +6,12 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from typing import Any, Dict, List, Optional, Union
 from datetime import datetime, timezone
+import json
 import logging
 import os
 import asyncio
+
+import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
@@ -625,6 +628,45 @@ async def market_opportunities_refresh_loop() -> None:
                     logger.error(f"Piyasa fırsatları yenileme hatası ({market}): {e}")
 
 
+_SP500_REFRESH_INTERVAL_SECONDS = 24 * 60 * 60  # once a day
+
+
+def _fetch_sp500_symbols_from_wikipedia() -> Dict[str, str]:
+    """Scrapes the current S&P 500 constituent table from Wikipedia
+    (network call - only ever invoked from sp500_refresh_loop, never
+    inline on a request path). Tickers are normalized from Wikipedia's
+    dot notation for dual-class shares (e.g. BRK.B) to yfinance's own
+    hyphen convention (BRK-B) - see this function's own test for why."""
+    tables = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")
+    table = tables[0]
+    symbols: Dict[str, str] = {}
+    for _, row in table.iterrows():
+        symbol = str(row["Symbol"]).strip().replace(".", "-")
+        name = str(row["Security"]).strip()
+        symbols[symbol] = name
+    return symbols
+
+
+async def sp500_refresh_loop() -> None:
+    """Keeps core.market_config.SP500_SYMBOLS_PATH's cache current from
+    Wikipedia's S&P 500 table, once a day. A fetch/parse failure logs
+    and leaves the existing cache file exactly as it was - never
+    deletes or truncates good data (same principle as
+    research/retrain_chart_models.py's own infra-failure handling)."""
+    from core.market_config import SP500_SYMBOLS_PATH
+
+    while True:
+        await asyncio.sleep(_SP500_REFRESH_INTERVAL_SECONDS)
+        try:
+            symbols = await _run_in_executor(_fetch_sp500_symbols_from_wikipedia)
+            os.makedirs(os.path.dirname(SP500_SYMBOLS_PATH), exist_ok=True)
+            with open(SP500_SYMBOLS_PATH, "w", encoding="utf-8") as f:
+                json.dump({"sp500_symbols": symbols}, f, ensure_ascii=False, indent=2)
+            logger.info(f"S&P 500 sembol listesi güncellendi ({len(symbols)} sembol).")
+        except Exception as e:
+            logger.error(f"S&P 500 sembol listesi güncellenemedi, mevcut önbellek korunuyor: {e}")
+
+
 _RETENTION_PURGE_INTERVAL_SECONDS = 86400  # once a day, matching self_evolution_loop's cadence
 
 
@@ -818,6 +860,7 @@ async def startup_event() -> None:
             asyncio.create_task(background_intelligence_scan_loop()),
             asyncio.create_task(dashboard_cache_refresh_loop()),
             asyncio.create_task(market_opportunities_refresh_loop()),
+            asyncio.create_task(sp500_refresh_loop()),
         ]
     else:
         logger.info(
