@@ -11,7 +11,13 @@ Kripto: piyasa ayrımı yok (global 7/24).
 Borsa:  TR kullanıcısı BIST haberlerini, US kullanıcısı Wall Street haberlerini görür.
 """
 from __future__ import annotations
+
+import json
+import logging
+import os
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MARK: - Piyasa Tanımları
@@ -112,8 +118,14 @@ BIST_SYMBOLS = {
     "ENKAI.IS": "Enka İnşaat",
 }
 
-US_SYMBOLS = {
-    # Teknoloji
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+_MODEL_ARTIFACTS_DIR = os.path.join(_BACKEND_DIR, "model_artifacts")
+SP500_SYMBOLS_PATH = os.path.join(_MODEL_ARTIFACTS_DIR, "sp500_symbols.json")
+
+# Day-one fallback - the exact 28 symbols the old hardcoded US_SYMBOLS
+# dict held, captured so a fresh deployment (no sp500_symbols.json yet)
+# still serves a real, if small, US universe instead of an empty one.
+_SP500_SYMBOLS_SNAPSHOT_2026_11_01: Dict[str, str] = {
     "AAPL":  "Apple",
     "MSFT":  "Microsoft",
     "NVDA":  "NVIDIA",
@@ -124,30 +136,40 @@ US_SYMBOLS = {
     "AMD":   "AMD",
     "INTC":  "Intel",
     "CRM":   "Salesforce",
-    # Finans
     "JPM":   "JPMorgan",
     "BAC":   "Bank of America",
     "GS":    "Goldman Sachs",
     "MS":    "Morgan Stanley",
     "V":     "Visa",
     "MA":    "Mastercard",
-    # Sağlık
     "JNJ":   "Johnson & Johnson",
     "LLY":   "Eli Lilly",
     "PFE":   "Pfizer",
     "UNH":   "UnitedHealth",
-    # Enerji
     "XOM":   "ExxonMobil",
     "CVX":   "Chevron",
-    # Tüketici
     "WMT":   "Walmart",
     "HD":    "Home Depot",
     "MCD":   "McDonald's",
-    # Endüstriyel
     "CAT":   "Caterpillar",
     "BA":    "Boeing",
     "GE":    "GE Aerospace",
 }
+
+
+def get_us_symbols() -> Dict[str, str]:
+    """Canlı entegrasyonun kullandığı GERÇEK US sembol evreni (S&P 500).
+    `sp500_refresh_loop` (main.py) günde bir SP500_SYMBOLS_PATH'teki
+    JSON'u günceller - bu fonksiyon dosyayı HER ÇAĞRIDA yeniden okuyor
+    (sunucu yeniden başlatılmadan güncellensin diye), dosya yoksa/
+    okunamazsa sabit anlık görüntüye düşer."""
+    try:
+        with open(SP500_SYMBOLS_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return dict(data["sp500_symbols"])
+    except (FileNotFoundError, json.JSONDecodeError, KeyError) as exc:
+        logger.warning(f"{SP500_SYMBOLS_PATH} okunamadı ({exc}), sabit anlık görüntüye dönülüyor.")
+        return dict(_SP500_SYMBOLS_SNAPSHOT_2026_11_01)
 
 CRYPTO_SYMBOLS = {
     "BTC-USD":   "Bitcoin",
@@ -330,7 +352,7 @@ def get_market_for_symbol(symbol: str) -> str:
         return "TR"
     if sym.endswith("-USD") or sym in CRYPTO_SYMBOLS:
         return "CRYPTO"
-    if sym in US_SYMBOLS:
+    if sym in get_us_symbols():
         return "US"
     # Fallback: yfinance suffix
     return "US"
@@ -343,7 +365,7 @@ def get_symbols_for_market(market: str) -> Dict[str, str]:
         return BIST_SYMBOLS
     if market == "CRYPTO":
         return CRYPTO_SYMBOLS
-    return US_SYMBOLS
+    return get_us_symbols()
 
 
 def get_default_watchlist(market: str) -> List[str]:
