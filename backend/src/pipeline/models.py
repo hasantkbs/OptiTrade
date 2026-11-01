@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -78,7 +78,7 @@ class ChartAISignal(BaseModel):
     NEUTRAL value. Populated outside this module entirely (see
     main.py's _attach_chart_ai) - PipelineService.run() never touches
     this field."""
-    signal: str  # "BUY" | "SELL" | "NEUTRAL"
+    signal: Literal["BUY", "SELL", "NEUTRAL"]
     confidence: float = Field(..., ge=0.0, le=1.0)
 
 

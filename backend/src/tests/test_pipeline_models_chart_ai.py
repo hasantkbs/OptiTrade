@@ -38,6 +38,18 @@ def test_chart_ai_confidence_must_be_between_zero_and_one():
         ChartAISignal(signal="BUY", confidence=1.5)
 
 
+def test_chart_ai_signal_must_be_one_of_the_three_values_chart_model_can_produce():
+    """ml.chart_model.predict_chart_signal()'s label_map only ever
+    produces "SELL"/"NEUTRAL"/"BUY" - anything else reaching here would
+    be a bug elsewhere that this model should catch rather than pass
+    through silently. main.py's _attach_chart_ai already catches and
+    logs any exception while constructing ChartAISignal, so a
+    ValidationError here fails safe (chart_ai stays None, the failure
+    is logged) rather than breaking /quant/analyze."""
+    with pytest.raises(ValidationError):
+        ChartAISignal(signal="HOLD", confidence=0.5)
+
+
 def test_chart_ai_signal_can_be_set_after_construction():
     """main.py's enrichment helper (Task 2) sets this as a post-
     construction mutation, not at __init__ time - PipelineResponse
