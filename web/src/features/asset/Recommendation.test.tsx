@@ -57,7 +57,7 @@ describe('Recommendation', () => {
 })
 
 describe('Recommendation - chart AI conflict', () => {
-  it('shows the warning line when decision is BUY and chart AI says SELL', () => {
+  it('shows the warning line when decision is BUY and chart AI says SELL, with the negative (SELL) badge tone', () => {
     // Main response confidence (0.72, "Yüksek güven") deliberately
     // differs from chart_ai.confidence (0.4, "Orta güven") so this test
     // actually pins which confidence the warning line's word comes from
@@ -69,9 +69,28 @@ describe('Recommendation - chart AI conflict', () => {
         isPending={false} isError={false} onAnalyze={vi.fn()}
       />,
     )
-    expect(screen.getByText('SELL')).toBeInTheDocument()
-    expect(screen.getByText(/disagrees · Orta güven/)).toBeInTheDocument()
+    const chartAiBadge = screen.getByText('SELL')
+    expect(chartAiBadge).toBeInTheDocument()
+    // Reuses DECISION_TONE-equivalent styling (negative, same as the
+    // main badge would use for a SELL decision) - not a separate,
+    // one-off "warning" color, per the spec's own wording.
+    expect(chartAiBadge.className).toMatch(/negative/)
+    expect(screen.getByText(/farklı görüşte · Orta güven/)).toBeInTheDocument()
+    expect(screen.queryByText(/model/i)).not.toBeInTheDocument()
     expect(screen.getByText('Yüksek güven')).toBeInTheDocument()
+  })
+
+  it('shows the warning line when decision is SELL and chart AI says BUY, with the positive (BUY) badge tone', () => {
+    render(
+      <Recommendation
+        data={{ ...response, decision: 'SELL', chart_ai: { signal: 'BUY', confidence: 0.72 } }}
+        isPending={false} isError={false} onAnalyze={vi.fn()}
+      />,
+    )
+    const chartAiBadge = screen.getByText('BUY')
+    expect(chartAiBadge).toBeInTheDocument()
+    expect(chartAiBadge.className).toMatch(/positive/)
+    expect(screen.getByText(/farklı görüşte/)).toBeInTheDocument()
   })
 
   it('shows nothing extra when decision and chart AI agree', () => {
@@ -81,7 +100,7 @@ describe('Recommendation - chart AI conflict', () => {
         isPending={false} isError={false} onAnalyze={vi.fn()}
       />,
     )
-    expect(screen.queryByText(/disagrees/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/farklı görüşte/)).not.toBeInTheDocument()
   })
 
   it('shows nothing extra when chart AI is NEUTRAL', () => {
@@ -91,7 +110,7 @@ describe('Recommendation - chart AI conflict', () => {
         isPending={false} isError={false} onAnalyze={vi.fn()}
       />,
     )
-    expect(screen.queryByText(/disagrees/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/farklı görüşte/)).not.toBeInTheDocument()
   })
 
   it('shows nothing extra when decision is HOLD, even if chart AI has a strong opposite opinion', () => {
@@ -101,11 +120,11 @@ describe('Recommendation - chart AI conflict', () => {
         isPending={false} isError={false} onAnalyze={vi.fn()}
       />,
     )
-    expect(screen.queryByText(/disagrees/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/farklı görüşte/)).not.toBeInTheDocument()
   })
 
   it('renders exactly as before when chart_ai is absent (today\'s shape for any symbol with no live model)', () => {
     render(<Recommendation data={response} isPending={false} isError={false} onAnalyze={vi.fn()} />)
-    expect(screen.queryByText(/disagrees/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/farklı görüşte/)).not.toBeInTheDocument()
   })
 })

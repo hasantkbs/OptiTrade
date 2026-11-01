@@ -3,7 +3,7 @@ import { Button } from '../../components/ui/Button'
 import { Card, CardHeader, CardTitle } from '../../components/ui/Card'
 import { ErrorState } from '../../components/ui/ErrorState'
 import { SkeletonCard } from '../../components/ui/Skeleton'
-import type { PipelineResponse, Prediction } from '../../api/types'
+import type { ChartAISignal, PipelineResponse, Prediction } from '../../api/types'
 import { isConflict } from './chartAiConflict'
 import styles from './Recommendation.module.css'
 
@@ -11,6 +11,17 @@ const DECISION_TONE: Record<Prediction, 'positive' | 'negative' | 'neutral'> = {
   BUY: 'positive',
   SELL: 'negative',
   HOLD: 'neutral',
+}
+
+/** Reuses the same positive/negative language as DECISION_TONE above,
+ * per the spec's own wording ("same visual language as the main
+ * badge... not a new color system") - NEUTRAL is included only for
+ * type completeness; isConflict() guarantees this line never renders
+ * for a NEUTRAL chart_ai.signal. */
+const CHART_AI_TONE: Record<ChartAISignal['signal'], 'positive' | 'negative' | 'neutral'> = {
+  BUY: 'positive',
+  SELL: 'negative',
+  NEUTRAL: 'neutral',
 }
 
 /** Exact thresholds per this plan's Global Constraints - used verbatim,
@@ -69,9 +80,9 @@ export function Recommendation({ data, isPending, isError, errorMessage, onAnaly
           {data.explanation ? <p className={styles.explanation}>{data.explanation}</p> : null}
           {data.chart_ai && isConflict(data.decision, data.chart_ai.signal) ? (
             <div className={styles.row}>
-              <Badge tone="warning" className={styles.badge}>{data.chart_ai.signal}</Badge>
+              <Badge tone={CHART_AI_TONE[data.chart_ai.signal]} className={styles.badge}>{data.chart_ai.signal}</Badge>
               <span className={styles.confidence}>
-                Chart pattern model disagrees · {confidenceWord(data.chart_ai.confidence)}
+                ⚠ Fiyat deseni farklı görüşte · {confidenceWord(data.chart_ai.confidence)}
               </span>
             </div>
           ) : null}
