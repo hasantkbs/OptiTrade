@@ -25,8 +25,11 @@ The `profile="investor"` / `check_alerts()` sections below (ported from a
 diverged branch, see InvestorPersona/MarketAnomalyDetector) follow the
 same fakes-over-mocks convention as the rest of this file.
 """
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import api.v1.endpoints.signals as signals_endpoint
+import core.hybrid_engine as core_hybrid_engine
 from core.ai_trader_persona import AITraderPersona, TradeRecommendation, TradeSignal
 from core.hybrid_engine import HybridTradingEngine
 from core.interfaces import (
@@ -42,23 +45,24 @@ from core.investor_persona import HorizonView, InvestorPersona, InvestorRecommen
 from core.market_anomaly_detector import MarketAlert, MarketAnomalyDetector
 from core.mtf_analyzer import MultiTimeframeAnalyzer
 from core.news_adapter import NewsSentimentAdapter
+from core.no_trade import NoTradeOutcome, NoTradeReason
 from core.regime_scanner import MarketRegime, MarketRegimeScanner, ScannedSymbol
 from core.risk_manager import DynamicRiskManager, RiskLevels
+from decision_engine.exceptions import NoValidVotesError
 from decision_engine.models import DecisionOutput, Prediction
 
 
 def _make_recommendation(symbol: str) -> TradeRecommendation:
+    """What `AITraderPersona.generate_recommendation` actually returns
+    (Finding F8 fix): narrative only - `signal`/`confidence_score`/
+    `entry_price`/`stop_loss`/`take_profit_*`/`signal_source` are never
+    set by the LLM, so this fake leaves them at their `None` default,
+    exactly like the real, scrubbed object would."""
     return TradeRecommendation(
         symbol=symbol,
         market_regime="TRENDING_BULL",
         trader_analysis="test",
         investor_analysis="test",
-        signal="BUY",
-        confidence_score=80,
-        entry_price=100.0,
-        stop_loss=95.0,
-        take_profit_1=105.0,
-        take_profit_2=110.0,
         trader_commentary="test",
     )
 
@@ -75,7 +79,11 @@ def _make_scanned(symbol: str) -> ScannedSymbol:
 
 
 def _make_investor_recommendation(symbol: str) -> InvestorRecommendation:
-    horizon = HorizonView(signal="BUY", confidence_score=60, rationale="test")
+    """What `InvestorPersona.generate_recommendation` actually returns
+    (Finding F9 fix): `rationale`-only per horizon - `signal`/
+    `confidence_score` are never set by the LLM for ANY horizon (not
+    even 1-week), so this fake leaves them at their `None` default."""
+    horizon = HorizonView(rationale="test")
     return InvestorRecommendation(
         symbol=symbol,
         market_regime="TRENDING_BULL",
@@ -159,12 +167,13 @@ class FakeAnomalyDetector:
 
 
 def _make_decision_output(
-    symbol: str, decision: Prediction = Prediction.BUY, confidence: float = 0.6
+    symbol: str, decision: Prediction = Prediction.BUY, confidence: float = 0.6,
+    data_sufficiency: float = 1.0,
 ) -> DecisionOutput:
     return DecisionOutput(
         symbol=symbol, decision=decision, confidence=confidence,
         expected_return=0.01, expected_volatility=0.02,
-        aggregation_strategy_version="test", data_sufficiency=1.0,
+        aggregation_strategy_version="test", data_sufficiency=data_sufficiency,
         evidence=[], engine_results=[],
     )
 
@@ -247,6 +256,34 @@ def test_second_call_within_ttl_uses_cache_and_skips_downstream_layers():
     assert ai_persona.calls == ["BTC-USD"]                # LLM NOT re-called (cache hit)
 
 
+def test_no_trade_outcome_is_never_cached_for_the_15_minute_ttl():
+    """CTO Remediation Plan Revision 4 Section 5.2: a transient Decision
+    Engine failure must not leave a stale NO_TRADE result served for the
+    recommendation cache's full 15-minute TTL. `_process_symbol` returns
+    before either `cache.set()` call for a NO_TRADE outcome - proven
+    here by a second, successful run (decision engine fixed in between)
+    immediately producing a real recommendation, not a cached NO_TRADE
+    the first call would otherwise have poisoned the cache with."""
+    decision_engine = FakeDecisionEngine(raises=RuntimeError("transient failure"))
+    engine, _, analyzer, ai_persona = _build_engine(
+        [_make_scanned("BTC-USD")], {"current_price": 100.0, "atr_daily": 2.0},
+        decision_engine=decision_engine,
+    )
+
+    first = engine.run(["BTC-USD"])
+    assert first == []
+
+    decision_engine._raises = None  # the transient failure has since cleared
+    second = engine.run(["BTC-USD"])
+
+    assert len(second) == 1
+    # Both the analyzer and the LLM were called again on the second run
+    # - a cache hit would have skipped them, proving nothing was cached
+    # from the first (NO_TRADE) call.
+    assert analyzer.calls == ["BTC-USD", "BTC-USD"]
+    assert ai_persona.calls == ["BTC-USD", "BTC-USD"]
+
+
 def test_run_continues_when_a_symbol_raises():
     class RaisingAnalyzer:
         def analyze(self, symbol: str) -> Optional[Dict[str, Any]]:
@@ -266,9 +303,11 @@ def test_run_continues_when_a_symbol_raises():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Decision Engine is the single decision authority (gap-analysis.md
-# section 1/2's superseded-note) - the LLM's own signal/confidence_score
-# must never reach the caller unmodified for profile="trader".
+# Decision Engine is the ONLY decision authority (CTO Remediation Plan
+# Revision 4, Finding F8/F9). The LLM can never supply, override, or
+# survive-as-a-fallback a final signal/confidence/trade-level - a
+# Decision Engine failure now produces an explicit NO_TRADE outcome
+# (the symbol is dropped), never the LLM's own unvalidated signal.
 # ─────────────────────────────────────────────────────────────────────────
 
 def test_trader_recommendation_signal_is_overridden_by_the_decision_engine():
@@ -280,18 +319,65 @@ def test_trader_recommendation_signal_is_overridden_by_the_decision_engine():
 
     result = engine.run(["BTC-USD"])
 
-    # The LLM (FakeAiPersona/_make_recommendation) said BUY/80 - the
-    # Decision Engine's SELL/0.9 must win instead.
+    # The LLM (FakeAiPersona/_make_recommendation) never supplies a
+    # signal at all (Finding F8) - the Decision Engine's SELL/0.9 is the
+    # only source of the final signal.
     assert ai_persona.calls == ["BTC-USD"]  # LLM was still called (for the narrative fields)
     assert decision_engine.calls == ["BTC-USD"]
     assert result[0].signal == TradeSignal.STRONG_SELL  # 0.9 confidence crosses the "strong" bar
     assert result[0].confidence_score == 90
-    # entry_price/stop_loss/take_profit are risk_manager-sourced, not
-    # the LLM's or the Decision Engine's - unaffected by the override.
+    assert result[0].signal_source == "decision_engine"
+    # entry_price is risk_manager-sourced (direction-agnostic - just the
+    # current price), unaffected by direction.
     assert result[0].entry_price == 100.0
+    # Finding 8's risk-geometry issue: DynamicRiskManager only ever
+    # computes long-side stop/take-profit levels - a SELL/STRONG_SELL
+    # decision must never receive them as if they were its own.
+    assert result[0].stop_loss is None
+    assert result[0].take_profit_1 is None
+    assert result[0].take_profit_2 is None
 
 
-def test_trader_recommendation_falls_back_to_llm_signal_when_decision_engine_fails():
+def test_trader_recommendation_buy_signal_keeps_the_long_side_risk_levels():
+    """The mirror image of the SELL test above: BUY/STRONG_BUY is
+    exactly the direction DynamicRiskManager's formulas are valid for,
+    so the real levels are attached, not omitted."""
+    decision_engine = FakeDecisionEngine(_make_decision_output("BTC-USD", Prediction.BUY, confidence=0.5))
+    engine, _, _, _ = _build_engine(
+        [_make_scanned("BTC-USD")], {"current_price": 100.0, "atr_daily": 2.0},
+        decision_engine=decision_engine,
+    )
+
+    result = engine.run(["BTC-USD"])
+
+    assert result[0].signal == TradeSignal.BUY
+    assert result[0].stop_loss == 97.0  # FakeRiskManager: entry(100) - 1.5*atr(2)
+    assert result[0].take_profit_1 == 104.0  # entry + 2*atr
+    assert result[0].take_profit_2 == 106.0  # entry + 3*atr
+
+
+def test_a_genuine_canonical_hold_remains_hold():
+    """A real HOLD vote from the Decision Engine is a real decision, not
+    NO_TRADE - it must survive unchanged, with no invented risk levels
+    (there is no position to manage)."""
+    decision_engine = FakeDecisionEngine(_make_decision_output("BTC-USD", Prediction.HOLD, confidence=0.5))
+    engine, _, _, _ = _build_engine(
+        [_make_scanned("BTC-USD")], {"current_price": 100.0, "atr_daily": 2.0},
+        decision_engine=decision_engine,
+    )
+
+    result = engine.run(["BTC-USD"])
+
+    assert len(result) == 1
+    assert result[0].signal == TradeSignal.NEUTRAL
+    assert result[0].signal_source == "decision_engine"
+    assert result[0].stop_loss is None
+
+
+def test_trader_recommendation_becomes_no_trade_when_decision_engine_raises():
+    """Finding F8 fix: a Decision Engine exception no longer falls back
+    to the LLM's own (unvalidated) signal - the symbol is dropped from
+    the result entirely, never returned with a fabricated signal."""
     decision_engine = FakeDecisionEngine(raises=RuntimeError("feature store unavailable"))
     engine, _, _, ai_persona = _build_engine(
         [_make_scanned("BTC-USD")], {"current_price": 100.0, "atr_daily": 2.0},
@@ -300,19 +386,222 @@ def test_trader_recommendation_falls_back_to_llm_signal_when_decision_engine_fai
 
     result = engine.run(["BTC-USD"])
 
-    # Decision Engine blew up - the recommendation is NOT dropped, it
-    # keeps the LLM's own (uncorroborated) signal/confidence_score.
-    assert result[0].signal == TradeSignal.BUY
-    assert result[0].confidence_score == 80
+    assert result == []  # NOT [_make_recommendation("BTC-USD")] - no fake signal survives
+    assert ai_persona.calls == ["BTC-USD"]  # the LLM was still called; its output was discarded
+
+
+def test_trader_recommendation_becomes_no_trade_when_there_are_zero_valid_votes():
+    decision_engine = FakeDecisionEngine(raises=NoValidVotesError("BTC-USD"))
+    engine, _, _, _ = _build_engine(
+        [_make_scanned("BTC-USD")], {"current_price": 100.0, "atr_daily": 2.0},
+        decision_engine=decision_engine,
+    )
+
+    result = engine.run(["BTC-USD"])
+
+    assert result == []
+
+
+def test_trader_recommendation_becomes_no_trade_when_data_sufficiency_is_too_low():
+    """Finding 3: decide(strict=True) can return normally with very few
+    engines voting - that low-confidence-input output must be treated
+    the same as the exception path (NO_TRADE), not silently produce a
+    recommendation anyway."""
+    decision_engine = FakeDecisionEngine(
+        _make_decision_output("BTC-USD", Prediction.SELL, confidence=0.9, data_sufficiency=0.2)
+    )
+    engine, _, _, _ = _build_engine(
+        [_make_scanned("BTC-USD")], {"current_price": 100.0, "atr_daily": 2.0},
+        decision_engine=decision_engine,
+    )
+
+    result = engine.run(["BTC-USD"])
+
+    assert result == []
+
+
+class TestNoTradeReasonMapping:
+    """The three NO_TRADE reason codes (CTO Remediation Plan Revision 4
+    Section 5.1) map to distinct, specific failure modes - verified
+    directly against `_apply_canonical_decision`'s return value, since
+    `run()` only exposes "the symbol was dropped," not why."""
+
+    def test_decision_engine_exception_maps_to_decision_engine_unavailable(self):
+        engine, _, _, _ = _build_engine(
+            [], None, decision_engine=FakeDecisionEngine(raises=RuntimeError("boom"))
+        )
+        narrative = _make_recommendation("BTC-USD")
+        risk = FakeRiskManager().calculate(entry_price=100.0, atr=2.0)
+
+        outcome = engine._apply_canonical_decision("BTC-USD", narrative, risk)
+
+        assert isinstance(outcome, NoTradeOutcome)
+        assert outcome.reason == NoTradeReason.DECISION_ENGINE_UNAVAILABLE
+        assert outcome.symbol == "BTC-USD"
+
+    def test_zero_valid_votes_maps_to_no_valid_engine_votes(self):
+        engine, _, _, _ = _build_engine(
+            [], None, decision_engine=FakeDecisionEngine(raises=NoValidVotesError("BTC-USD"))
+        )
+        narrative = _make_recommendation("BTC-USD")
+        risk = FakeRiskManager().calculate(entry_price=100.0, atr=2.0)
+
+        outcome = engine._apply_canonical_decision("BTC-USD", narrative, risk)
+
+        assert isinstance(outcome, NoTradeOutcome)
+        assert outcome.reason == NoTradeReason.NO_VALID_ENGINE_VOTES
+
+    def test_insufficient_data_sufficiency_maps_to_insufficient_data(self):
+        decision_engine = FakeDecisionEngine(
+            _make_decision_output("BTC-USD", Prediction.SELL, confidence=0.9, data_sufficiency=0.2)
+        )
+        engine, _, _, _ = _build_engine([], None, decision_engine=decision_engine)
+        narrative = _make_recommendation("BTC-USD")
+        risk = FakeRiskManager().calculate(entry_price=100.0, atr=2.0)
+
+        outcome = engine._apply_canonical_decision("BTC-USD", narrative, risk)
+
+        assert isinstance(outcome, NoTradeOutcome)
+        assert outcome.reason == NoTradeReason.INSUFFICIENT_DATA
+
+    def test_no_trade_outcome_carries_no_trade_parameters(self):
+        """NoTradeOutcome has no signal/confidence_score/entry_price/
+        stop_loss/take_profit_* field at all - not just set to None."""
+        NoTradeOutcome(symbol="BTC-USD", reason=NoTradeReason.INSUFFICIENT_DATA)
+
+        assert set(NoTradeOutcome.model_fields) == {"symbol", "reason", "attempted_at"}
+
+
+class TestNoTradeExecutionSafety:
+    """CTO review (Task 0.1.2): proves NO_TRADE cannot trigger position
+    sizing, order creation, or paper-trading execution - not merely
+    that a NoTradeOutcome object has the right shape (that is already
+    covered above).
+
+    Architectural finding, stated explicitly per the task's own
+    instruction to explain rather than invent abstractions: there is no
+    existing call path from `core.hybrid_engine`/`api.v1.endpoints.
+    signals` to `paper_trading` at all today. `paper_trading.orders.
+    OrderService.create_order` takes manual, caller-supplied
+    `account_id`/`side`/`quantity` parameters - no recommendation/
+    decision object of any kind - and nothing in this engine's module
+    imports `paper_trading`. There is therefore no production
+    sizing/order-creation *method* to spy on and prove "never called",
+    because none is ever called by this path, for ANY outcome (BUY,
+    SELL, HOLD, or NO_TRADE alike) - the coupling this task asks to
+    rule out does not exist to begin with.
+
+    Given that, this class proves the strongest two things the actual
+    architecture supports, without inventing a new abstraction or
+    wiring a connection that doesn't exist purely to have something to
+    test:
+    1. A behavioral spy on the one real mechanism through which a
+       recommendation could ever reach ANY second caller (today's UI,
+       or any future consumer built on top of it) - the recommendation
+       cache's own `.set()` method - proving a NO_TRADE outcome is
+       never written there.
+    2. A structural, regression-proof guarantee (mirroring
+       `tests/test_research_isolation.py`'s own AST-scan convention)
+       that the modules producing/returning `NoTradeOutcome` have zero
+       import dependency on `paper_trading`, now or after any future
+       change - not merely "doesn't call it today by observation."
+    """
+
+    def test_no_trade_outcome_is_never_written_to_the_recommendation_cache(self):
+        """The recommendation cache is the real execution boundary this
+        architecture has: `_process_symbol` returns a value either by
+        writing it to this cache and returning it, or (for NO_TRADE) by
+        returning `None` without writing. A spy on the cache's own
+        `.set()` - the actual production method, not a re-implementation
+        of it - proves the second branch is the one actually taken."""
+        decision_engine = FakeDecisionEngine(raises=RuntimeError("boom"))
+        engine, _, _, ai_persona = _build_engine(
+            [_make_scanned("BTC-USD")], {"current_price": 100.0, "atr_daily": 2.0},
+            decision_engine=decision_engine,
+        )
+        cache_set_calls: List[Any] = []
+        original_set = engine._recommendation_cache.set
+
+        def spy_set(key: str, value: Any) -> None:
+            cache_set_calls.append((key, value))
+            original_set(key, value)
+
+        engine._recommendation_cache.set = spy_set  # type: ignore[method-assign]
+
+        result = engine.run(["BTC-USD"])
+
+        assert result == []
+        assert cache_set_calls == []  # the spy proves .set() was never invoked at all
+        assert ai_persona.calls == ["BTC-USD"]  # confirms the run actually executed, not skipped
+
+    def test_no_trade_outcome_is_never_written_to_the_investor_cache(self):
+        decision_engine = FakeDecisionEngine(raises=RuntimeError("boom"))
+        engine, _, _, _ = _build_engine(
+            [_make_scanned("AAPL")], {"current_price": 100.0, "atr_daily": 2.0},
+            decision_engine=decision_engine,
+        )
+        cache_set_calls: List[Any] = []
+        original_set = engine._investor_cache.set
+
+        def spy_set(key: str, value: Any) -> None:
+            cache_set_calls.append((key, value))
+            original_set(key, value)
+
+        engine._investor_cache.set = spy_set  # type: ignore[method-assign]
+
+        result = engine.run(["AAPL"], profile="investor")
+
+        assert result == []
+        assert cache_set_calls == []
+
+    def test_hybrid_engine_module_has_no_import_path_to_paper_trading(self):
+        """Structural safety guarantee: the module that produces
+        `NoTradeOutcome` must have zero import dependency on
+        `paper_trading` - a real AST scan of the actual source file, not
+        a string search of history, so a future accidental import is
+        caught immediately rather than relying on this never changing
+        unnoticed."""
+        import ast
+
+        source = Path(core_hybrid_engine.__file__).read_text()
+        tree = ast.parse(source)
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+
+        forbidden = {name for name in imported if name.split(".")[0] == "paper_trading"}
+        assert forbidden == set()
+
+    def test_signals_endpoint_module_has_no_import_path_to_paper_trading(self):
+        """Same guarantee for the API layer that exposes this engine -
+        `POST /api/v1/signals/analyze` itself must never gain a direct
+        paper_trading dependency either."""
+        import ast
+
+        source = Path(signals_endpoint.__file__).read_text()
+        tree = ast.parse(source)
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+
+        forbidden = {name for name in imported if name.split(".")[0] == "paper_trading"}
+        assert forbidden == set()
 
 
 def test_investor_profile_1_week_horizon_is_overridden_by_the_decision_engine():
-    """profile="investor" produces three independent per-horizon signals
-    (see core/investor_persona.py's own docstring on why they may
-    legitimately disagree) - the Decision Engine has no per-horizon
-    concept, so only horizon_1_week (closest match to a current-
-    conditions vote) is overridden; horizon_1_month/horizon_1_year/
-    investor_commentary stay exactly as the LLM produced them."""
+    """profile="investor" produces three per-horizon views, but (Finding
+    F9) only horizon_1_week is ever backed by the Decision Engine - the
+    closest existing match to a current-conditions vote.
+    horizon_1_month/horizon_1_year stay null/unavailable always: no
+    validated horizon-specific model exists for them, and the LLM never
+    supplies a signal/confidence for any horizon (see
+    _make_investor_recommendation)."""
     decision_engine = FakeDecisionEngine(_make_decision_output("AAPL", Prediction.SELL, confidence=0.9))
     engine, _, _, _ = _build_engine(
         [_make_scanned("AAPL")], {"current_price": 100.0, "atr_daily": 2.0},
@@ -323,20 +612,23 @@ def test_investor_profile_1_week_horizon_is_overridden_by_the_decision_engine():
 
     assert decision_engine.calls == ["AAPL"]
     rec = result[0]
-    # FakeInvestorPersona/_make_investor_recommendation said BUY/60 for
-    # every horizon - the Decision Engine's SELL/0.9 must win, but only
-    # for horizon_1_week.
     assert rec.horizon_1_week.signal == TradeSignal.STRONG_SELL
     assert rec.horizon_1_week.confidence_score == 90
-    # horizon_1_month/horizon_1_year are untouched - still the LLM's
-    # original BUY/60.
-    assert rec.horizon_1_month.signal == TradeSignal.BUY
-    assert rec.horizon_1_month.confidence_score == 60
-    assert rec.horizon_1_year.signal == TradeSignal.BUY
-    assert rec.horizon_1_year.confidence_score == 60
+    assert rec.horizon_1_week.signal_source == "decision_engine"
+    # horizon_1_month/horizon_1_year remain null - never a validated
+    # decision, never an LLM-authored one either (Finding F9).
+    assert rec.horizon_1_month.signal is None
+    assert rec.horizon_1_month.confidence_score is None
+    assert rec.horizon_1_year.signal is None
+    assert rec.horizon_1_year.confidence_score is None
 
 
-def test_investor_profile_falls_back_to_llm_horizon_1_week_when_decision_engine_fails():
+def test_investor_recommendation_becomes_no_trade_when_decision_engine_fails():
+    """Finding F8/F9 fix: a Decision Engine failure for the investor
+    profile no longer falls back to any LLM-authored horizon_1_week
+    signal (there isn't one to fall back to - it was never set) - the
+    entire recommendation becomes NO_TRADE and the symbol is dropped,
+    exactly like the trader profile."""
     decision_engine = FakeDecisionEngine(raises=RuntimeError("feature store unavailable"))
     engine, _, _, _ = _build_engine(
         [_make_scanned("AAPL")], {"current_price": 100.0, "atr_daily": 2.0},
@@ -345,11 +637,21 @@ def test_investor_profile_falls_back_to_llm_horizon_1_week_when_decision_engine_
 
     result = engine.run(["AAPL"], profile="investor")
 
-    # Decision Engine blew up - horizon_1_week keeps the LLM's own
-    # (uncorroborated) signal/confidence_score, same as the trader
-    # profile's fallback behavior.
-    assert result[0].horizon_1_week.signal == TradeSignal.BUY
-    assert result[0].horizon_1_week.confidence_score == 60
+    assert result == []
+
+
+def test_investor_recommendation_becomes_no_trade_when_data_sufficiency_is_too_low():
+    decision_engine = FakeDecisionEngine(
+        _make_decision_output("AAPL", Prediction.SELL, confidence=0.9, data_sufficiency=0.2)
+    )
+    engine, _, _, _ = _build_engine(
+        [_make_scanned("AAPL")], {"current_price": 100.0, "atr_daily": 2.0},
+        decision_engine=decision_engine,
+    )
+
+    result = engine.run(["AAPL"], profile="investor")
+
+    assert result == []
 
 
 # ─────────────────────────────────────────────────────────────────────────

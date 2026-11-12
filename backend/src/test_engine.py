@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import List
+from typing import List, Optional
 
 from dotenv import load_dotenv
 from rich.console import Console
@@ -82,6 +82,19 @@ def _confidence_bar(score: int) -> Text:
     return Text(f"{bar}  {score}/100", style=color)
 
 
+def _format_optional_price(value: Optional[float], style: str) -> Text:
+    """`stop_loss`/`take_profit_1`/`take_profit_2` are `None` for a
+    SELL/STRONG_SELL/NEUTRAL recommendation (CTO Remediation Plan
+    Revision 4, Finding 8's risk-geometry fix: `DynamicRiskManager`
+    only computes long-side risk geometry, Task 0.1/0.1.2) - this
+    shows a clear, dimmed "unavailable" marker instead of crashing on
+    `f"{None:,.4f}"` or displaying a misleading `0.0000`. A real value
+    formats exactly as before, in the given color."""
+    if value is None:
+        return Text("Mevcut değil (uzun pozisyon dışı)", style="dim italic")
+    return Text(f"{value:,.4f}", style=style)
+
+
 def _render_recommendation(rec) -> Panel:
     """Tek bir TradeRecommendation'ı okunaklı bir rich Panel'e dönüştürür."""
     signal = rec.signal.value
@@ -97,9 +110,9 @@ def _render_recommendation(rec) -> Panel:
     body.add_row("AI Güven Skoru", _confidence_bar(rec.confidence_score))
     body.add_row("", "")
     body.add_row("Giriş Fiyatı", f"{rec.entry_price:,.4f}")
-    body.add_row("Stop-Loss", Text(f"{rec.stop_loss:,.4f}", style="red"))
-    body.add_row("Take-Profit 1", Text(f"{rec.take_profit_1:,.4f}", style="green"))
-    body.add_row("Take-Profit 2", Text(f"{rec.take_profit_2:,.4f}", style="green"))
+    body.add_row("Stop-Loss", _format_optional_price(rec.stop_loss, "red"))
+    body.add_row("Take-Profit 1", _format_optional_price(rec.take_profit_1, "green"))
+    body.add_row("Take-Profit 2", _format_optional_price(rec.take_profit_2, "green"))
     body.add_row("", "")
     body.add_row("Yorum", Text(rec.trader_commentary, style="italic"))
 

@@ -94,6 +94,33 @@ class TestAnalyzeEndpoint:
         response = client.post("/signals/analyze", json={"symbols": ["AAPL"]})
         assert response.status_code == 404
 
+    def test_response_envelope_stays_a_bare_json_array(self, client):
+        """CTO Remediation Plan Revision 4 Section 5.5: this route's
+        response must stay a bare top-level JSON array - no wrapping
+        object, no sidecar field - so already-installed legacy clients
+        that decode it directly as an array keep working unmodified."""
+        client.mock_engine.run.return_value = [_trade_rec()]
+
+        response = client.post("/signals/analyze", json={"symbols": ["AAPL"]})
+
+        assert isinstance(response.json(), list)
+
+    def test_no_trade_symbols_are_omitted_not_padded_with_a_fake_recommendation(self, client):
+        """`HybridTradingEngine.run()` already drops NO_TRADE symbols
+        before they reach this endpoint (Section 5.3/5.5) - this proves
+        the endpoint itself does not try to "fill in" the gap with a
+        synthetic HOLD for the symbol the engine omitted. Two symbols
+        requested, only one present in what the engine returns (as it
+        would be if the second became NO_TRADE)."""
+        client.mock_engine.run.return_value = [_trade_rec()]  # only AAPL - BTC-USD became NO_TRADE
+
+        response = client.post("/signals/analyze", json={"symbols": ["AAPL", "BTC-USD"]})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 1
+        assert body[0]["symbol"] == "AAPL"
+
 
 class TestAlertsEndpoint:
     def test_empty_alerts_returns_200(self, client):

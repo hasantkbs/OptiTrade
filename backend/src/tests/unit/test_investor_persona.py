@@ -66,7 +66,14 @@ class TestInvestorPersonaGenerateRecommendation:
         assert isinstance(result.horizon_1_month, HorizonView)
         assert isinstance(result.horizon_1_year, HorizonView)
 
-    def test_horizons_can_have_different_signals(self):
+    def test_llm_cannot_emit_signal_or_confidence_for_any_horizon(self):
+        """Finding F9 (CTO Remediation Plan Revision 4): the LLM must
+        never be trusted to supply a final signal/confidence for ANY
+        horizon - even if a non-compliant provider response includes
+        them anyway (as this payload deliberately does), they are
+        scrubbed to None unconditionally. core.hybrid_engine is the
+        only thing that ever sets horizon_1_week's signal/confidence;
+        horizon_1_month/horizon_1_year stay None always."""
         persona = _make_persona()
         payload = _valid_payload(
             horizon_1_week={"signal": "SELL", "confidence_score": 55, "rationale": "Kısa vadede aşırı alım."},
@@ -76,8 +83,25 @@ class TestInvestorPersonaGenerateRecommendation:
 
         result = persona.generate_recommendation("AAPL", MarketRegime.TRENDING_BULL, {})
 
-        assert result.horizon_1_week.signal == TradeSignal.SELL
-        assert result.horizon_1_year.signal == TradeSignal.STRONG_BUY
+        assert result.horizon_1_week.signal is None
+        assert result.horizon_1_week.confidence_score is None
+        assert result.horizon_1_year.signal is None
+        assert result.horizon_1_year.confidence_score is None
+        assert result.horizon_1_month.signal is None
+        assert result.horizon_1_month.confidence_score is None
+        # rationale survives - narrative context is still permitted.
+        assert result.horizon_1_week.rationale == "Kısa vadede aşırı alım."
+
+    def test_horizon_schema_does_not_ask_the_llm_for_signal_or_confidence(self):
+        """Schema-level proof for the above: the JSON schema actually
+        sent to Groq has no way to request a signal/confidence for any
+        horizon in the first place - this is the primary fix, the scrub
+        above is the structural backstop."""
+        from core.investor_persona import _HORIZON_SCHEMA
+
+        assert "signal" not in _HORIZON_SCHEMA["properties"]
+        assert "confidence_score" not in _HORIZON_SCHEMA["properties"]
+        assert _HORIZON_SCHEMA["properties"].keys() == {"rationale"}
 
     def test_disclaimer_always_appended(self):
         persona = _make_persona()

@@ -24,6 +24,7 @@ from groq import Groq
 from pydantic import BaseModel, Field, ValidationError
 
 from core.ai_trader_persona import TradeSignal
+from core.no_trade import SignalSource
 from core.regime_scanner import MarketRegime
 
 logger = logging.getLogger(__name__)
@@ -50,10 +51,15 @@ _SYSTEM_PROMPT = (
     "Temel analiz (bilanço/büyüme) verisi SANA SAĞLANMADI — bunu tahmin etme, "
     "yalnızca elindeki rejim ve haber verisine dayan. horizon_1_year alanına "
     "yaz.\n\n"
-    "Her ufuk için ayrı bir signal (STRONG_BUY/BUY/NEUTRAL/SELL/STRONG_SELL) "
-    "ve confidence_score (0-100) belirle — ufuklar birbirinden FARKLI "
-    "yönlerde olabilir (ör. 1 hafta SAT, 1 yıl AL), bu çelişki değil, "
-    "gerçekçi bir durumdur; asla ufukları yapay olarak birbirine benzetme.\n\n"
+    "NOT: Her ufuk için bir AL/SAT/TUT kararı VE güven skoru VERMİYORSUN — "
+    "bunlar senin görevin değil; ayrı, istatistiksel bir Karar Motoru "
+    "tarafından (yalnızca 1 hafta ufku için) belirleniyor, 1 ay ve 1 yıl "
+    "ufukları için ise henüz doğrulanmış bir model bulunmuyor ve bu "
+    "ufuklar bilerek boş bırakılacak. Senin görevin SADECE her ufkun "
+    "rationale (gerekçe) alanına, o ufka özgü verilere dayanan 1-2 "
+    "cümlelik, dürüst bir Türkçe analiz yazmak — ufuklar arasında yapay "
+    "bir tutarlılık zorlaması yapma, veriler gerçekten çelişkili bir "
+    "görünüm veriyorsa bunu rationale'da açıkça belirt.\n\n"
     "investor_commentary alanına, üç ufku birlikte değerlendiren, deneyimli "
     "bir portföy yöneticisi üslubuyla 3-4 cümlelik bir sentez yaz.\n\n"
     "Cevabını MUTLAKA submit_investor_recommendation aracını çağırarak ver.\n\n"
@@ -64,15 +70,45 @@ _SYSTEM_PROMPT = (
 
 
 class HorizonView(BaseModel):
-    """Belirli bir zaman ufku için AL/SAT/TUT yönü, güven skoru ve gerekçe."""
+    """Belirli bir zaman ufku için AL/SAT/TUT yönü, güven skoru ve gerekçe.
 
-    signal: TradeSignal
-    confidence_score: int = Field(..., ge=0, le=100)
+    Per CTO Remediation Plan Revision 4 (Finding F9, Section 5):
+    `signal`/`confidence_score` are never set by `InvestorPersona`/the
+    LLM for ANY horizon - absent from `_HORIZON_SCHEMA` below, and
+    scrubbed to `None` unconditionally in `generate_recommendation()` as
+    a structural backstop. `core.hybrid_engine` is the only writer of
+    `horizon_1_week.signal`/`confidence_score` (from the canonical
+    Decision Engine - the closest existing match to a current-conditions
+    vote). `horizon_1_month`/`horizon_1_year` stay `None`/unavailable
+    always: no validated horizon-specific model exists for them yet -
+    see `InvestorRecommendation`'s own docstring. `rationale` remains
+    LLM-authored narrative context throughout - explicitly non-
+    authoritative, never a substitute for a validated decision.
+    """
+
+    signal: Optional[TradeSignal] = None
+    confidence_score: Optional[int] = Field(None, ge=0, le=100)
     rationale: str = Field(..., description="1-2 cümlelik Türkçe gerekçe")
+    # Set ONLY by core.hybrid_engine, for horizon_1_week, when the
+    # canonical Decision Engine supplies a direction. None for
+    # horizon_1_month/horizon_1_year (never set) and for horizon_1_week
+    # before the orchestrator attaches it.
+    signal_source: Optional[SignalSource] = None
 
 
 class InvestorRecommendation(BaseModel):
-    """InvestorPersona'nın ürettiği ufuk-bazlı yapılandırılmış yatırım önerisi."""
+    """InvestorPersona'nın ürettiği ufuk-bazlı yapılandırılmış yatırım önerisi.
+
+    `horizon_1_month`/`horizon_1_year` are structurally unvalidated
+    (Finding F9): no trained model exists for either horizon today, so
+    their `signal`/`confidence_score` are always `None` - the LLM's own
+    narrative `rationale` is the only content they ever carry, and this
+    plan does not claim it is a validated decision. `horizon_1_week` is
+    the one horizon the canonical Decision Engine actually backs today
+    (by convention - decision_engine has no real per-horizon concept of
+    its own); this is an existing compatibility behavior this class
+    preserves, not a claim that `decision_engine` is itself a validated
+    1-week model."""
 
     symbol: str
     market_regime: str
@@ -85,15 +121,20 @@ class InvestorRecommendation(BaseModel):
     )
 
 
+# Finding F9 fix (CTO Remediation Plan Revision 4): signal/confidence_score
+# are deliberately ABSENT from every horizon's schema - the LLM never
+# produces a final AL/SAT/TUT decision or confidence for ANY horizon
+# (not even 1-week); `core.hybrid_engine` is the sole writer of
+# horizon_1_week's signal/confidence_score, from the canonical Decision
+# Engine. `rationale` is the only field the LLM supplies per horizon.
 _TOOL_NAME = "submit_investor_recommendation"
 _HORIZON_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "properties": {
-        "signal": {"type": "string", "enum": [s.value for s in TradeSignal]},
-        "confidence_score": {"type": "integer", "minimum": 0, "maximum": 100},
         "rationale": {"type": "string"},
     },
-    "required": ["signal", "confidence_score", "rationale"],
+    "required": ["rationale"],
+    "additionalProperties": False,
 }
 _RECOMMENDATION_SCHEMA: Dict[str, Any] = {
     "type": "object",
@@ -112,6 +153,11 @@ _RECOMMENDATION_SCHEMA: Dict[str, Any] = {
     ],
     "additionalProperties": False,
 }
+
+# Scrubbed unconditionally on every parsed horizon, for the same reason
+# ai_trader_persona._LLM_FORBIDDEN_FIELDS exists: `additionalProperties:
+# False` above is not a guarantee a provider actually honors it.
+_LLM_FORBIDDEN_HORIZON_FIELDS = {"signal": None, "confidence_score": None, "signal_source": None}
 
 
 class InvestorPersona:
@@ -162,6 +208,15 @@ class InvestorPersona:
         except (json.JSONDecodeError, ValidationError) as exc:
             raise RuntimeError(f"{symbol}: Groq çıktısı beklenen şemaya uymuyor: {exc}") from exc
 
+        # Finding F9 structural fix: scrub signal/confidence_score on
+        # every horizon unconditionally, even though _HORIZON_SCHEMA
+        # never asks the LLM for them - see HorizonView's docstring and
+        # _LLM_FORBIDDEN_HORIZON_FIELDS above.
+        recommendation = recommendation.model_copy(update={
+            "horizon_1_week": recommendation.horizon_1_week.model_copy(update=_LLM_FORBIDDEN_HORIZON_FIELDS),
+            "horizon_1_month": recommendation.horizon_1_month.model_copy(update=_LLM_FORBIDDEN_HORIZON_FIELDS),
+            "horizon_1_year": recommendation.horizon_1_year.model_copy(update=_LLM_FORBIDDEN_HORIZON_FIELDS),
+        })
         recommendation.investor_commentary += _FUNDAMENTAL_DATA_DISCLAIMER
         return recommendation
 
@@ -180,9 +235,9 @@ class InvestorPersona:
         }
         return (
             "Aşağıdaki verilere dayanarak bu sembol için 1 hafta / 1 ay / 1 yıl "
-            "ufuklarında ayrı yatırım önerileri üret:\n\n"
+            "ufuklarında ayrı rationale (gerekçe) metinleri üret:\n\n"
             f"{json.dumps(payload, ensure_ascii=False, indent=2, default=str)}\n\n"
-            "Her ufkun signal ve confidence_score'unu, o ufka uygun veriye "
-            "(kısa vade için mikro sinyaller, uzun vade için rejim/haber) "
-            "dayandır — ufuklar arasında yapay bir tutarlılık zorlaması yapma."
+            "Her ufkun rationale'ını, o ufka uygun veriye (kısa vade için "
+            "mikro sinyaller, uzun vade için rejim/haber) dayandır — "
+            "ufuklar arasında yapay bir tutarlılık zorlaması yapma."
         )

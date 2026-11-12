@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from core.ai_trader_persona import AITraderPersona, TradeRecommendation
+from core.ai_trader_persona import AITraderPersona, TradeRecommendation, TradeSignal
 from core.analysis_presentation import is_data_sufficient, to_trade_signal
 from core.cache_manager import TTLCache
 from core.interfaces import (
@@ -40,8 +40,11 @@ from core.investor_persona import InvestorPersona, InvestorRecommendation
 from core.market_anomaly_detector import MarketAlert, MarketAnomalyDetector
 from core.mtf_analyzer import MultiTimeframeAnalyzer
 from core.news_adapter import NewsSentimentAdapter
+from core.no_trade import NoTradeOutcome, NoTradeReason
 from core.regime_scanner import MarketRegimeScanner, ScannedSymbol
-from core.risk_manager import DynamicRiskManager
+from core.risk_manager import DynamicRiskManager, RiskLevels
+from core.structured_logging import STATUS_SKIPPED, log_event
+from decision_engine.exceptions import NoValidVotesError
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +54,28 @@ DEFAULT_ALERT_CACHE_TTL_SECONDS = 2 * 60  # 2 dakika
 # TTLCache.get() süresi dolmuş/hiç yazılmamış bir anahtar için de None döner;
 # "kontrol edildi, uyarı yok" durumunu bundan ayırt etmek için sentinel.
 _NO_ALERT = object()
+
+_LONG_SIGNALS = (TradeSignal.BUY, TradeSignal.STRONG_BUY)
+
+
+def _direction_consistent_risk_levels(
+    signal: TradeSignal, risk: RiskLevels
+) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """`DynamicRiskManager.calculate()` (core/risk_manager.py) only ever
+    computes long-side geometry (`stop_loss = entry - k*ATR`,
+    `take_profit = entry + k*ATR`) - correct for BUY/STRONG_BUY, but
+    structurally wrong for SELL/STRONG_SELL (where a real short position
+    would need the mirror-image levels) and meaningless for NEUTRAL (no
+    position at all). Finding 8's risk-geometry issue (CTO Remediation
+    Plan Revision 4 Section 10.6) was exactly a SELL override shipping
+    with these long-side levels attached as if they were its own. Per
+    that section's explicit instruction, this omits the levels (`None`)
+    rather than inventing short-side geometry `DynamicRiskManager` does
+    not implement - a full risk-manager rewrite is out of scope for this
+    task."""
+    if signal in _LONG_SIGNALS:
+        return risk.stop_loss, risk.take_profit_1, risk.take_profit_2
+    return None, None, None
 
 
 class HybridTradingEngine:
@@ -170,55 +195,60 @@ class HybridTradingEngine:
                     entry_price=analysis["current_price"],
                     atr=analysis["atr_daily"],
                 )
-                recommendation: Union[TradeRecommendation, InvestorRecommendation] = (
-                    self.ai_persona.generate_recommendation(
-                        symbol=symbol,
-                        market_regime=scanned.regime,
-                        analysis=analysis,
-                        risk=risk,
-                        news_sentiment=news_sentiment,
-                    )
+                narrative = self.ai_persona.generate_recommendation(
+                    symbol=symbol,
+                    market_regime=scanned.regime,
+                    analysis=analysis,
+                    risk=risk,
+                    news_sentiment=news_sentiment,
                 )
-                recommendation = self._apply_canonical_decision(symbol, recommendation)
+                outcome: Union[TradeRecommendation, InvestorRecommendation, NoTradeOutcome] = (
+                    self._apply_canonical_decision(symbol, narrative, risk)
+                )
             else:
-                recommendation = self.investor_persona.generate_recommendation(
+                narrative = self.investor_persona.generate_recommendation(
                     symbol=symbol,
                     market_regime=scanned.regime,
                     analysis=analysis,
                     news_sentiment=news_sentiment,
                 )
-                recommendation = self._apply_canonical_decision_to_investor_horizon(symbol, recommendation)
+                outcome = self._apply_canonical_decision_to_investor_horizon(symbol, narrative)
 
-            cache.set(symbol, recommendation)
-            return recommendation
+            if isinstance(outcome, NoTradeOutcome):
+                self._record_no_trade(outcome, profile)
+                return None
+
+            cache.set(symbol, outcome)
+            return outcome
         except Exception as exc:
             logger.error(f"{symbol}: hibrit motor hatası ({profile}): {exc}")
             return None
 
     def _apply_canonical_decision(
-        self, symbol: str, recommendation: TradeRecommendation
-    ) -> TradeRecommendation:
-        """Overrides the LLM's own `signal`/`confidence_score` with the
-        Decision Engine's statistical vote for this symbol - see
-        docs/architecture/gap-analysis.md section 2 ("LLMs are
-        explanation engines only; they do not make investment
-        decisions"). `AITraderPersona`'s prompt/schema are unchanged
-        (it still produces a `signal` of its own), so `trader_analysis`/
-        `investor_analysis`/`trader_commentary` keep reading as a
-        synthesis that arrives at *a* signal - but the signal actually
-        returned to the caller is always the same one `decision_engine`
-        would give any other consumer for this symbol, never the LLM's.
-        `entry_price`/`stop_loss`/`take_profit_*` are untouched (already
-        sourced from `risk_manager`, not the LLM, before this runs).
+        self, symbol: str, narrative: TradeRecommendation, risk: RiskLevels
+    ) -> Union[TradeRecommendation, NoTradeOutcome]:
+        """Assembles the final `TradeRecommendation` entirely from the
+        Decision Engine's statistical vote and `risk_manager`'s levels -
+        per CTO Remediation Plan Revision 4 (Finding F8): the canonical
+        Decision Engine is the ONLY authority for the final signal;
+        `narrative` (AITraderPersona's output) contributes only
+        `trader_analysis`/`investor_analysis`/`trader_commentary` - its
+        own `signal`/`confidence_score`/`entry_price`/`stop_loss`/
+        `take_profit_*` are always `None` already (scrubbed in
+        `AITraderPersona.generate_recommendation`) and are never read
+        here.
 
-        A Decision Engine failure (infra down, zero valid votes, etc.)
-        falls back to the LLM's own signal rather than dropping the
-        recommendation entirely - this symbol's caching/error-isolation
-        behavior in `_process_symbol` is otherwise unaffected. A
-        successful-but-low-data_sufficiency output (e.g. only 1 of 5
-        engines voted) gets the same fallback treatment via
-        `analysis_presentation.is_data_sufficient()` - see
-        intelligence/opportunity.py:60's identical precedent."""
+        A Decision Engine exception, zero valid votes, or insufficient
+        data (`analysis_presentation.is_data_sufficient()` - same
+        quality gate `intelligence/opportunity.py:60` uses) no longer
+        falls back to any LLM-authored signal - that fallback was itself
+        the vulnerability Finding F8 identified (the two paths where the
+        override used to be skipped). Each produces an explicit
+        `NoTradeOutcome` with the matching `NoTradeReason` instead; the
+        caller (`_process_symbol`) drops the symbol from the response
+        and records the outcome as a diagnostic event - see
+        `core.no_trade` and docs/architecture/CTO_REMEDIATION_PLAN.md
+        Section 5."""
         try:
             decision_engine = self.decision_engine
             if decision_engine is None:
@@ -226,38 +256,55 @@ class HybridTradingEngine:
 
                 decision_engine = get_default_decision_engine()
             decision_output = decision_engine.decide(symbol, strict=True)
+        except NoValidVotesError as exc:
+            logger.error(f"{symbol}: decision engine icin gecerli oy yok, NO_TRADE: {exc}")
+            return NoTradeOutcome(symbol=symbol, reason=NoTradeReason.NO_VALID_ENGINE_VOTES)
         except Exception as exc:
-            logger.error(
-                f"{symbol}: decision engine yetkisi uygulanamadi, LLM sinyali korunuyor: {exc}"
-            )
-            return recommendation
+            logger.error(f"{symbol}: decision engine kullanilamiyor, NO_TRADE: {exc}")
+            return NoTradeOutcome(symbol=symbol, reason=NoTradeReason.DECISION_ENGINE_UNAVAILABLE)
         if not is_data_sufficient(decision_output):
             logger.warning(
                 f"{symbol}: decision engine data_sufficiency={decision_output.data_sufficiency:.2f} "
-                "yetersiz (quality gate), LLM sinyali korunuyor"
+                "yetersiz (quality gate), NO_TRADE"
             )
-            return recommendation
+            return NoTradeOutcome(symbol=symbol, reason=NoTradeReason.INSUFFICIENT_DATA)
+
         signal, confidence_score = to_trade_signal(decision_output)
-        return recommendation.model_copy(update={"signal": signal, "confidence_score": confidence_score})
+        stop_loss, take_profit_1, take_profit_2 = _direction_consistent_risk_levels(signal, risk)
+        return narrative.model_copy(
+            update={
+                "signal": signal,
+                "confidence_score": confidence_score,
+                "entry_price": risk.entry_price,
+                "stop_loss": stop_loss,
+                "take_profit_1": take_profit_1,
+                "take_profit_2": take_profit_2,
+                "signal_source": "decision_engine",
+            }
+        )
 
     def _apply_canonical_decision_to_investor_horizon(
-        self, symbol: str, recommendation: InvestorRecommendation
-    ) -> InvestorRecommendation:
-        """Overrides ONLY `horizon_1_week`'s signal/confidence_score with
-        the Decision Engine's statistical vote - `decision_engine.decide()`
-        produces one undifferentiated-by-horizon decision, closest in
-        meaning to a current-conditions (short-horizon) vote, so only the
-        1-week horizon is overridden (see docs/superpowers/specs/2026-10-01-
+        self, symbol: str, narrative: InvestorRecommendation
+    ) -> Union[InvestorRecommendation, NoTradeOutcome]:
+        """Assembles `horizon_1_week`'s signal/confidence_score entirely
+        from the Decision Engine's statistical vote -
+        `decision_engine.decide()` produces one undifferentiated-by-
+        horizon decision, closest in meaning to a current-conditions
+        (short-horizon) vote, so only the 1-week horizon is ever
+        populated this way (see docs/superpowers/specs/2026-10-01-
         decision-path-consolidation-design.md's Global Constraints).
-        `horizon_1_month`/`horizon_1_year`/`investor_commentary` stay
-        fully LLM-driven - decision_engine has no medium/long-horizon
-        concept to supersede them with (see claude_build_spec.md Phase 1's
-        not-yet-built models/medium_horizon, models/long_horizon).
+        `horizon_1_month`/`horizon_1_year` stay `None`/unavailable
+        always (Finding F9) - `InvestorPersona` never sets them (see
+        its own docstrings) and nothing here ever does either.
 
-        A Decision Engine failure falls back to the LLM's own
-        horizon_1_week signal rather than dropping the recommendation -
-        same resilience shape as `_apply_canonical_decision` above,
-        including the same low-data_sufficiency quality gate."""
+        A Decision Engine exception, zero valid votes, or insufficient
+        data no longer falls back to the LLM's own (nonexistent, per
+        Finding F9) horizon_1_week signal - the entire recommendation
+        becomes an explicit `NoTradeOutcome` instead, with the same
+        three reason codes `_apply_canonical_decision` uses. There is no
+        partial shape in this plan for "this one horizon within this
+        response is NO_TRADE while the others are fine" - the whole
+        symbol is dropped, exactly as the trader profile does."""
         try:
             decision_engine = self.decision_engine
             if decision_engine is None:
@@ -265,22 +312,45 @@ class HybridTradingEngine:
 
                 decision_engine = get_default_decision_engine()
             decision_output = decision_engine.decide(symbol, strict=True)
+        except NoValidVotesError as exc:
+            logger.error(f"{symbol}: decision engine icin gecerli oy yok (investor 1-hafta), NO_TRADE: {exc}")
+            return NoTradeOutcome(symbol=symbol, reason=NoTradeReason.NO_VALID_ENGINE_VOTES)
         except Exception as exc:
-            logger.error(
-                f"{symbol}: decision engine yetkisi (investor 1-hafta) uygulanamadi, LLM sinyali korunuyor: {exc}"
-            )
-            return recommendation
+            logger.error(f"{symbol}: decision engine kullanilamiyor (investor 1-hafta), NO_TRADE: {exc}")
+            return NoTradeOutcome(symbol=symbol, reason=NoTradeReason.DECISION_ENGINE_UNAVAILABLE)
         if not is_data_sufficient(decision_output):
             logger.warning(
                 f"{symbol}: decision engine data_sufficiency={decision_output.data_sufficiency:.2f} "
-                "yetersiz (investor 1-hafta, quality gate), LLM sinyali korunuyor"
+                "yetersiz (investor 1-hafta, quality gate), NO_TRADE"
             )
-            return recommendation
+            return NoTradeOutcome(symbol=symbol, reason=NoTradeReason.INSUFFICIENT_DATA)
+
         signal, confidence_score = to_trade_signal(decision_output)
-        updated_horizon = recommendation.horizon_1_week.model_copy(
-            update={"signal": signal, "confidence_score": confidence_score}
+        updated_horizon = narrative.horizon_1_week.model_copy(
+            update={"signal": signal, "confidence_score": confidence_score, "signal_source": "decision_engine"}
         )
-        return recommendation.model_copy(update={"horizon_1_week": updated_horizon})
+        return narrative.model_copy(update={"horizon_1_week": updated_horizon})
+
+    @staticmethod
+    def _record_no_trade(outcome: NoTradeOutcome, profile: str) -> None:
+        """Logs the NO_TRADE reason as a structured diagnostic event
+        (never user-facing narrative - see `core.structured_logging`'s
+        own module docstring on why). Deliberately does NOT cache the
+        outcome under any TTL (`_process_symbol` returns before reaching
+        either `cache.set()` call) - a transient Decision Engine failure
+        must not leave a stale NO_TRADE result served for the
+        recommendation cache's full 15-minute TTL (CTO Remediation Plan
+        Revision 4 Section 5.2)."""
+        log_event(
+            logger,
+            component="hybrid_engine",
+            module="core.hybrid_engine",
+            operation="no_trade",
+            status=STATUS_SKIPPED,
+            symbol=outcome.symbol,
+            profile=profile,
+            reason=outcome.reason.value,
+        )
 
     def _get_or_check_alert(self, scanned: ScannedSymbol) -> Optional[MarketAlert]:
         symbol = scanned.symbol

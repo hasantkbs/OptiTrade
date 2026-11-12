@@ -27,6 +27,7 @@ from typing import Any, Dict, Optional
 from groq import Groq
 from pydantic import BaseModel, Field, ValidationError
 
+from core.no_trade import SignalSource
 from core.regime_scanner import MarketRegime
 from core.risk_manager import RiskLevels
 
@@ -62,10 +63,14 @@ _SYSTEM_PROMPT = (
     "3. EN SON Risk Yöneticisi (CIO — Chief Investment Officer) şapkanı tak: "
     "yukarıdaki iki uzman görüşünü sentezle ve Risk/Ödül (R:R) oranını "
     "kontrol et. Teknik Trader ile Makro Yatırımcı birbiriyle çelişiyorsa "
-    "VEYA Risk/Ödül oranı elverişsizse (is_valid=false, R:R < 2.0), sinyali "
-    "ACIMASIZCA NEUTRAL'a çek ve confidence_score'u düşür — asla elindeki "
-    "verilerle çelişen bir sinyal verme. Bu sentezi trader_commentary "
-    "alanına yaz.\n\n"
+    "VEYA Risk/Ödül oranı elverişsizse (is_valid=false, R:R < 2.0), bunu "
+    "trader_commentary'de AÇIKÇA belirt (ör. \"teknik ve makro görüş "
+    "çelişiyor, bu nedenle temkinli yaklaşılmalı\"). NOT: Nihai AL/SAT/TUT "
+    "kararını VE güven skorunu SEN VERMİYORSUN — bunlar ayrı, istatistiksel "
+    "bir Karar Motoru tarafından belirleniyor. Senin görevin yalnızca, bu "
+    "motorun kararına eşlik edecek okunabilir bir analiz ve yorum üretmek; "
+    "bir sinyal veya güven skoru alanı DOLDURMUYORSUN. Bu sentezi "
+    "trader_commentary alanına yaz.\n\n"
     "Cevabını MUTLAKA submit_trade_recommendation aracını çağırarak ver.\n\n"
     "trader_analysis, investor_analysis ve trader_commentary alanlarının "
     "ÜÇÜ DE BAŞTAN SONA SADECE Türkçe olmalı — başka hiçbir dilden "
@@ -86,7 +91,23 @@ class TradeSignal(str, Enum):
 
 
 class TradeRecommendation(BaseModel):
-    """AITraderPersona'nın ürettiği yapılandırılmış nihai ticaret önerisi."""
+    """The final, orchestrator-assembled trade recommendation.
+
+    Per CTO Remediation Plan Revision 4 (Finding F8, Section 5/10.6): the
+    LLM (`AITraderPersona`) is structurally incapable of populating
+    `signal`/`confidence_score`/`entry_price`/`stop_loss`/`take_profit_1`/
+    `take_profit_2` — those six fields are absent from
+    `_RECOMMENDATION_SCHEMA` below (the JSON schema actually sent to
+    Groq), and `generate_recommendation()` additionally scrubs them to
+    `None` on the parsed result as a structural backstop, regardless of
+    what a non-compliant provider response might contain. They are
+    `Optional` here ONLY because this same class is reused as the final,
+    canonical-decision-backed response object `core.hybrid_engine`
+    constructs - never because the LLM is allowed to set them. A symbol
+    for which the canonical Decision Engine cannot produce a direction
+    never becomes a `TradeRecommendation` at all; see `core.no_trade.
+    NoTradeOutcome` and `core.hybrid_engine._apply_canonical_decision`.
+    """
 
     symbol: str
     market_regime: str
@@ -105,12 +126,29 @@ class TradeRecommendation(BaseModel):
             "rejimi ve haber duygusu üzerine 2-3 cümlelik Türkçe analiz."
         ),
     )
-    signal: TradeSignal
-    confidence_score: int = Field(..., ge=0, le=100, description="0-100 arası AI güvenilirlik derecesi")
-    entry_price: float
-    stop_loss: float
-    take_profit_1: float
-    take_profit_2: float
+    # Set ONLY by core.hybrid_engine, from decision_engine's output -
+    # never by AITraderPersona/the LLM. See the class docstring above.
+    signal: Optional[TradeSignal] = None
+    confidence_score: Optional[int] = Field(
+        None, ge=0, le=100, description="0-100 arası güven derecesi - Karar Motoru'ndan, LLM'den DEĞİL"
+    )
+    # Set ONLY by core.hybrid_engine, from risk_manager's output.
+    # stop_loss/take_profit_1/take_profit_2 stay None for a SELL/
+    # STRONG_SELL/NEUTRAL signal: DynamicRiskManager only computes
+    # long-side geometry (core/risk_manager.py), so a short/flat
+    # direction gets no risk levels rather than incorrect long-side ones
+    # (Finding 8's risk-geometry issue; Section 10.6).
+    entry_price: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit_1: Optional[float] = None
+    take_profit_2: Optional[float] = None
+    # Always "decision_engine" for every TradeRecommendation actually
+    # returned to a caller - a symbol whose canonical decision was
+    # unavailable/insufficient/zero-votes never becomes a
+    # TradeRecommendation at all (it becomes a NoTradeOutcome and is
+    # dropped - Section 5.5). Kept Optional/None only for a narrative-
+    # only object mid-construction (before the orchestrator attaches it).
+    signal_source: Optional[SignalSource] = None
     trader_commentary: str = Field(
         ...,
         description=(
@@ -126,7 +164,16 @@ class TradeRecommendation(BaseModel):
 # Pydantic'in otomatik model_json_schema()'sı yerine elle yazılmasının nedeni:
 # enum $defs/$ref çözümlemesi bazı sağlayıcılarda tutarsız davranabiliyor —
 # düz bir şema, modelin doğru argümanlarla çağırma ihtimalini artırıyor.
-# Alan sırası bilerek "iki analiz → karar → sentez" akışını izliyor.
+# Alan sırası bilerek "iki analiz → sentez" akışını izliyor.
+#
+# Finding F8 fix (CTO Remediation Plan Revision 4): signal/confidence_score/
+# entry_price/stop_loss/take_profit_1/take_profit_2 are deliberately ABSENT
+# from `properties` and `required` below - the LLM's tool-calling schema
+# must not allow it to produce a final trading decision or trade-execution
+# parameters at all, not merely have them overwritten after the fact.
+# `additionalProperties: False` rejects any provider response that tries
+# to add them anyway (reinforced by generate_recommendation()'s own scrub
+# below, in case a non-compliant provider ignores this).
 _TOOL_NAME = "submit_trade_recommendation"
 _RECOMMENDATION_SCHEMA: Dict[str, Any] = {
     "type": "object",
@@ -148,17 +195,13 @@ _RECOMMENDATION_SCHEMA: Dict[str, Any] = {
                 "rejimi ve haber duygusu üzerine 2-3 cümlelik Türkçe analiz."
             ),
         },
-        "signal": {"type": "string", "enum": [s.value for s in TradeSignal]},
-        "confidence_score": {"type": "integer", "minimum": 0, "maximum": 100},
-        "entry_price": {"type": "number"},
-        "stop_loss": {"type": "number"},
-        "take_profit_1": {"type": "number"},
-        "take_profit_2": {"type": "number"},
         "trader_commentary": {
             "type": "string",
             "description": (
                 "CIO sentezi: trader_analysis ve investor_analysis'i "
-                "birleştiren 3-4 cümlelik Türkçe nihai yorum."
+                "birleştiren 3-4 cümlelik Türkçe nihai yorum. BURADA "
+                "sinyal veya güven skoru BELİRTME - bu alanlar ayrı bir "
+                "Karar Motoru tarafından doldurulur."
             ),
         },
     },
@@ -167,15 +210,24 @@ _RECOMMENDATION_SCHEMA: Dict[str, Any] = {
         "market_regime",
         "trader_analysis",
         "investor_analysis",
-        "signal",
-        "confidence_score",
-        "entry_price",
-        "stop_loss",
-        "take_profit_1",
-        "take_profit_2",
         "trader_commentary",
     ],
     "additionalProperties": False,
+}
+
+# Fields the LLM must never be trusted to have set, even if a
+# non-compliant provider response includes them anyway despite
+# `additionalProperties: False` above - scrubbed unconditionally in
+# generate_recommendation() before the narrative object leaves this
+# module. See the TradeRecommendation docstring and Finding F8.
+_LLM_FORBIDDEN_FIELDS = {
+    "signal": None,
+    "confidence_score": None,
+    "entry_price": None,
+    "stop_loss": None,
+    "take_profit_1": None,
+    "take_profit_2": None,
+    "signal_source": None,
 }
 
 
@@ -229,9 +281,15 @@ class AITraderPersona:
 
         try:
             arguments = json.loads(tool_calls[0].function.arguments)
-            return TradeRecommendation.model_validate(arguments)
+            recommendation = TradeRecommendation.model_validate(arguments)
         except (json.JSONDecodeError, ValidationError) as exc:
             raise RuntimeError(f"{symbol}: Groq çıktısı beklenen şemaya uymuyor: {exc}") from exc
+        # Finding F8 structural fix: even though _RECOMMENDATION_SCHEMA
+        # above never asks the LLM for these fields, a provider is not
+        # guaranteed to honor `additionalProperties: False` - scrub them
+        # unconditionally rather than trusting the schema alone. See
+        # TradeRecommendation's docstring.
+        return recommendation.model_copy(update=_LLM_FORBIDDEN_FIELDS)
 
     @staticmethod
     def _build_prompt(
@@ -251,10 +309,10 @@ class AITraderPersona:
         return (
             "Aşağıdaki verilere dayanarak bu sembol için bir ticaret önerisi üret:\n\n"
             f"{json.dumps(payload, ensure_ascii=False, indent=2, default=str)}\n\n"
-            "entry_price, stop_loss, take_profit_1, take_profit_2 alanlarını "
-            "risk_levels içindeki değerlerle birebir doldur. confidence_score'u "
-            "teknik analizin piyasa rejimiyle uyumuna göre belirle; rejim ile "
-            "teknik sinyaller çelişiyorsa güveni düşür. "
+            "risk_levels alanı sana sadece BAĞLAM olarak veriliyor (R:R "
+            "oranını yorumlaman için) - entry_price/stop_loss/take_profit "
+            "alanlarını SEN doldurmuyorsun, bunlar ayrı bir sistem "
+            "tarafından hesaplanıyor. "
             "technical_analysis.patterns içindeki mum formasyonlarını ve "
             "news_sentiment.news_category / impact_level bilgisini "
             "analizlerinde mutlaka değerlendir."
