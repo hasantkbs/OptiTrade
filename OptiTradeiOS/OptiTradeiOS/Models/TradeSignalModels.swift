@@ -34,6 +34,15 @@ enum TradeSignal: String, Codable, CaseIterable {
 
 /// Backend'deki ``core.ai_trader_persona.TradeRecommendation`` Pydantic modelinin
 /// birebir karşılığı. Alan adları snake_case JSON'dan ``CodingKeys`` ile eşleniyor.
+///
+/// `stopLoss`/`takeProfit1`/`takeProfit2` are `Optional`: the backend's
+/// `DynamicRiskManager` only computes long-side risk geometry, so a
+/// SELL/STRONG_SELL/NEUTRAL recommendation legitimately carries `null`
+/// for all three (CTO Remediation Plan Revision 4, Finding 8's risk-
+/// geometry fix / Task 0.1). Declaring them non-optional previously
+/// made `JSONDecoder` throw on the *entire* `[TradeRecommendation]`
+/// array the moment any one element was anything but BUY/STRONG_BUY -
+/// fixed here without any backend/API contract change (Task 0.1.1).
 struct TradeRecommendation: Decodable, Identifiable, Equatable {
     var id: String { symbol }
 
@@ -42,9 +51,9 @@ struct TradeRecommendation: Decodable, Identifiable, Equatable {
     let signal: TradeSignal
     let confidenceScore: Int
     let entryPrice: Double
-    let stopLoss: Double
-    let takeProfit1: Double
-    let takeProfit2: Double
+    let stopLoss: Double?
+    let takeProfit1: Double?
+    let takeProfit2: Double?
     let traderCommentary: String
 
     enum CodingKeys: String, CodingKey {

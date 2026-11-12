@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		669AC391155813FFC0D427BA /* TradeRecommendationCompatibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6092F474A973FA5FFF3C71A /* TradeRecommendationCompatibilityTests.swift */; };
 		0424AC2F58B29A2F68751450 /* AssetSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2380E3756B6AB501030181A /* AssetSearchView.swift */; };
 		06E63F3E6E40876E829C74C0 /* WatchlistServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5504964A35CF477FFF76AB6 /* WatchlistServiceTests.swift */; };
 		0AA2B7107D76A57171C31A62 /* AssetDetailService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A533763E65FA967A597EB9E4 /* AssetDetailService.swift */; };
@@ -155,6 +156,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A6092F474A973FA5FFF3C71A /* TradeRecommendationCompatibilityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TradeRecommendationCompatibilityTests.swift; sourceTree = "<group>"; };
 		015E76C4B971AB545B9F2807 /* StubAssetSearchService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = StubAssetSearchService.swift; path = StubAssetSearchService.swift; sourceTree = "<group>"; };
 		0259D6C34B6C8E77D79C370B /* StubAlertService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StubAlertService.swift; sourceTree = "<group>"; };
 		030244C4DA5AEEF47CAF0E02 /* AssetDetailModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AssetDetailModels.swift; sourceTree = "<group>"; };
@@ -359,6 +361,15 @@
 			path = AlertFeatureTests;
 			sourceTree = "<group>";
 		};
+		A4020BA6B4FB02B72A182CFD /* AIHubFeatureTests */ = {
+			isa = PBXGroup;
+			children = (
+				A6092F474A973FA5FFF3C71A /* TradeRecommendationCompatibilityTests.swift */,
+			);
+			name = AIHubFeatureTests;
+			path = AIHubFeatureTests;
+			sourceTree = "<group>";
+		};
 		32D769A56E81F572C2D70EC5 /* AppShell */ = {
 			isa = PBXGroup;
 			children = (
@@ -439,6 +450,7 @@
 				C28CA0C4B7391449893EFF91 /* AIAnalystFeatureTests */,
 				1E24226F3A46CD5D9B3C1C0B /* DashboardFeatureTests */,
 				205516FAE22B6D097FC0F903 /* AlertFeatureTests */,
+				A4020BA6B4FB02B72A182CFD /* AIHubFeatureTests */,
 			);
 			name = OptiTradeiOSTests;
 			path = OptiTradeiOSTests;
@@ -929,6 +941,7 @@
 				594DBE6A76C943229E99DE0A /* AlertServiceTests.swift in Sources */,
 				D9F3FFAF54CFC3DAB0E36662 /* AlertViewModelTests.swift in Sources */,
 				12CCCCF3C76F62A31735AB99 /* AlertModelsTests.swift in Sources */,
+				669AC391155813FFC0D427BA /* TradeRecommendationCompatibilityTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

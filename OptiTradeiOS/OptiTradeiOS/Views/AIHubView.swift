@@ -200,22 +200,37 @@ struct TradeRecommendationCard: View {
     }
 
     // Fiyat ve Risk Bandı: ATR bazlı Giriş / Stop-Loss / Take-Profit seviyeleri
+    //
+    // takeProfit2/takeProfit1/stopLoss are Optional (Task 0.1.1): a
+    // SELL/STRONG_SELL/NEUTRAL recommendation legitimately carries
+    // `null` for all three, since DynamicRiskManager only computes
+    // long-side risk geometry. Each row is hidden entirely when its
+    // value is unavailable, rather than showing a misleading 0.0000 or
+    // force-unwrapping - entryPrice is never null in practice (every
+    // returned TradeRecommendation carries a real current price), but
+    // is routed through the same nil-safe formatter for consistency.
 
     private var priceRiskBand: some View {
         VStack(spacing: 10) {
-            priceRow(label: L("Take-Profit 2"), value: recommendation.takeProfit2,
-                     color: .green, icon: "arrow.up.circle.fill", emphasis: true)
-            priceRow(label: L("Take-Profit 1"), value: recommendation.takeProfit1,
-                     color: Color(red: 0.2, green: 0.8, blue: 0.4), icon: "arrow.up.circle")
-            priceRow(label: L("Giriş Fiyatı"), value: recommendation.entryPrice,
+            if let text = Self.formattedPriceText(recommendation.takeProfit2) {
+                priceRow(label: L("Take-Profit 2"), valueText: text,
+                         color: .green, icon: "arrow.up.circle.fill", emphasis: true)
+            }
+            if let text = Self.formattedPriceText(recommendation.takeProfit1) {
+                priceRow(label: L("Take-Profit 1"), valueText: text,
+                         color: Color(red: 0.2, green: 0.8, blue: 0.4), icon: "arrow.up.circle")
+            }
+            priceRow(label: L("Giriş Fiyatı"), valueText: Self.formattedPriceText(recommendation.entryPrice) ?? "—",
                      color: .primary, icon: "scope", emphasis: true)
-            priceRow(label: L("Stop-Loss"), value: recommendation.stopLoss,
-                     color: .red, icon: "arrow.down.circle.fill", emphasis: true)
+            if let text = Self.formattedPriceText(recommendation.stopLoss) {
+                priceRow(label: L("Stop-Loss"), valueText: text,
+                         color: .red, icon: "arrow.down.circle.fill", emphasis: true)
+            }
         }
         .padding(16)
     }
 
-    private func priceRow(label: String, value: Double, color: Color, icon: String, emphasis: Bool = false) -> some View {
+    private func priceRow(label: String, valueText: String, color: Color, icon: String, emphasis: Bool = false) -> some View {
         HStack {
             Image(systemName: icon)
                 .foregroundColor(color)
@@ -224,11 +239,21 @@ struct TradeRecommendationCard: View {
                 .font(emphasis ? .subheadline.weight(.semibold) : .subheadline)
                 .foregroundColor(emphasis ? .primary : .secondary)
             Spacer()
-            Text(formatPrice(value))
+            Text(valueText)
                 .font(emphasis ? .subheadline.weight(.bold) : .subheadline.weight(.medium))
                 .foregroundColor(color)
                 .monospacedDigit()
         }
+    }
+
+    /// Pure, nil-safe formatter: `nil` (risk level unavailable - Task
+    /// 0.1.1) returns `nil` so the caller hides the row entirely; a
+    /// real value is formatted exactly as before. No force-unwrap, no
+    /// misleading zero. `static` and side-effect-free so it is directly
+    /// unit-testable without constructing a view.
+    static func formattedPriceText(_ value: Double?) -> String? {
+        guard let value else { return nil }
+        return value >= 1000 ? String(format: "%.2f", value) : String(format: "%.4f", value)
     }
 
     // AI Yorum Alanı: trader_commentary
@@ -246,10 +271,6 @@ struct TradeRecommendationCard: View {
         }
         .padding(16)
         .background(accentColor.opacity(0.06))
-    }
-
-    private func formatPrice(_ v: Double) -> String {
-        v >= 1000 ? String(format: "%.2f", v) : String(format: "%.4f", v)
     }
 }
 
