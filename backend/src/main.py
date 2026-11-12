@@ -92,6 +92,7 @@ from intelligence.opportunities_cache import OpportunitiesCache
 from intelligence.opportunity_ranking import scan_and_rank
 from model_serving import MLPredictionRequest, MLPredictionResult, ServingHealthReport
 from model_serving.exceptions import InsufficientFeatureDataError, ModelServingError, NoActiveModelError
+from model_serving.legacy_candidate_registry_adapter import register_legacy_candidate
 from portfolio import (
     PortfolioDashboardService,
     PortfolioOptimizationService,
@@ -398,7 +399,17 @@ async def self_evolution_loop() -> None:
     training operation - see research/ml_trainer.py's own
     `_deploy_if_not_regressed` for the (unchanged) promotion gate that
     still protects whatever this loop does produce, whenever it
-    eventually runs."""
+    eventually runs.
+
+    Task 0.2-B: `train_model()` (default arguments) now returns the
+    `CandidateArtifact` it wrote instead of overwriting the live
+    artifact directly (Task 0.2-A) - if present, it's registered into
+    the Model Registry as a CANDIDATE row via
+    `model_serving.legacy_candidate_registry_adapter.register_legacy_candidate`
+    (the one place this process is allowed to reach `ml_training` from).
+    A registration failure is logged and never promotes/retries/crashes
+    the loop - the same "log and continue to the next 24h cycle"
+    behavior this loop already has for every other failure."""
     while True:
         await asyncio.sleep(86400)  # 24 saat bekle - bkz. yukarıdaki docstring
         try:
@@ -412,8 +423,19 @@ async def self_evolution_loop() -> None:
             # Şimdilik basitçe her gün bir kez kontrol edip haftalık tetikleme yapabiliriz
             # Ya da doğrudan her gün eğitimi yenileyebiliriz (veri seti küçükse)
             # Kullanıcının isteği üzerine günlük ve haftalık test/eğitim:
-            await _run_in_executor(train_model)
+            candidate = await _run_in_executor(train_model)
             logger.info("Model güncel verilerle yeniden eğitildi.")
+
+            # 3. Task 0.2-B: candidate'ı Model Registry'ye CANDIDATE olarak
+            # kaydet - promote/activate/deploy ETMEZ, sadece kayda alır.
+            if candidate is not None:
+                try:
+                    await _run_in_executor(
+                        register_legacy_candidate, candidate.candidate_id, candidate.path, candidate.created_at,
+                    )
+                    logger.info(f"Candidate registry'ye kaydedildi: {candidate.candidate_id}")
+                except ModelServingError as reg_exc:
+                    logger.error(f"Candidate kayit hatasi ({candidate.candidate_id}): {reg_exc}")
 
         except Exception as e:
             logger.error(f"Self-evolution döngüsünde hata: {e}")

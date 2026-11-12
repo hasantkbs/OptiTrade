@@ -33,6 +33,34 @@ class InvalidRollbackError(ModelServingError):
     to a model_id that isn't a valid, existing registry entry."""
 
 
+class CandidateArtifactUnreadableError(ModelServingError):
+    """Raised by `legacy_candidate_registry_adapter.register_legacy_candidate`
+    when a candidate artifact is missing, cannot be parsed by joblib, or
+    its candidate_id does not appear in its own filename - checked
+    BEFORE any registry call, so a bad or mismatched reference never
+    reaches the database."""
+
+
+class CandidateRegistrationConflictError(ModelServingError):
+    """Raised when a candidate's deterministic model_id already exists
+    in the registry under a DIFFERENT artifact_path - a genuine naming
+    collision between two different artifacts. Never silently resolved
+    as success; distinct from a true retry of the same candidate (same
+    model_id AND same artifact_path), which IS treated as idempotent."""
+
+
+class CandidateRegistrationError(ModelServingError):
+    """Wraps `ml_training.exceptions.MLTrainingPersistenceError` - raised
+    when the Model Registry itself (Postgres) could not be reached or a
+    write failed for a reason other than the idempotent-duplicate or
+    conflict cases above. Propagated, never swallowed - `model_serving`
+    is the only production package allowed to import `ml_training` (see
+    tests/test_research_isolation.py), so this gives callers like
+    `main.py` a `ModelServingError` subclass to catch without importing
+    `ml_training` itself, matching `InsufficientFeatureDataError`'s own
+    existing wrapping convention below."""
+
+
 class InsufficientFeatureDataError(ModelServingError):
     """Raised when too few of a model's trained features are available
     in the live Feature Store for the requested symbol to trust a

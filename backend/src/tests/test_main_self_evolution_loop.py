@@ -20,6 +20,7 @@ elsewhere (test_main_backward_compatibility.py, test_main_*_endpoints.py).
 """
 import asyncio
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -144,3 +145,94 @@ async def test_self_evolution_loop_does_not_block_the_event_loop(monkeypatch):
         f"event loop was blocked for {max_gap:.3f}s (>= half of the "
         f"{BLOCK_SECONDS}s synchronous call) - validate/train are not running in the executor"
     )
+
+
+# ── Task 0.2-B: candidate registration wiring ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_self_evolution_loop_registers_the_candidate_train_model_returns(monkeypatch):
+    _skip_the_24h_wait_once(monkeypatch)
+    sentinel_candidate = SimpleNamespace(candidate_id="cid-1", path="/tmp/fake.joblib", created_at="2026-01-01")
+    monkeypatch.setattr(main_module, "validate_predictions", lambda: 0)
+    monkeypatch.setattr(main_module, "train_model", lambda: sentinel_candidate)
+    calls = []
+    monkeypatch.setattr(
+        main_module, "register_legacy_candidate",
+        lambda candidate_id, path, created_at: calls.append((candidate_id, path, created_at)),
+    )
+
+    loop_task = asyncio.create_task(main_module.self_evolution_loop())
+    try:
+        await asyncio.wait_for(asyncio.shield(loop_task), timeout=2.0)
+    except asyncio.TimeoutError:
+        pass
+    finally:
+        loop_task.cancel()
+        try:
+            await loop_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    assert calls == [("cid-1", "/tmp/fake.joblib", "2026-01-01")]
+
+
+@pytest.mark.asyncio
+async def test_self_evolution_loop_does_not_register_when_train_model_returns_none(monkeypatch):
+    """The explicit-suffix path isn't what this loop calls, but
+    train_model() returning None (e.g. the no-data-collected early exit)
+    must never reach the registry with a nonexistent candidate."""
+    _skip_the_24h_wait_once(monkeypatch)
+    monkeypatch.setattr(main_module, "validate_predictions", lambda: 0)
+    monkeypatch.setattr(main_module, "train_model", lambda: None)
+    calls = []
+    monkeypatch.setattr(main_module, "register_legacy_candidate", lambda *a, **kw: calls.append(a))
+
+    loop_task = asyncio.create_task(main_module.self_evolution_loop())
+    try:
+        await asyncio.wait_for(asyncio.shield(loop_task), timeout=2.0)
+    except asyncio.TimeoutError:
+        pass
+    finally:
+        loop_task.cancel()
+        try:
+            await loop_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_self_evolution_loop_survives_a_registration_failure(monkeypatch):
+    """A registration failure (Model Registry unreachable, conflict,
+    unreadable artifact, ...) must be logged and must never crash the
+    loop or prevent it from looping back to its next 86400s wait - the
+    same "log and continue" behavior this loop already has for every
+    other failure (validate/train included)."""
+    _skip_the_24h_wait_once(monkeypatch)
+    sentinel_candidate = SimpleNamespace(candidate_id="cid-2", path="/tmp/fake2.joblib", created_at="2026-01-02")
+    monkeypatch.setattr(main_module, "validate_predictions", lambda: 0)
+    monkeypatch.setattr(main_module, "train_model", lambda: sentinel_candidate)
+
+    def _failing_register(candidate_id, path, created_at):
+        raise main_module.ModelServingError("simulated: registry unreachable")
+
+    monkeypatch.setattr(main_module, "register_legacy_candidate", _failing_register)
+
+    loop_task = asyncio.create_task(main_module.self_evolution_loop())
+    try:
+        await asyncio.wait_for(asyncio.shield(loop_task), timeout=2.0)
+    except asyncio.TimeoutError:
+        pass
+
+    # Still running (looped back to its next sleep), not crashed/exited -
+    # proves the registration failure was caught, not left to propagate
+    # out of the loop entirely.
+    assert not loop_task.done()
+
+    loop_task.cancel()
+    try:
+        await loop_task
+    except (asyncio.CancelledError, Exception):
+        pass

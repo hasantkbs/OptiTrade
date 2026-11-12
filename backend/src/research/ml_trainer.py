@@ -26,10 +26,12 @@ dosya olarak üretmek için.
 """
 
 import argparse
+import secrets
 import sys
 import os
 import shutil
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -217,12 +219,118 @@ def _deploy_if_not_regressed(model_path: str, package: dict, joblib_module) -> b
     return True
 
 
-def train(train_end_date: Optional[datetime] = None, output_suffix: str = ""):
+# Task 0.2-A (CTO Remediation Plan Revision 4, Finding A9): the
+# default-output_suffix call `self_evolution_loop` makes must no longer
+# reach _deploy_if_not_regressed against the live-served file at all -
+# see write_candidate_artifact below. An explicit, non-empty
+# output_suffix (the existing manual/research CLI usage - see this
+# module's own docstring) is intentionally left untouched: it already
+# targets a non-live path, so it never conflicted with "never overwrite
+# the live artifact" in the first place.
+_CANDIDATES_DIRNAME = "candidates"
+
+
+class CandidateAlreadyExistsError(Exception):
+    """Raised if a generated candidate_id collides with an already-
+    written candidate artifact - see write_candidate_artifact's own
+    docstring for why this is expected to never actually happen in
+    practice, and why it is still guarded against explicitly rather
+    than silently overwritten."""
+
+
+@dataclass(frozen=True)
+class CandidateArtifact:
+    """What Task 0.2-B's future registry adapter needs to find and
+    identify this candidate - a unique id, the file it lives at, and
+    when it was written. Deliberately NOT a registry interface: no
+    promotion state, no registry call, nothing beyond "a file was
+    safely written and here is how to find it again"."""
+    candidate_id: str
+    path: str
+    created_at: datetime
+
+
+def _generate_candidate_id(created_at: datetime) -> str:
+    """`created_at` (microsecond-precision UTC timestamp, lexically
+    sortable - "deterministic enough to trace") plus an 8-hex-character
+    random suffix ("unique enough to prevent collisions" even if two
+    training runs started in the same microsecond - e.g. two workers
+    both believing they are the self-evolution leader, a known,
+    pre-existing risk this task does not fix; see
+    core.infra_config.acquire_scheduler_leader_lock's own fail-open
+    behavior, Task 0.2-F)."""
+    return f"{created_at.strftime('%Y%m%dT%H%M%S%f')}_{secrets.token_hex(4)}"
+
+
+def _candidate_artifact_path(candidates_dir: str, candidate_id: str) -> str:
+    return os.path.join(candidates_dir, f"xgb_signal_model_candidate_{candidate_id}.joblib")
+
+
+def write_candidate_artifact(package: dict, joblib_module, candidates_dir: Optional[str] = None) -> CandidateArtifact:
+    """Writes `package` as a new, uniquely-identified candidate artifact
+    under `candidates_dir` (default: model_artifacts/candidates/ - a
+    dedicated subdirectory deliberately kept separate from the live-
+    served xgb_signal_model.joblib and its own .bak). Never touches the
+    live artifact: there is no regression check and no "replace the
+    previous one" semantics here, because there is no "previous"
+    candidate this one is meant to replace - each training run gets its
+    own permanent, independent file. Promoting a candidate to live-
+    served is Task 0.2-B/C's job (model registry registration + an
+    explicit, human-gated promotion), not this function's.
+
+    Atomic and collision-safe: writes to a temp file in the SAME
+    directory first (so the finalize step below stays on one
+    filesystem, matching _deploy_if_not_regressed's own existing
+    convention), then finalizes with `os.link()` rather than
+    `os.replace()` - unlike os.replace, os.link raises FileExistsError
+    if the destination already exists instead of silently overwriting
+    it, which is exactly the "never silently replace an existing
+    candidate with the same identifier" guarantee this function must
+    provide. The temp file is removed once a successful link means the
+    data survives under the new candidate path (a second hard link to
+    the same inode until that point). Any failure - including the
+    collision case - removes the temp file and raises, never leaving a
+    partially-written or ambiguous file where a candidate_id is
+    supposed to be."""
+    if candidates_dir is None:
+        candidates_dir = os.path.join("..", "model_artifacts", _CANDIDATES_DIRNAME)
+    os.makedirs(candidates_dir, exist_ok=True)
+
+    created_at = datetime.now(timezone.utc)
+    candidate_id = _generate_candidate_id(created_at)
+    final_path = _candidate_artifact_path(candidates_dir, candidate_id)
+
+    fd, tmp_path = tempfile.mkstemp(dir=candidates_dir, suffix=".joblib.tmp")
+    os.close(fd)
+    try:
+        joblib_module.dump(package, tmp_path)
+        try:
+            os.link(tmp_path, final_path)
+        except FileExistsError as exc:
+            raise CandidateAlreadyExistsError(
+                f"candidate artifact already exists at {final_path!r} - refusing to silently overwrite it"
+            ) from exc
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+    os.remove(tmp_path)
+
+    return CandidateArtifact(candidate_id=candidate_id, path=final_path, created_at=created_at)
+
+
+def train(train_end_date: Optional[datetime] = None, output_suffix: str = "") -> Optional[CandidateArtifact]:
+    """Returns the written `CandidateArtifact` for the default-suffix
+    (production self-evolution) path, so `main.py`'s self_evolution_loop
+    can register it (Task 0.2-B) - `None` for every early-exit case
+    (missing dependency, no data) and for the explicit-suffix (manual/
+    research) path, which deploys via `_deploy_if_not_regressed` instead
+    and has nothing for a caller to register."""
     try:
         from xgboost import XGBClassifier
     except ImportError:
         print("[HATA] XGBoost yüklü değil. Çalıştırın: pip install xgboost scikit-learn joblib")
-        return
+        return None
 
     try:
         from sklearn.model_selection import cross_val_score, StratifiedKFold, train_test_split
@@ -230,7 +338,7 @@ def train(train_end_date: Optional[datetime] = None, output_suffix: str = ""):
         import joblib
     except ImportError:
         print("[HATA] scikit-learn / joblib yüklü değil. Çalıştırın: pip install scikit-learn joblib")
-        return
+        return None
 
     print("=" * 65)
     print("OptiTrade - XGBoost Sinyal Sınıflandırıcı Eğitimi")
@@ -252,7 +360,7 @@ def train(train_end_date: Optional[datetime] = None, output_suffix: str = ""):
 
     if not all_X:
         print("[HATA] Hiç veri toplanamadı!")
-        return
+        return None
 
     X_all = np.vstack(all_X)
     y_all = np.concatenate(all_y)
@@ -304,7 +412,6 @@ def train(train_end_date: Optional[datetime] = None, output_suffix: str = ""):
         print(f"  {name:18s}: {bar} ({imp:.3f})")
 
     os.makedirs("../model_artifacts", exist_ok=True)
-    model_path = os.path.join("..", "model_artifacts", f"xgb_signal_model{output_suffix}.joblib")
     package = {
         "model": model,
         "feature_names": FEATURE_NAMES,
@@ -319,9 +426,30 @@ def train(train_end_date: Optional[datetime] = None, output_suffix: str = ""):
         # accuracy.py treats that as "no recorded cutoff, don't claim out-of-sample".
         "train_end_date": train_end_date.date().isoformat() if train_end_date is not None else None,
     }
-    if _deploy_if_not_regressed(model_path, package, joblib):
-        print(f"\nModel kaydedildi: {model_path}")
-    print("=" * 65)
+    if output_suffix:
+        # Unchanged, pre-existing behavior: an explicit suffix already
+        # targets a non-live research file (e.g. evaluate_model_accuracy.py's
+        # out-of-sample workflow), so it never conflicted with "never
+        # overwrite the live artifact" - see this module's own docstring.
+        model_path = os.path.join("..", "model_artifacts", f"xgb_signal_model{output_suffix}.joblib")
+        if _deploy_if_not_regressed(model_path, package, joblib):
+            print(f"\nModel kaydedildi: {model_path}")
+        print("=" * 65)
+        return None
+    else:
+        # Task 0.2-A: the production self-evolution path (main.py's
+        # self_evolution_loop calls train() with no arguments) must
+        # never write to the live-served file directly anymore - see
+        # write_candidate_artifact's own docstring. Registering this
+        # candidate in ml_training.registry (Task 0.2-B, via main.py -
+        # see model_serving/legacy_candidate_registry_adapter.py) and
+        # promoting it to live (Task 0.2-C) are explicitly out of scope
+        # here - this function only ever writes the file and returns
+        # where it lives.
+        candidate = write_candidate_artifact(package, joblib)
+        print(f"\nCandidate model kaydedildi: {candidate.path} (candidate_id={candidate.candidate_id})")
+        print("=" * 65)
+        return candidate
 
 
 if __name__ == "__main__":
