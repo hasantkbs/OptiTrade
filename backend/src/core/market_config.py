@@ -15,7 +15,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import Dict, List, Optional, Union
+
+from core.instruments import Instrument, InstrumentResolution, Market, ResolutionStatus, resolve_instrument
 
 logger = logging.getLogger(__name__)
 
@@ -403,3 +407,75 @@ def normalize_symbol(symbol: str, market: str) -> str:
     if market == "TR" and not sym.endswith(".IS"):
         return sym + ".IS"
     return sym
+
+
+# Canonical market -> this module's legacy market code. "JP" (in MARKETS)
+# has no canonical market: core.instruments treats it as UNSUPPORTED.
+LEGACY_MARKET_CODES: Dict[Market, str] = {
+    Market.BIST: "TR",
+    Market.US: "US",
+    Market.CRYPTO: "CRYPTO",
+}
+
+
+class MarketProvenance(StrEnum):
+    """Where the market behind a resolve_legacy_symbol() result came from."""
+    EXPLICIT_HINT = "EXPLICIT_HINT"      # the caller passed `market`
+    SYMBOL_DERIVED = "SYMBOL_DERIVED"    # the symbol alone, no market hint
+    LEGACY_INFERRED = "LEGACY_INFERRED"  # get_market_for_symbol(), incl. its US default
+
+
+@dataclass(frozen=True)
+class LegacyResolution:
+    """A core.instruments resolution plus the provenance of its market.
+    `resolution` is returned unchanged; the properties mirror it."""
+
+    resolution: InstrumentResolution
+    provenance: MarketProvenance
+
+    @property
+    def status(self) -> ResolutionStatus:
+        return self.resolution.status
+
+    @property
+    def instrument(self) -> Optional[Instrument]:
+        return self.resolution.instrument
+
+    @property
+    def reason(self) -> str:
+        return self.resolution.reason
+
+    @property
+    def ok(self) -> bool:
+        return self.resolution.ok
+
+
+def resolve_legacy_symbol(symbol: object, market: Union[Market, str, None] = None) -> LegacyResolution:
+    """Canonical Instrument for a symbol as the legacy code classifies it.
+
+    - `market` given (a legacy code "TR" / "US" / "CRYPTO", any case, or a
+      Market): passed to core.instruments as the hint -> EXPLICIT_HINT.
+      It may deliberately differ from the legacy classification, and an
+      empty or unknown market is an INVALID explicit hint, not "none".
+    - No `market`: if the symbol alone resolves to the market legacy
+      also assigns it (".IS", "BASE-USD", known indices), that result is
+      kept -> SYMBOL_DERIVED. A malformed symbol is INVALID from the
+      symbol alone -> SYMBOL_DERIVED. Otherwise the symbol is resolved
+      under get_market_for_symbol() -> LEGACY_INFERRED; this is where the
+      legacy bare-ticker -> US default lives, never in the resolver.
+      Without `market`, a resolved instrument always agrees with the
+      legacy classification.
+
+    The resolver's status and instrument are never altered: UNRESOLVED
+    and UNSUPPORTED stay failures ("BTC-USDT" is legacy US, not a valid
+    US ticker, and is never re-read as crypto). Never raises."""
+    if market is not None:
+        return LegacyResolution(resolve_instrument(symbol, market=market), MarketProvenance.EXPLICIT_HINT)
+
+    direct = resolve_instrument(symbol)
+    if direct.status == ResolutionStatus.INVALID:
+        return LegacyResolution(direct, MarketProvenance.SYMBOL_DERIVED)
+    legacy_market = get_market_for_symbol(symbol)
+    if direct.ok and LEGACY_MARKET_CODES[direct.instrument.market] == legacy_market:
+        return LegacyResolution(direct, MarketProvenance.SYMBOL_DERIVED)
+    return LegacyResolution(resolve_instrument(symbol, market=legacy_market), MarketProvenance.LEGACY_INFERRED)
