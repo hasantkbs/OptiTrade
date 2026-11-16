@@ -204,7 +204,8 @@ def compute_recommendation(
     Model yoksa ağırlıklar yeniden normalize edilir.
     """
     score_norm = score / 100.0
-    ml_norm    = ml_confidence if ml_confidence is not None else score_norm
+    ml_available = ml_confidence is not None
+    ml_norm    = ml_confidence if ml_available else score_norm
 
     # Monte Carlo normalize
     mc_norm = 0.5
@@ -227,15 +228,25 @@ def compute_recommendation(
         else:
             ai_norm = 0.5
 
-    # Ağırlıklı bileşik skor
+    # Ağırlıklı bileşik skor - XGBoost modeli kullanılamıyorsa (ml_available
+    # False) onun ağırlığı kural tabanlı skora yeniden dağıtılır. Bileşik
+    # skorun sayısal değeri bu değişiklikle AYNI kalır (ml_norm=score_norm
+    # ikamesiyle matematiksel olarak eşdeğer, bkz. test dosyasının kendi
+    # doğrulaması) - değişen tek şey, score_weights'in artık bunu dürüstçe
+    # "%0" olarak raporlaması; önceden model hiç mevcut olmasa bile her
+    # zaman "%25"/"%30" iddia ediyordu (CTO Remediation Plan Section 6.5).
     if ai_norm is not None:
-        composite = (0.40 * score_norm +
-                     0.25 * ml_norm   +
+        rule_weight = 0.40 if ml_available else 0.65
+        ml_weight   = 0.25 if ml_available else 0.0
+        composite = (rule_weight * score_norm +
+                     ml_weight   * ml_norm   +
                      0.20 * mc_norm   +
                      0.15 * ai_norm)
     else:
-        composite = (0.50 * score_norm +
-                     0.30 * ml_norm   +
+        rule_weight = 0.50 if ml_available else 0.80
+        ml_weight   = 0.30 if ml_available else 0.0
+        composite = (rule_weight * score_norm +
+                     ml_weight   * ml_norm   +
                      0.20 * mc_norm)
 
     # Risk cezası
@@ -281,8 +292,8 @@ def compute_recommendation(
         "suggested_position_pct": round(kelly * 100, 1),
         "reasons":                reasons,
         "score_weights": {
-            "rule_based":   "40%" if ai_norm is not None else "50%",
-            "xgboost_ml":   "25%" if ai_norm is not None else "30%",
+            "rule_based":   f"{rule_weight * 100:.0f}%",
+            "xgboost_ml":   f"{ml_weight * 100:.0f}%" if ml_available else "0% (kullanılamıyor)",
             "monte_carlo":  "20%",
             "chart_ai":     "15%" if ai_norm is not None else "—",
         },
@@ -316,6 +327,8 @@ def _build_reasons(
             reasons.append(f"XGBoost modeli dusus ihtimali %{100 - pct}")
         else:
             reasons.append(f"XGBoost modeli notr (%{pct} yukselis olasiligi)")
+    else:
+        reasons.append("XGBoost modeli kullanilamiyor - agirlik teknik puana yeniden dagitildi")
 
     # Chart AI (CNN/LSTM)
     if chart_ai and chart_ai.get("signal"):

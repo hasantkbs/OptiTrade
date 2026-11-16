@@ -266,7 +266,19 @@ class MLTrainingService:
                 trainer.fit(X_train, y_train, X_val, y_val)
                 trainer.save(artifact_path)
 
-            metrics = self.evaluation.evaluate(trainer, X_test, y_test, actual_returns=returns_test)
+            # CTO Remediation Plan Finding 1: evaluate trading performance
+            # only on the returns the model actually "acted on" (_select_mask,
+            # pre-existing but previously only fed an advisory benchmark
+            # comparison below), not on every test sample's realized return
+            # regardless of prediction - the latter credits a model with raw
+            # market drift it never traded on, and `_resolve_hypothesis_outcome`
+            # below (and the ModelMetrics persisted on the registry row) must
+            # never ACCEPT a model on that basis alone.
+            predictions_test = trainer.predict(X_test)
+            selected_mask = _select_mask(label_name, predictions_test)
+            selected_returns = [value for value, selected in zip(returns_test, selected_mask) if selected]
+
+            metrics = self.evaluation.evaluate(trainer, X_test, y_test, actual_returns=selected_returns)
 
             # A held-out validation split that ends up with only one
             # observed class, or a class with just a single member
@@ -298,9 +310,6 @@ class MLTrainingService:
                 )
             )
 
-            predictions_test = trainer.predict(X_test)
-            selected_mask = _select_mask(label_name, predictions_test)
-            selected_returns = [value for value, selected in zip(returns_test, selected_mask) if selected]
             self.benchmarking.compare_models(
                 f"{model_id}:selected", selected_returns, f"{model_id}:baseline", returns_test,
                 RollingWindow.LIFETIME, experiment_id=experiment.id,
